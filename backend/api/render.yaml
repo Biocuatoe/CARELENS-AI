@@ -1,0 +1,18 @@
+# Render Blueprint for IStartup API
+services:
+  - type: web
+    name: istartup-api
+    env: python
+    region: singapore
+    plan: free
+    buildCommand: |
+      pip install uv && uv sync && alembic upgrade head
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: ENVIRONMENT
+        value: production
+      # Add from group key:
+      - fromGroup: istartup-api-env

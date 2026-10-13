@@ -1,0 +1,5 @@
+# Frontend Application
+
+The frontend SPA (landing + app S01-S14) will be placed here when available.
+
+Currently, frontend code is expected at `frontend/` following the workspace structure defined in ADR-012.

@@ -1,0 +1,150 @@
+/*
+ * Nguồn token duy nhất cho landing và app (ADR-001, ADR-004).
+ * Giá trị chép nguyên văn từ khối <design-system> trong docs/CARELENS_ECOPATCH_*_PROMPT.md.
+ * Không thêm hex hoặc shadow tùy ý ở src/features.
+ */
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #e0e5ec;
+  --color-fg: #3d4852;
+  --color-muted: #6b7280;
+  --color-placeholder: #a0aec0;
+  --color-accent: #6c63ff;
+  --color-accent-light: #8b84ff;
+  /* Giữ sắc tím thương hiệu, nhưng đủ tối để chữ trắng trên CTA đạt AA. */
+  --color-accent-strong: #5148d7;
+  --color-accent-secondary: #38b2ac;
+
+  /*
+   * Bảng màu của landing CareLens AI (A19). App vẫn dùng token Neumorphism ở trên.
+   * Teal chỉ dành cho tương tác và nhấn có nghĩa. Signal teal và mint không dùng làm chữ trên nền sáng (không đủ tương phản).
+   */
+  --color-midnight: #14232d;
+  --color-graphite: #233642;
+  --color-teal-deep: #245f5a;
+  --color-signal: #55b9a8;
+  --color-mint: #b0e4d8;
+  --color-ivory: #f2f0e9;
+  --color-paper: #fafbf8;
+  --color-ink: #26363e;
+
+  --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+
+  --radius-container: 32px;
+  --radius-control: 16px;
+  --radius-inner: 12px;
+
+  --shadow-extruded: 9px 9px 16px rgb(163, 177, 198, 0.6), -9px -9px 16px rgba(255, 255, 255, 0.5);
+  --shadow-extruded-hover:
+    12px 12px 20px rgb(163, 177, 198, 0.7), -12px -12px 20px rgba(255, 255, 255, 0.6);
+  --shadow-extruded-sm: 5px 5px 10px rgb(163, 177, 198, 0.6), -5px -5px 10px rgba(255, 255, 255, 0.5);
+  --shadow-inset:
+    inset 6px 6px 10px rgb(163, 177, 198, 0.6), inset -6px -6px 10px rgba(255, 255, 255, 0.5);
+  --shadow-inset-deep:
+    inset 10px 10px 20px rgb(163, 177, 198, 0.7), inset -10px -10px 20px rgba(255, 255, 255, 0.6);
+  --shadow-inset-sm:
+    inset 3px 3px 6px rgb(163, 177, 198, 0.6), inset -3px -3px 6px rgba(255, 255, 255, 0.5);
+  /* Source chỉ ghi "specific rgba inset shadows" cho primary pressed, không có giá trị. Diễn giải: A03. */
+  --shadow-accent-pressed:
+    inset 4px 4px 8px rgba(43, 38, 145, 0.45), inset -4px -4px 8px rgba(108, 99, 255, 0.45);
+
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  /* Chiều cao header landing: vùng cố định của cảnh 3D trừ đi chiều cao này. */
+  --landing-header-h: 4rem;
+
+  --shadow-stage-card: 0 28px 60px -28px rgb(5, 12, 17, 0.75), 0 2px 0 rgba(242, 240, 233, 0.04) inset;
+  --shadow-soft-paper: 0 24px 50px -32px rgb(20, 35, 45, 0.35);
+
+  --animate-float: float 3s ease-in-out infinite;
+  --animate-cue: cue 2.2s ease-in-out infinite;
+  --animate-sway: sway 8s ease-in-out infinite;
+
+  @keyframes cue {
+    0% {
+      transform: translateY(-100%);
+    }
+    100% {
+      transform: translateY(260%);
+    }
+  }
+
+  /* Nhấp nhô rất nhẹ (4 px, chu kỳ 8 s) cho thẻ đội ngũ; độ trễ riêng từng thẻ đặt ở nơi dùng. Giảm chuyển động tắt qua quy tắc toàn cục bên dưới. */
+  @keyframes sway {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-4px);
+    }
+  }
+
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+}
+
+@layer base {
+  html {
+    background-color: var(--color-surface);
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.025em;
+  }
+
+  ::placeholder {
+    color: var(--color-placeholder);
+    opacity: 1;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* Landing: vòng focus theo nền, đủ tương phản trên cả nền tối và nền sáng. */
+  [data-tone="dark"] :focus-visible,
+  [data-tone="dark"]:focus-visible {
+    outline-color: var(--color-signal);
+  }
+  [data-tone="light"] :focus-visible,
+  [data-tone="light"]:focus-visible {
+    outline-color: var(--color-teal-deep);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

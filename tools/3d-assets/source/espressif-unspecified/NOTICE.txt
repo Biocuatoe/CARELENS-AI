@@ -1,0 +1,7 @@
+ESP32-S3-WROOM-1_3D_Model.STEP was downloaded from
+https://www.espressif.com/sites/default/files/3dmodel/ESP32-S3-WROOM-1%203D%20Model.STEP
+on 2026-10-13. The download page states no licence or redistribution terms.
+
+Use: dimension cross-check only (bounding box 18 x 25.5 x 3.1 mm matched the KiCad model).
+Do NOT convert it into frontend/public, publish it, or include it in any public repository or export
+until Espressif's terms are confirmed. Delete this file if that cannot be confirmed.

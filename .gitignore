@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.venv/
+
+# Build and caches
+dist/
+build/
+.vite/
+coverage/
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+
+# Test output
+playwright-report/
+test-results/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+secrets/
+service-account*.json
+
+# Generated demo exports and local data
+exports/
+*.log
+logs/
+firebase-service-account.json
+.eslintcache
+*.tmp
+.cache/
+.firebase/
+
+# Claude Code personal settings
+.claude/settings.local.json
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+~$*.docx
