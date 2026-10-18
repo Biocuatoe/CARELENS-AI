@@ -1,0 +1,12 @@
+{
+  "name": "carelens-kena-pitch-composition",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "30-second CareLens AI pitch video composition (Kena CI). Renders deterministically frame by frame; imports the real landing 3D code from ../../frontend/src.",
+  "dependencies": {
+    "@fontsource/dm-sans": "5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/plus-jakarta-sans": "5.2.8"
+  }
+}
