@@ -40,26 +40,43 @@ const browser = await chromium.launch({
   executablePath: chrome,
   args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--disable-gpu-vsync", "--font-render-hinting=none"],
 });
-const queue = frames.slice();
+// Resume support: frames that already exist on disk are skipped (delete a file to re-render that frame).
+const ext = fmt === "jpeg" ? "jpg" : "png";
+const queue = frames.filter((f) => !fs.existsSync(path.join(out, `${f.name}.${ext}`)) || arg("force"));
 const t0 = Date.now();
 let done = 0;
-async function worker(id) {
-  const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
+async function openPage(ctx, id) {
   const page = await ctx.newPage();
-  page.on("console", (m) => { if (m.type() === "error") console.log(`[w${id}]`, m.text()); });
+  page.on("console", (m) => { if (m.type() === "error" && !m.text().includes("404")) console.log(`[w${id}]`, m.text()); });
   page.on("pageerror", (e) => console.log(`[w${id}] pageerror`, e.message));
   await page.goto(`${addr}?pr=${pr}`);
-  await page.waitForFunction(() => window.__brag?.ready || window.__bragError, null, { timeout: 180000 });
+  await page.waitForFunction(() => window.__brag?.ready || window.__bragError, null, { timeout: 240000 });
   const err = await page.evaluate(() => window.__bragError);
   if (err) throw new Error(err);
+  return page;
+}
+async function worker(id) {
+  const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
+  let page = await openPage(ctx, id);
   while (queue.length) {
     const f = queue.shift();
-    await page.evaluate((t) => window.__brag.setTime(t), f.t);
-    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-    const file = path.join(out, `${f.name}.${fmt === "jpeg" ? "jpg" : "png"}`);
-    await page.screenshot(fmt === "jpeg" ? { path: file, type: "jpeg", quality: 93 } : { path: file, type: "png" });
+    const file = path.join(out, `${f.name}.${ext}`);
+    let ok = false;
+    for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+      try {
+        await page.evaluate((t) => window.__brag.setTime(t), f.t);
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+        await page.screenshot(fmt === "jpeg" ? { path: file, type: "jpeg", quality: 93, timeout: 120000 } : { path: file, type: "png", timeout: 120000 });
+        ok = true;
+      } catch (e) {
+        console.log(`[w${id}] retry ${f.name} (${attempt + 1}): ${String(e.message).split("\n")[0]}`);
+        try { await page.close(); } catch {}
+        page = await openPage(ctx, id);
+      }
+    }
+    if (!ok) throw new Error(`frame ${f.name} failed`);
     done++;
-    if (done % 20 === 0 || frames.length < 20) console.log(`${done}/${frames.length} ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+    if (done % 20 === 0 || frames.length < 20) console.log(`${done}/${queue.length + done} ${((Date.now() - t0) / 1000).toFixed(0)}s`);
   }
   await ctx.close();
 }
