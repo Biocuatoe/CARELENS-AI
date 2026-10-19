@@ -117,7 +117,7 @@ export function Greeting({ t }: { t: number }) {
       <div className="absolute inset-x-0 flex flex-col items-center gap-3" style={{ bottom: 66, color: "#5b2c3f", ...fx(t, 28.2, 99, { fi: 0.7, rise: 12 }) }}>
         <Wordmark className="text-[40px] [&_svg]:size-11" />
         <p className="font-mono text-[18px] tracking-[0.26em] uppercase" style={{ color: "#8a5568" }}>
-          Kena CI
+          DAYONE
         </p>
       </div>
       <span className="hidden">{sm5(t, 0, 1)}</span>

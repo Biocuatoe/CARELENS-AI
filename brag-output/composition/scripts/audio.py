@@ -390,11 +390,10 @@ def sfx():
     place(bell(74, 1.8), 15.2, 0.28, send=0.5)
     # 15.5: into the 3D scene
     place(whoosh(0.5, 400, 2500, 0.6, seed=17), 15.2, 0.16)
-    # camera observing (16.5) and data packet (17.2-18.0) glints; note card pop at 17.8, rule at 18.45
+    # camera observing (16.5) and data packet (17.2-18.0) glints; note card pop at 17.8
     place(blip(1568, 0.12, 0.8), 16.55, 0.12, send=0.3)
     place(whoosh(0.9, 700, 4000, 0.6, seed=19), 17.1, 0.16, pan=0.2)
     place(blip(1976, 0.12, 0.8), 17.8, 0.14, send=0.3)
-    place(thunk(0.8, 90, 0.3), 18.45, 0.2)
 
     # 19.5: privacy. data -> text 'digital shimmer' collapsing into a clean tone, then three line blips
     place(noise_band(0.9, lambda t: 5200 - 3800 * (t / 0.9), lambda t: 0.7, gain=lambda t: np.sin(np.pi * np.clip(t / 0.9, 0, 1)), seed=23), 20.35, 0.14, pan=0.3)

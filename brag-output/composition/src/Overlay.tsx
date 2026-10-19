@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { FallSceneFrame, MedSceneFrame } from "@fe/lib/careScene";
 import { Wordmark } from "@fe/features/landing/Brand";
-import { HERO, TAGLINE } from "@fe/features/landing/content";
+import { TAGLINE } from "@fe/features/landing/content";
 import { BEATS, STAGES } from "@fe/lib/hardware3d";
 import type { Screen } from "./hardware";
 import { SCENES, clamp01, easeOut, lerp, sm, sm5, track, win } from "./timing";
@@ -71,16 +71,13 @@ function Opening({ t, lens }: { t: number; lens: Screen }) {
     <div className="absolute inset-0" style={{ opacity: hold }}>
       <div className="absolute" style={{ left: 120, top: 280, width: 760 }}>
         <p className="font-mono text-[22px] font-medium tracking-[0.26em] text-ivory/85 uppercase" style={fx(t, 0.45, 99, { fi: 0.6, rise: 10 })}>
-          Kena CI presents · CareLens AI
+          DAYONE presents · CareLens AI
         </p>
         <h1 className="mt-9 font-display text-[92px] leading-[1.04] font-extrabold tracking-[0.04em] text-ivory">
           {line(TAGLINE[0], 0.85)}
           {line(TAGLINE[1], 1.4)}
           <span className="block text-signal">{line(TAGLINE[2], 1.95)}</span>
         </h1>
-        <p className="mt-10 max-w-[620px] text-[20px] leading-snug text-ivory/60" style={fx(t, 2.4, 99, { fi: 0.5, rise: 8 })}>
-          {HERO.taglineNote}
-        </p>
       </div>
       {/* lens light: a soft bloom that gathers around the camera window while the highlight settles */}
       <LensBloom x={lens.x} y={lens.y} t={t} />
@@ -160,11 +157,6 @@ function HardwareStory({ d }: { d: FrameData }) {
         )}
       </div>
 
-      {/* honest footnote */}
-      <p className="absolute font-mono text-[18px] tracking-[0.06em] text-ivory/70" style={{ left: 110, bottom: 62, ...fx(t, 3.6, 8.45, { fi: 0.5, fo: 0.25, rise: 6 }) }}>
-        Kích thước, kiểu mô-đun và vị trí một số linh kiện là ước lượng, chưa xác minh.
-      </p>
-
       {/* close-up cards */}
       <BeatCard beat={0} style={fx(t, 6.95, 7.95, { fi: 0.35, fo: 0.15, rise: 24 })} on={closeA} />
       <BeatCard beat={4} style={fx(t, 7.9, 8.55, { fi: 0.3, fo: 0.15, rise: 24 })} on={closeB} />
@@ -182,7 +174,6 @@ function BeatCard({ beat, style, on }: { beat: number; style: CSSProperties; on:
       <p className="font-mono text-[18px] tracking-[0.16em] text-signal uppercase">Thành phần</p>
       <h3 className="mt-3 font-display text-[44px] leading-tight font-extrabold text-ivory">{b.title}</h3>
       <p className="mt-4 text-[26px] leading-snug text-ivory/90">{first}</p>
-      <p className="mt-5 border-t border-ivory/15 pt-4 font-mono text-[18px] leading-snug text-ivory/70">{b.note}</p>
     </div>
   );
 }

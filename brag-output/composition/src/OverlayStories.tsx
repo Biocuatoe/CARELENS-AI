@@ -9,6 +9,31 @@ import type { FrameData } from "./Overlay";
 import { fx } from "./Overlay";
 import { clamp01, lerp, sm, track, win } from "./timing";
 
+
+/**
+ * Upper-left scenario caption shared by scenarios 1 and 2 (same position, size, weight and spacing). One instance per scenario for the whole
+ * scenario, so it fades once in and once out and never moves, blurs or re-renders between sub-scenes. Plus Jakarta Sans carries the Vietnamese
+ * diacritics; no letter-spacing, no uppercase, so stacked accents stay legible. The "Ví dụ" badge follows the title on the same baseline row.
+ */
+function ScenarioCaption({ t, a, b, title }: { t: number; a: number; b: number; title: string }) {
+  const k = win(t, a, b, 0.35, 0.3);
+  if (k <= 0.002) return null;
+  const [num, topic] = title.split(" · ");
+  return (
+    <div className="absolute flex items-center gap-5" style={{ left: 110, top: 62, height: 56, opacity: k, whiteSpace: "nowrap" }}>
+      <p className="font-display text-[34px] leading-none font-bold text-ivory">
+        {num}
+        <span className="text-ivory/60"> · </span>
+        <span className="text-mint">{topic}</span>
+      </p>
+      <span className="inline-flex h-[44px] items-center gap-2.5 rounded-full border-2 border-signal bg-signal/15 px-5 font-display text-[24px] leading-none font-bold text-mint">
+        <span aria-hidden className="size-3 rounded-full border-2 border-current bg-[linear-gradient(90deg,currentColor_50%,transparent_50%)]" />
+        Ví dụ
+      </span>
+    </div>
+  );
+}
+
 /* ================================================================== Scene 3 · Fall (tình huống 01) */
 const PIPE = ["Thiết bị đeo", "Hub trong nhà", "Máy chủ đám mây CareLens AI", "Ứng dụng"] as const;
 
@@ -35,12 +60,7 @@ export function FallOverlay({ d }: { d: FrameData }) {
     <div className="absolute inset-0" style={{ opacity: root }}>
       <div className="absolute inset-0" style={{ opacity: vignette, background: "radial-gradient(60% 55% at 50% 50%, transparent 35%, #14232d 100%)" }} />
 
-      <div className="absolute flex flex-col items-start gap-3" style={{ left: 110, top: 64, ...fx(t, 8.55, 14, { rise: 12 }) }}>
-        <p className="font-mono text-[22px] font-medium tracking-[0.18em] text-signal uppercase">{FALL.eyebrow}</p>
-        <div style={{ zoom: 1.5 }}>
-          <CapabilityTag kind="simulated" tone="dark" />
-        </div>
-      </div>
+      <ScenarioCaption t={t} a={8.5} b={14.0} title={FALL.eyebrow} />
 
       {/* call-outs: the wearable camera and the motion sensor (names from the hardware BEATS) */}
       <div className="absolute inset-0" style={{ opacity: call }}>
@@ -168,9 +188,8 @@ export function MedicationOverlay({ d }: { d: FrameData }) {
     <div className="absolute inset-0">
       {/* Part A: scheduled reminder on the example day */}
       <div className="absolute inset-0" style={{ opacity: A, background: "radial-gradient(70% 70% at 50% 40%, #1a2d38 0%, #14232d 75%)" }}>
-        <div className="absolute" style={{ left: 110, top: 90, width: 1750, ...fx(t, 14.0, 15.75, { fi: 0.4, fo: 0.3, rise: 18 }) }}>
-          <p className="font-mono text-[22px] font-medium tracking-[0.18em] text-signal uppercase">{MEDICATION.eyebrow}</p>
-          <h2 className="mt-4 font-display text-[72px] leading-[1.06] font-extrabold tracking-tight text-ivory">{MEDICATION.heading}</h2>
+        <div className="absolute" style={{ left: 110, top: 150, width: 1750, ...fx(t, 14.0, 15.75, { fi: 0.4, fo: 0.3, rise: 18 }) }}>
+          <h2 className="font-display text-[72px] leading-[1.06] font-extrabold tracking-tight text-ivory">{MEDICATION.heading}</h2>
         </div>
 
         <div className="absolute" style={{ left: 110, top: 440, width: 1700, ...fx(t, 14.2, 15.75, { fi: 0.45, fo: 0.3, rise: 36 }) }}>
@@ -178,7 +197,6 @@ export function MedicationOverlay({ d }: { d: FrameData }) {
             <div className="rounded-3xl border border-ink/12 bg-ivory p-5 text-ink md:p-8">
               <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
                 <p className="font-display text-lg font-bold">{MEDICATION.demoLabel.split(":")[0]}</p>
-                <CapabilityTag kind="simulated" tone="light" />
               </div>
               <div className="relative mx-1 h-20">
                 <div className="absolute inset-x-0 top-9 h-px bg-ink/30" />
@@ -231,6 +249,7 @@ export function MedicationOverlay({ d }: { d: FrameData }) {
       </div>
 
       <MedicationScenePart d={d} />
+      <ScenarioCaption t={t} a={14.0} b={19.5} title={MEDICATION.eyebrow} />
     </div>
   );
 }
@@ -256,17 +275,10 @@ function MedicationScenePart({ d }: { d: FrameData }) {
       </p>
     );
   };
-  // observation note (the interface) + the product rule
+  // observation note (the interface)
   const note = win(t, 17.75, 19.55, 0.5, 0.25);
-  const rule = win(t, 18.45, 19.55, 0.45, 0.25);
   return (
     <div className="absolute inset-0" style={{ opacity: on }}>
-      <div className="absolute flex flex-col items-start gap-3" style={{ left: 110, top: 64, ...fx(t, 15.55, 19.5, { rise: 10 }) }}>
-        <p className="font-mono text-[22px] font-medium tracking-[0.18em] text-signal uppercase">{MEDICATION.eyebrow}</p>
-        <div style={{ zoom: 1.5 }}>
-          <CapabilityTag kind="simulated" tone="dark" />
-        </div>
-      </div>
       {lab("device", MEDICATION.scene.deviceLabel)}
       {lab("hub", MEDICATION.scene.hubLabel)}
 
@@ -301,9 +313,6 @@ function MedicationScenePart({ d }: { d: FrameData }) {
         </div>
       </div>
 
-      <div className="absolute" style={{ left: 110, right: 110, bottom: 160, display: "flex", justifyContent: "center", opacity: rule, transform: `translateY(${(1 - rule) * 20}px)` }}>
-        <p className="rounded-2xl border-l-4 border-signal bg-midnight/92 px-9 py-5 font-display text-[44px] leading-tight font-extrabold text-ivory">{MEDICATION.rule}</p>
-      </div>
     </div>
   );
 }
