@@ -31,6 +31,8 @@ export interface BackendOptions {
   ticket?: 201 | 401;
   /** Whether the server reports Google sign-in as configured. Default: false. */
   googleEnabled?: boolean;
+  /** `password_sign_in` in the Google config answer; undefined = omitted, as older servers do (form shown). */
+  passwordSignIn?: boolean;
   /** Body of one state_update frame served on the event stream; null = the stream carries nothing. */
   stream?: unknown;
 }
@@ -44,7 +46,7 @@ const json = (route: Route, status: number, body?: unknown) =>
  */
 export async function mockBackend(page: Page, options: BackendOptions = {}): Promise<BackendMock> {
   const mock: BackendMock = { requests: [], authorization: [], streamUrls: [], loginBodies: [], exchangeCodes: [] };
-  const { role = "viewer", login = "ok", ticket = 201, stream = null, googleEnabled = false } = options;
+  const { role = "viewer", login = "ok", ticket = 201, stream = null, googleEnabled = false, passwordSignIn } = options;
 
   await page.route(`${BACKEND}/**`, async (route) => {
     const request = route.request();
@@ -71,7 +73,9 @@ export async function mockBackend(page: Page, options: BackendOptions = {}): Pro
       });
     }
     if (path === "/health") return json(route, 200, { status: "ok" });
-    if (path === "/api/app/v1/auth/google/config") return json(route, 200, { enabled: googleEnabled });
+    if (path === "/api/app/v1/auth/google/config") {
+      return json(route, 200, { enabled: googleEnabled, ...(passwordSignIn === undefined ? {} : { password_sign_in: passwordSignIn }) });
+    }
     if (path === "/api/app/v1/auth/google/start") return route.fulfill({ status: 200, headers: { "content-type": "text/html" }, body: "<!doctype html><title>google-start</title><p>start</p>" });
     if (path === "/api/app/v1/session/exchange" && request.method() === "POST") {
       const body = request.postDataJSON() as { code?: string };

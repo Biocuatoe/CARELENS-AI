@@ -196,9 +196,12 @@ describe("server sign-in", () => {
 
   it("Google sign-in: asks the server whether it is configured, and trades the single-use code for a session like a password sign-in", async () => {
     routes["GET /api/app/v1/auth/google/config"] = () => ({ status: 200, body: { enabled: false } });
-    await expect(adapter().getGoogleSignIn()).resolves.toEqual({ enabled: false, startUrl: `${API}/api/app/v1/auth/google/start` });
+    await expect(adapter().getGoogleSignIn()).resolves.toEqual({ enabled: false, startUrl: `${API}/api/app/v1/auth/google/start`, passwordSignIn: true });
     routes["GET /api/app/v1/auth/google/config"] = () => ({ status: 200, body: { enabled: true } });
-    await expect(adapter().getGoogleSignIn()).resolves.toMatchObject({ enabled: true });
+    await expect(adapter().getGoogleSignIn()).resolves.toMatchObject({ enabled: true, passwordSignIn: true });
+    // A Google-only server says so explicitly; only then is the password form hidden.
+    routes["GET /api/app/v1/auth/google/config"] = () => ({ status: 200, body: { enabled: true, access: "open_viewer", password_sign_in: false } });
+    await expect(adapter().getGoogleSignIn()).resolves.toMatchObject({ enabled: true, passwordSignIn: false });
     routes["GET /api/app/v1/auth/google/config"] = () => ({ status: 500 });
     await expect(adapter().getGoogleSignIn()).rejects.toMatchObject({ code: "auth_unavailable" });
 

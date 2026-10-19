@@ -41,6 +41,8 @@ async function spendLoginBudget(ctx: Ctx): Promise<void> {
 }
 
 export async function login(ctx: Ctx): Promise<Response> {
+  // Checked before any credential lookup: with PASSWORD_SIGN_IN=disabled no password is ever compared.
+  if (!ctx.config.passwordSignIn) throw new HttpError(403, "password_sign_in_disabled", "Password sign-in is disabled", "This server accepts Google sign-in only.");
   await spendLoginBudget(ctx);
   const body = await readJson(ctx.request, LoginRequestV1, 4 * 1024);
   const row = await ctx.env.DB.prepare(`SELECT user_id, display_name, status, login_secret_sha256 FROM caregivers WHERE login_email = ?1`)

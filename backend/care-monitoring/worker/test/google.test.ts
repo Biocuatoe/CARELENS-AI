@@ -109,9 +109,9 @@ async function startFlow(env: Record<string, string> = GOOGLE_ENV): Promise<{ st
   return { state: auth.searchParams.get("state")!, cookie, response: res };
 }
 
-async function callback(state: string, cookie: string | null, code = "good-code", extra = ""): Promise<{ status: number; fragment: URLSearchParams; location: string }> {
+async function callback(state: string, cookie: string | null, code = "good-code", extra = "", env: Record<string, string> = GOOGLE_ENV): Promise<{ status: number; fragment: URLSearchParams; location: string }> {
   const res = await h.call("GET", `/api/app/v1/auth/google/callback?code=${code}&state=${encodeURIComponent(state)}${extra}`, {
-    envOverrides: GOOGLE_ENV,
+    envOverrides: env,
     headers: cookie ? { cookie: `cl_oauth=${cookie}` } : {},
   });
   const location = res.headers.get("location") ?? "";
@@ -357,5 +357,201 @@ describe("Google sign-in", () => {
     await callback(f.state, f.cookie);
     const audit = await h.env.DB.prepare(`SELECT group_concat(coalesce(detail_json, ''), ' ') AS all_detail FROM audit_log`).first<{ all_detail: string }>();
     expect(audit?.all_detail ?? "").not.toMatch(/good-code|eyJ|test-only-client-secret/);
+  });
+});
+
+const OPEN_RECIPIENT = "rcp-open-showcase";
+const OPEN_ENV = { ...GOOGLE_ENV, GOOGLE_OPEN_VIEWER_RECIPIENT_ID: OPEN_RECIPIENT };
+
+describe("Google sign-in, open-viewer mode (any verified Google account reads the one showcase recipient)", () => {
+  beforeEach(async () => {
+    await freshDb();
+    clock = new TestClock();
+    google = fakeGoogle(clock);
+    h = harness(clock, {}, { outboundFetch: google.fetch });
+    resetGoogleKeyCache();
+    w = await provision(h);
+  });
+
+  /** Full browser round trip for one Google subject; returns the application session. */
+  async function signIn(sub: string, env: Record<string, string> = OPEN_ENV) {
+    google.next = { status: 200, tokenOptions: { sub, email: `${sub}@example.invalid` } };
+    const f = await startFlow(env);
+    const back = await callback(f.state, f.cookie, "good-code", "", env);
+    const code = back.fragment.get("code");
+    if (!code) return { error: back.fragment.get("error") };
+    const session = await ok<{ token: string; user: { user_id: string; display_name: string }; recipients: Array<{ recipient_id: string; role: string; permissions: string[] }> }>(
+      await h.call("POST", "/api/app/v1/session/exchange", { json: { code }, envOverrides: env }),
+      201,
+    );
+    return { session };
+  }
+
+  it("enrolls a never-seen Google account as a read-only viewer of exactly the showcase recipient, keyed by sub, storing no e-mail", async () => {
+    const { session } = await signIn("open-sub-1");
+    expect(session!.recipients).toEqual([expect.objectContaining({ recipient_id: OPEN_RECIPIENT, role: "viewer", permissions: ["data.read"] })]);
+    expect(session!.user.display_name).toBe("Người xem (Google)");
+    // The showcase recipient was created empty: no devices, no events (nothing fabricated).
+    const recipient = await h.env.DB.prepare(`SELECT display_label, status FROM care_recipients WHERE recipient_id = ?1`).bind(OPEN_RECIPIENT).first();
+    expect(recipient).toEqual({ display_label: "Hồ sơ trình diễn", status: "active" });
+    expect((await h.env.DB.prepare(`SELECT COUNT(*) AS n FROM devices WHERE recipient_id = ?1`).bind(OPEN_RECIPIENT).first<{ n: number }>())?.n).toBe(0);
+    expect((await h.env.DB.prepare(`SELECT COUNT(*) AS n FROM events WHERE recipient_id = ?1`).bind(OPEN_RECIPIENT).first<{ n: number }>())?.n).toBe(0);
+    // Identity = Google subject only; the e-mail is neither a login identifier nor stored anywhere.
+    const viewer = await h.env.DB.prepare(`SELECT * FROM google_viewers WHERE google_sub = 'open-sub-1'`).first<Record<string, unknown>>();
+    expect(viewer?.user_id).toBe(session!.user.user_id);
+    expect(JSON.stringify(viewer)).not.toContain("example.invalid");
+    const account = await h.env.DB.prepare(`SELECT login_email, login_secret_sha256 FROM caregivers WHERE user_id = ?1`).bind(session!.user.user_id).first();
+    expect(account).toEqual({ login_email: null, login_secret_sha256: null });
+    expect((await h.env.DB.prepare(`SELECT COUNT(*) AS n FROM google_identities`).first<{ n: number }>())?.n).toBe(0);
+    const audit = await h.env.DB.prepare(`SELECT group_concat(coalesce(detail_json, ''), ' ') AS d FROM audit_log`).first<{ d: string }>();
+    expect(audit?.d ?? "").not.toMatch(/example\.invalid|open-sub-1/);
+  });
+
+  it("maps the same subject to the same account on every sign-in, and different subjects to different accounts", async () => {
+    const a1 = (await signIn("open-sub-1")).session!;
+    const a2 = (await signIn("open-sub-1")).session!;
+    const b = (await signIn("open-sub-2")).session!;
+    expect(a2.user.user_id).toBe(a1.user.user_id);
+    expect(b.user.user_id).not.toBe(a1.user.user_id);
+    expect((await h.env.DB.prepare(`SELECT COUNT(*) AS n FROM google_viewers`).first<{ n: number }>())?.n).toBe(2);
+    expect((await h.env.DB.prepare(`SELECT COUNT(*) AS n FROM grants WHERE recipient_id = ?1`).bind(OPEN_RECIPIENT).first<{ n: number }>())?.n).toBe(2);
+    // Independent sessions: one viewer logging out leaves the other session of the same account and other viewers alone.
+    expect((await h.call("DELETE", "/api/app/v1/session", { token: a1.token })).status).toBe(204);
+    expect((await h.call("GET", "/api/app/v1/me", { token: a1.token })).status).toBe(401);
+    expect((await h.call("GET", "/api/app/v1/me", { token: a2.token })).status).toBe(200);
+    expect((await h.call("GET", "/api/app/v1/me", { token: b.token })).status).toBe(200);
+  });
+
+  it("enforces read-only on the server: every write, command, admin call and any other recipient is refused", async () => {
+    const { session } = await signIn("open-sub-1");
+    const t = session!.token;
+    const R = `/api/app/v1/recipients/${OPEN_RECIPIENT}`;
+    // Reads of the showcase recipient work, including a single-use stream ticket.
+    expect((await h.call("GET", `${R}/events`, { token: t })).status).toBe(200);
+    expect((await h.call("GET", `${R}/alerts`, { token: t })).status).toBe(200);
+    expect((await h.call("POST", "/api/app/v1/stream-tickets", { token: t, json: { recipient_id: OPEN_RECIPIENT } })).status).toBe(201);
+    // Writes are refused for lack of permission (403), whatever the body.
+    for (const [method, path, json] of [
+      ["POST", `${R}/alerts/alr_x/actions`, { action: "acknowledge", expected_version: 1, review_outcome: null, note: null }],
+      ["POST", `${R}/fusion-decisions/fd_x/review`, {}],
+      ["POST", `${R}/devices/esp32-any/commands`, {}],
+      ["POST", `${R}/commands/cmd_x/cancel`, {}],
+      ["POST", `${R}/reminders`, {}],
+      ["PATCH", `${R}/reminders/rem_x`, {}],
+      ["DELETE", `${R}/reminders/rem_x`, undefined],
+      ["DELETE", `${R}/voice-messages/vm_x`, undefined],
+    ] as const) {
+      const res = await h.call(method, path, { token: t, ...(json ? { json } : {}) });
+      expect(res.status, `${method} ${path}`).toBe(403);
+      expect(await problemCode(res)).toBe("permission_denied");
+    }
+    // Another recipient, picked by id in the URL or in the ticket request: not found (existence is not revealed).
+    expect((await h.call("GET", `/api/app/v1/recipients/${w.recipientId}/events`, { token: t })).status).toBe(404);
+    expect((await h.call("GET", `/api/app/v1/recipients/${w.otherRecipientId}/alerts`, { token: t })).status).toBe(404);
+    expect((await h.call("POST", "/api/app/v1/stream-tickets", { token: t, json: { recipient_id: w.recipientId } })).status).toBe(404);
+    // The session token is not an admin credential.
+    expect((await h.call("GET", "/api/admin/v1/status", { token: t })).status).toBe(401);
+    expect((await h.call("POST", "/api/admin/v1/grants", { token: t, json: { user_id: session!.user.user_id, recipient_id: w.recipientId, role: "caregiver" } })).status).toBe(401);
+  });
+
+  it("ends the viewer session after SESSION_TTL_HOURS", async () => {
+    const { session } = await signIn("open-sub-1");
+    clock.advance(12 * 3600 + 1);
+    expect((await h.call("GET", "/api/app/v1/me", { token: session!.token })).status).toBe(401);
+  });
+
+  it("keeps the owner in control: a revoked grant is not recreated, a disabled account stays out, and turning the mode off closes the door", async () => {
+    const first = (await signIn("open-sub-1")).session!;
+    const grant = await h.env.DB.prepare(`SELECT grant_id FROM grants WHERE user_id = ?1`).bind(first.user.user_id).first<{ grant_id: string }>();
+    await ok(await h.call("POST", `/api/admin/v1/grants/${grant!.grant_id}/revoke`, { token: ADMIN_TOKEN }));
+    // Signs in, but sees no recipient: the revoked grant is not silently re-created.
+    expect((await signIn("open-sub-1")).session!.recipients).toEqual([]);
+
+    const other = (await signIn("open-sub-2")).session!;
+    await h.env.DB.prepare(`UPDATE caregivers SET status = 'disabled' WHERE user_id = ?1`).bind(other.user.user_id).run();
+    expect((await signIn("open-sub-2")).error).toBe("google_unauthorized");
+
+    // Without GOOGLE_OPEN_VIEWER_RECIPIENT_ID, enrolled viewers and newcomers alike are refused (allowlist only).
+    expect((await signIn("open-sub-3", GOOGLE_ENV)).error).toBe("google_unauthorized");
+    expect((await h.env.DB.prepare(`SELECT COUNT(*) AS n FROM google_viewers WHERE google_sub = 'open-sub-3'`).first<{ n: number }>())?.n).toBe(0);
+  });
+
+  it("never reactivates a showcase recipient the owner deactivated", async () => {
+    await signIn("open-sub-1");
+    await h.env.DB.prepare(`UPDATE care_recipients SET status = 'inactive' WHERE recipient_id = ?1`).bind(OPEN_RECIPIENT).run();
+    const again = (await signIn("open-sub-1")).session!;
+    expect(again.recipients).toEqual([]);
+    expect((await h.env.DB.prepare(`SELECT status FROM care_recipients WHERE recipient_id = ?1`).bind(OPEN_RECIPIENT).first<{ status: string }>())?.status).toBe("inactive");
+  });
+
+  it("does not let an allowlisted e-mail with a foreign subject fall back to open access", async () => {
+    await authorize("open-sub-1@example.invalid");
+    expect((await signIn("open-sub-1")).session!.recipients).toEqual([expect.objectContaining({ recipient_id: w.recipientId, role: "viewer" })]);
+    google.next = { status: 200, tokenOptions: { sub: "intruder-sub", email: "open-sub-1@example.invalid" } };
+    const f = await startFlow(OPEN_ENV);
+    expect((await callback(f.state, f.cookie, "good-code", "", OPEN_ENV)).fragment.get("error")).toBe("google_unauthorized");
+    expect((await h.env.DB.prepare(`SELECT COUNT(*) AS n FROM google_viewers`).first<{ n: number }>())?.n).toBe(0);
+  });
+
+  it.each([
+    ["a signature from another key", "key"],
+    ["another audience", "aud"],
+    ["another issuer", "iss"],
+    ["an expired token", "exp"],
+    ["a replayed nonce", "nonce"],
+  ] as const)("still rejects an ID token with %s and creates no account", async (_name, what) => {
+    const o: TokenOptions = { sub: "open-sub-bad" };
+    if (what === "key") o.key = otherKey;
+    if (what === "aud") o.aud = "someone-elses-client.apps.googleusercontent.com";
+    if (what === "iss") o.iss = "https://evil.example.test";
+    if (what === "exp") o.exp = 1;
+    if (what === "nonce") o.nonce = "nn_other";
+    google.next = { status: 200, tokenOptions: o };
+    const f = await startFlow(OPEN_ENV);
+    expect((await callback(f.state, f.cookie, "good-code", "", OPEN_ENV)).fragment.get("error")).toBe("google_token");
+    expect((await h.env.DB.prepare(`SELECT COUNT(*) AS n FROM google_viewers`).first<{ n: number }>())?.n).toBe(0);
+    expect((await h.env.DB.prepare(`SELECT COUNT(*) AS n FROM care_recipients WHERE recipient_id = ?1`).bind(OPEN_RECIPIENT).first<{ n: number }>())?.n).toBe(0);
+  });
+
+  it("still validates state in open mode (no cookie, other browser, replay)", async () => {
+    const f = await startFlow(OPEN_ENV);
+    expect((await callback(f.state, null, "good-code", "", OPEN_ENV)).fragment.get("error")).toBe("google_state");
+    expect((await callback(f.state, "bd_other", "good-code", "", OPEN_ENV)).fragment.get("error")).toBe("google_state");
+    expect((await callback(f.state, f.cookie, "good-code", "", OPEN_ENV)).fragment.get("code")).toMatch(/^clx_/);
+    expect((await callback(f.state, f.cookie, "good-code", "", OPEN_ENV)).fragment.get("error")).toBe("google_state");
+  });
+
+  it("reports the access mode and refuses a malformed showcase id", async () => {
+    const cfg = await ok<{ enabled: boolean; access: string; password_sign_in: boolean }>(await h.call("GET", "/api/app/v1/auth/google/config", { envOverrides: OPEN_ENV }));
+    expect(cfg).toEqual({ enabled: true, access: "open_viewer", password_sign_in: true });
+    const ready = await ok<{ capabilities: Record<string, unknown> }>(await h.call("GET", "/ready", { envOverrides: OPEN_ENV }));
+    expect(ready.capabilities).toMatchObject({ google_signin: "configured", google_access: "open_viewer_read_only", password_sign_in: "enabled" });
+    const bad = await h.call("GET", "/api/app/v1/auth/google/config", { envOverrides: { ...OPEN_ENV, GOOGLE_OPEN_VIEWER_RECIPIENT_ID: "bad id; drop" } });
+    expect(bad.status).toBe(503);
+    expect(await problemCode(bad)).toBe("misconfigured");
+  });
+});
+
+describe("PASSWORD_SIGN_IN=disabled", () => {
+  beforeEach(async () => {
+    await freshDb();
+    clock = new TestClock();
+    h = harness(clock);
+    w = await provision(h);
+  });
+
+  it("refuses passwords before any credential check, and says so to the login page", async () => {
+    const issued = await ok<{ password: string }>(await h.call("POST", `/api/admin/v1/caregivers/${w.viewerUserId}/login`, { token: ADMIN_TOKEN, json: { login_id: "viewer.pw@example.invalid" } }), 201);
+    const off = { PASSWORD_SIGN_IN: "disabled" };
+    const res = await h.call("POST", "/api/app/v1/session", { json: { username: "viewer.pw@example.invalid", password: issued.password }, envOverrides: off });
+    expect(res.status).toBe(403);
+    expect(await problemCode(res)).toBe("password_sign_in_disabled");
+    expect((await h.env.DB.prepare(`SELECT COUNT(*) AS n FROM caregiver_tokens WHERE kind = 'session'`).first<{ n: number }>())?.n).toBe(0);
+    const cfg = await ok<{ password_sign_in: boolean }>(await h.call("GET", "/api/app/v1/auth/google/config", { envOverrides: off }));
+    expect(cfg.password_sign_in).toBe(false);
+    // The same credential works where passwords are enabled (local development, tests).
+    expect((await h.call("POST", "/api/app/v1/session", { json: { username: "viewer.pw@example.invalid", password: issued.password } })).status).toBe(201);
+    const bad = await h.call("GET", "/health", { envOverrides: { PASSWORD_SIGN_IN: "maybe" } });
+    expect(bad.status).toBe(503);
   });
 });

@@ -16,6 +16,10 @@ export default defineConfig(async () => {
             ADMIN_TOKEN_SHA256: "5c3dac12081c73ec47965d6393ea1e412cef65beb4ad3e099810a2eea2e5c84a",
             ACCEPT_SIMULATED_SOURCES: "true",
             LEGACY_STREAM_ALLOWED_IPS: "127.0.0.1/32",
+            // Production disables passwords and opens Google to viewers (wrangler.jsonc); tests start from the
+            // conservative defaults and opt in per test.
+            PASSWORD_SIGN_IN: "enabled",
+            GOOGLE_OPEN_VIEWER_RECIPIENT_ID: "",
           },
         },
       }),

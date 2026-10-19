@@ -49,6 +49,11 @@ export interface Env {
   GOOGLE_REDIRECT_URI?: string;
   /** Where the browser returns after Google: the web app's login page. Fixed here, never taken from the request. */
   GOOGLE_POST_LOGIN_URL?: string;
+  /** Optional open-viewer mode: any verified Google account becomes a read-only viewer of this one showcase recipient
+   * (created empty if missing). Empty = only identities on the owner's allowlist (google_identities) may sign in. */
+  GOOGLE_OPEN_VIEWER_RECIPIENT_ID?: string;
+  /** "enabled" (default) or "disabled": whether POST /api/app/v1/session accepts owner-issued passwords. */
+  PASSWORD_SIGN_IN?: string;
   DEVICE_AUDIO_SAMPLE_RATES?: string;
 }
 
@@ -164,6 +169,8 @@ export interface Config {
   google: GoogleSettings | null;
   /** Set when the Google settings are half-filled or malformed. Only the Google routes fail on it; the rest of the API is unaffected. */
   googleConfigError: string | null;
+  /** false when PASSWORD_SIGN_IN=disabled: owner-issued passwords are refused and the login page hides the form. */
+  passwordSignIn: boolean;
   deviceAudioSampleRates: number[];
 }
 
@@ -172,6 +179,8 @@ export interface GoogleSettings {
   clientSecret: string;
   redirectUri: string;
   postLoginUrl: string;
+  /** Showcase recipient that every verified Google account may read (viewer role only); null = allowlist only. */
+  openViewerRecipientId: string | null;
 }
 
 export class ConfigError extends Error {}
@@ -212,7 +221,17 @@ function googleSettings(env: Env): GoogleSettings | null {
     if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) throw new ConfigError(`${name} must be https (http only for localhost).`);
     if (url.hash || url.username || url.password) throw new ConfigError(`${name} must not contain credentials or a fragment.`);
   }
-  return { clientId, clientSecret, redirectUri, postLoginUrl };
+  const openViewerRecipientId = env.GOOGLE_OPEN_VIEWER_RECIPIENT_ID?.trim() ?? "";
+  if (openViewerRecipientId && !/^[A-Za-z0-9._:-]{3,64}$/.test(openViewerRecipientId)) {
+    throw new ConfigError("GOOGLE_OPEN_VIEWER_RECIPIENT_ID must be 3-64 characters of A-Z a-z 0-9 . _ : -");
+  }
+  return { clientId, clientSecret, redirectUri, postLoginUrl, openViewerRecipientId: openViewerRecipientId || null };
+}
+
+function passwordSignIn(value: string | undefined): boolean {
+  const v = (value ?? "").trim() || "enabled";
+  if (v !== "enabled" && v !== "disabled") throw new ConfigError('PASSWORD_SIGN_IN must be "enabled" or "disabled"');
+  return v === "enabled";
 }
 
 function list(value: string | undefined): string[] {
@@ -292,6 +311,7 @@ export function loadConfig(env: Env): Config {
     sessionTtlHours: int(env.SESSION_TTL_HOURS, 12, 1, 168, "SESSION_TTL_HOURS"),
     loginPbkdf2Iterations: int(env.LOGIN_PBKDF2_ITERATIONS, 100_000, 1_000, 100_000, "LOGIN_PBKDF2_ITERATIONS"),
     ...googleConfig(env),
+    passwordSignIn: passwordSignIn(env.PASSWORD_SIGN_IN),
     deviceAudioSampleRates: [...new Set(rates)].sort((a, b) => a - b),
   };
 }

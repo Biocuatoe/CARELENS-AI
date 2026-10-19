@@ -68,11 +68,13 @@ def main(argv: list[str] | None = None) -> int:
     if changed:
         print(f"[start_backend] local database was created from an older revision of {', '.join(changed)}; run `python start_backend.py --reset-local-db` (local test data only)", file=sys.stderr)
         return 3
-    extra: list[str] = []
+    # The deployed Worker is Google-only (PASSWORD_SIGN_IN=disabled in wrangler.jsonc); local development keeps the
+    # owner-issued passwords that dev_setup.py provisions.
+    extra: list[str] = ["--var", "PASSWORD_SIGN_IN:enabled"]
     if not (WORKER / ".dev.vars").is_file():
         print("[start_backend] worker/.dev.vars not found: copy .dev.vars.example (admin API stays disabled until ADMIN_TOKEN_SHA256 is set)", file=sys.stderr)
         # Local only (wrangler dev binds 127.0.0.1): let the Vite dev/preview servers open the stream.
-        extra = ["--var", f"ALLOWED_ORIGINS:{LOCAL_ORIGINS}", "--var", "ENVIRONMENT:development"]
+        extra += ["--var", f"ALLOWED_ORIGINS:{LOCAL_ORIGINS}", "--var", "ENVIRONMENT:development"]
     env = {**os.environ, "WRANGLER_SEND_METRICS": "false", "CI": "1"}
     migrate = subprocess.run([npx, "wrangler", "d1", "migrations", "apply", "care_monitoring", "--local", "--persist-to", str(STATE)], cwd=WORKER, env=env)
     if migrate.returncode != 0:

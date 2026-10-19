@@ -56,9 +56,13 @@ function GoogleMark() {
   );
 }
 
+/** Phương thức đăng nhập máy chủ cho phép. `error`: không hỏi được máy chủ; khi đó vẫn hiện biểu mẫu (máy chủ vẫn là bên quyết định). */
+type SignInOptions = { status: "loading" } | { status: "ready"; googleEnabled: boolean; passwordSignIn: boolean } | { status: "error" };
+
 /**
- * Đăng nhập tài khoản Live Demo dùng chung (mật khẩu hoặc Google). Bố cục theo landing: khu thương hiệu midnight cạnh khu biểu mẫu
- * ivory/paper; cả nhóm bên phải được căn giữa ngang và dọc. Lỗi hiện trong một vùng cố định dưới nút để bố cục không nhảy.
+ * Đăng nhập Live Demo. Google là lối chính; biểu mẫu mật khẩu chỉ hiện khi máy chủ còn nhận mật khẩu (bản deploy chỉ nhận Google).
+ * Bố cục theo landing: khu thương hiệu midnight cạnh khu biểu mẫu ivory/paper; cả nhóm bên phải được căn giữa ngang và dọc.
+ * Lỗi hiện trong một vùng cố định dưới các nút để bố cục không nhảy.
  */
 export function LoginPage() {
   const { state, login, completeGoogleSignIn } = useAuth();
@@ -70,6 +74,7 @@ export function LoginPage() {
   const [fromGoogle] = useState(readGoogleFragment);
   const [formError, setFormError] = useState<string | null>(() => (fromGoogle.reason ? googleErrorMessage(fromGoogle.reason) : null));
   const [googleBusy, setGoogleBusy] = useState(fromGoogle.code !== null);
+  const [options, setOptions] = useState<SignInOptions>({ status: "loading" });
   const fragmentHandled = useRef(false);
   const returnTo = safeReturnTo(params.get("returnTo"));
   const expired = params.get("reason") === "expired";
@@ -98,9 +103,23 @@ export function LoginPage() {
       .finally(() => setGoogleBusy(false));
   }, [fromGoogle, completeGoogleSignIn, navigate]);
 
+  useEffect(() => {
+    let active = true;
+    adapter
+      .getGoogleSignIn()
+      .then((g) => active && setOptions({ status: "ready", googleEnabled: g.enabled, passwordSignIn: g.passwordSignIn }))
+      .catch(() => active && setOptions({ status: "error" }));
+    return () => {
+      active = false;
+    };
+  }, [adapter]);
+
   if (state.status === "signed_in") return <Navigate to={returnTo ?? HOME} replace />;
 
   const busy = isSubmitting || googleBusy;
+  const showPasswordForm = options.status === "error" || (options.status === "ready" && options.passwordSignIn);
+  const googleOnly = options.status === "ready" && !options.passwordSignIn;
+  const nothingEnabled = googleOnly && !options.googleEnabled;
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
@@ -150,7 +169,9 @@ export function LoginPage() {
         <div className="flex w-full max-w-[34rem] flex-col gap-6">
           <header className="flex flex-col gap-2">
             <h1 className="font-display text-3xl leading-tight font-extrabold tracking-tight text-balance">Đăng nhập</h1>
-            <p className="md:text-lg">Vào Demo trực tiếp bằng tài khoản do ban tổ chức cấp.</p>
+            <p className="md:text-lg">
+              {googleOnly ? "Dùng tài khoản Google để vào Demo trực tiếp ở chế độ chỉ xem." : "Vào Demo trực tiếp bằng tài khoản Google hoặc tài khoản do ban tổ chức cấp."}
+            </p>
           </header>
 
           {expired ? (
@@ -161,38 +182,6 @@ export function LoginPage() {
           ) : null}
 
           <SoftSurface as="section" aria-label="Đăng nhập" padding="sm" className="flex flex-col gap-5 sm:p-7">
-            <form onSubmit={onSubmit} noValidate className="flex flex-col gap-5">
-              <InsetField label="Tài khoản" type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} required error={errors.username?.message} {...register("username")} />
-              <InsetField
-                label="Mật khẩu"
-                type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
-                required
-                error={errors.password?.message}
-                trailing={
-                  <button
-                    type="button"
-                    className="inline-flex size-11 items-center justify-center rounded-full text-fg transition-colors duration-300 hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2"
-                    aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
-                    aria-pressed={showPassword}
-                    onClick={() => setShowPassword((v) => !v)}
-                  >
-                    {showPassword ? <EyeOff className="size-5" aria-hidden /> : <Eye className="size-5" aria-hidden />}
-                  </button>
-                }
-                {...register("password")}
-              />
-              <SoftButton type="submit" variant="primary" loading={isSubmitting} disabled={busy} className="w-full">
-                {isSubmitting ? "Đang đăng nhập…" : "Đăng nhập"}
-              </SoftButton>
-            </form>
-
-            <div className="flex items-center gap-3 text-sm" aria-hidden>
-              <span className="h-px flex-1 bg-ink/20" />
-              hoặc
-              <span className="h-px flex-1 bg-ink/20" />
-            </div>
-
             {/* Nút Google theo hướng dẫn thương hiệu của Google (nền trắng, viền #747775, chữ #1F1F1F, biểu tượng G nhiều màu).
                 Đây là ngoại lệ có chủ ý của quy tắc "không bg-white": màu do Google quy định, không phải màu của hệ thiết kế. */}
             <button
@@ -210,12 +199,52 @@ export function LoginPage() {
               Đăng nhập bằng Google
             </button>
 
+            {showPasswordForm ? (
+              <>
+                <div className="flex items-center gap-3 text-sm" aria-hidden>
+                  <span className="h-px flex-1 bg-ink/20" />
+                  hoặc
+                  <span className="h-px flex-1 bg-ink/20" />
+                </div>
+                <form onSubmit={onSubmit} noValidate className="flex flex-col gap-5">
+                  <InsetField label="Tài khoản" type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} required error={errors.username?.message} {...register("username")} />
+                  <InsetField
+                    label="Mật khẩu"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    required
+                    error={errors.password?.message}
+                    trailing={
+                      <button
+                        type="button"
+                        className="inline-flex size-11 items-center justify-center rounded-full text-fg transition-colors duration-300 hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2"
+                        aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                        aria-pressed={showPassword}
+                        onClick={() => setShowPassword((v) => !v)}
+                      >
+                        {showPassword ? <EyeOff className="size-5" aria-hidden /> : <Eye className="size-5" aria-hidden />}
+                      </button>
+                    }
+                    {...register("password")}
+                  />
+                  <SoftButton type="submit" variant="primary" loading={isSubmitting} disabled={busy} className="w-full">
+                    {isSubmitting ? "Đang đăng nhập…" : "Đăng nhập"}
+                  </SoftButton>
+                </form>
+              </>
+            ) : null}
+
             {/* Vùng thông báo cố định (hai dòng): lỗi xuất hiện không làm bố cục dịch chuyển. */}
             <div aria-live="polite" className="min-h-11">
               {formError ? (
                 <p role="alert" className="flex items-start gap-2 text-sm font-bold">
                   <TriangleAlert className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden />
                   {formError}
+                </p>
+              ) : nothingEnabled ? (
+                <p className="flex items-start gap-2 text-sm font-bold">
+                  <TriangleAlert className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden />
+                  Máy chủ chưa bật phương thức đăng nhập nào: đăng nhập bằng Google đang chờ người vận hành cấu hình.
                 </p>
               ) : null}
             </div>

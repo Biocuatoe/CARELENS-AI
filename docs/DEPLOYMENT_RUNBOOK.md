@@ -1,6 +1,19 @@
 # Runbook triển khai — Cloudflare (backend) + PC tại nhà (agent) + Vercel (frontend)
 
-Phiên bản 2026-10-19 (đợt 2). Trạng thái: **chưa triển khai**. Mọi bước do owner chạy sau khi xem xét; coding agent không deploy, không tạo tài nguyên, không commit hay push. Ô `[ ]` là việc chưa làm. Lệnh chạy trong PowerShell trên Windows trừ khi ghi khác. `<…>` là chỗ điền giá trị thật; không dán giá trị bí mật vào tài liệu, chat hay commit.
+Phiên bản 2026-10-19 (đợt 3). Trạng thái: **đã triển khai backend và frontend, đăng nhập Google chờ owner cấu hình** (bảng dưới). Ô `[ ]` là việc chưa làm.
+
+| Thành phần | Giá trị thật (2026-10-19) |
+| --- | --- |
+| Cloudflare account | `Hungleduc2005@gmail.com's Account` |
+| Worker | `https://care-monitoring.care-monitoring-worker.workers.dev` |
+| D1 `care_monitoring` | id `bc68672b-ae27-459c-8edf-408c44a96728`, migration `0001`–`0003` đã áp |
+| R2 | `carelens-capture-media` (xóa sau 1 ngày), `carelens-voice-audio`; r2.dev tắt, không custom domain |
+| Vercel | team `dayone7`, project `carelens-ai`, Root Directory `frontend`, nối GitHub `Biocuatoe/CARELENS-AI` nhánh `main` (tự deploy khi push) |
+| Frontend | `https://carelens-ai-eta.vercel.app` (`carelens-ai.vercel.app` đã có người dùng) |
+| Đăng nhập | Chỉ Google (A38): `PASSWORD_SIGN_IN=disabled`, `GOOGLE_OPEN_VIEWER_RECIPIENT_ID=rcp-showcase`. Chưa có `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` → chưa ai đăng nhập được |
+| Chưa làm | `ADMIN_TOKEN_SHA256` (admin API báo 503), agent cục bộ, thiết bị |
+
+Ghi chú mạng: ở mạng của máy dev, `curl`/Node mặc định (TLS 1.3 với khóa post-quantum) bắt tay lỗi tới `*.workers.dev`; `curl.exe --tls-max 1.2`, `openssl` và Chromium đều chạy. Dùng `--tls-max 1.2` cho các lệnh `curl` dưới đây nếu gặp lỗi 35. Lệnh chạy trong PowerShell trên Windows trừ khi ghi khác. `<…>` là chỗ điền giá trị thật; không dán giá trị bí mật vào tài liệu, chat hay commit.
 
 ## 0. Xem xét trước (không cần tài khoản)
 
@@ -134,6 +147,8 @@ Mật khẩu web và token chỉ hiện một lần. Lệnh `caregiver` in thêm
 
 ### 8.1 Một tài khoản giám khảo dùng chung (chỉ xem)
 
+> **Bản deploy hiện tại không dùng mục này** (A38): đăng nhập mật khẩu bị tắt và giám khảo vào bằng Google (§8.2). Chỉ làm theo mục này nếu owner bật lại `PASSWORD_SIGN_IN` (`"enabled"` trong `wrangler.jsonc`, rồi `npm run deploy`) và đã có admin API.
+
 Một tài khoản riêng cho cả ban giám khảo. Mỗi lần đăng nhập là một phiên riêng nên nhiều giám khảo dùng cùng lúc được (đã kiểm cục bộ: 5 phiên và 5 stream đồng thời). Không dùng tài khoản owner, admin hay người thân cho việc này. Không có đăng ký, khôi phục mật khẩu hay tài khoản riêng từng giám khảo.
 
 - [ ] Tạo bản ghi riêng: `python scripts/admin.py --api $api caregiver --name "Ban giám khảo"` → ghi `user_id`, `token_id`.
@@ -153,21 +168,33 @@ Một tài khoản riêng cho cả ban giám khảo. Mỗi lần đăng nhập l
 
 Giới hạn: đăng nhập tính 20 lần/60 s cho mỗi địa chỉ IP, kể cả lần đúng. Cả ban giám khảo sau một NAT vẫn đủ. Phiên sống `SESSION_TTL_HOURS` (12 h). Tải lại trang thì phải đăng nhập lại, vì token chỉ nằm trong bộ nhớ.
 
-### 8.2 Đăng nhập bằng Google (tùy chọn)
+### 8.2 Đăng nhập bằng Google (lối đăng nhập duy nhất của bản deploy, A38)
 
-Mặc định tắt: nút "Đăng nhập bằng Google" báo "chưa được cấu hình trên máy chủ này". **Chưa cấu hình trên bản deploy.** Cần tài khoản Google Cloud của chủ sở hữu; không có giá trị nào được điền sẵn trong repo.
+Đã có sẵn trong `wrangler.jsonc` và đã deploy: `GOOGLE_REDIRECT_URI`, `GOOGLE_POST_LOGIN_URL`, `GOOGLE_OPEN_VIEWER_RECIPIENT_ID=rcp-showcase`, `PASSWORD_SIGN_IN=disabled`; migration `0002` và `0003` đã áp. **Còn thiếu đúng hai giá trị do owner tạo:** Client ID (công khai) và Client secret (bí mật).
 
-1. Google Cloud Console → chọn (hoặc tạo) project → **APIs & Services → OAuth consent screen**: loại External; tên ứng dụng, email hỗ trợ; chỉ scope `openid` và `email` (không thêm scope khác). Khi còn ở trạng thái Testing, thêm email của giám khảo vào **Test users** (tối đa 100); muốn bỏ bước này phải gửi xét duyệt ứng dụng.
-2. **Credentials → Create credentials → OAuth client ID → Web application.** *Authorized redirect URIs*: đúng một dòng `https://care-monitoring.<subdomain>.workers.dev/api/app/v1/auth/google/callback` (đúng từng ký tự với `GOOGLE_REDIRECT_URI`). Không cần *Authorized JavaScript origins* vì trình duyệt không gọi Google trực tiếp. Ghi Client ID và Client secret.
-3. Đặt cấu hình ở Worker (xem `docs/DECISIONS.md` A37):
-   - biến trong `wrangler.jsonc` hoặc dashboard: `GOOGLE_CLIENT_ID`, `GOOGLE_REDIRECT_URI` (URI ở bước 2), `GOOGLE_POST_LOGIN_URL` (`https://<miền frontend>/login`);
-   - bí mật: `wrangler secret put GOOGLE_CLIENT_SECRET` (không bao giờ là biến thường hay `VITE_*`);
-   - `ALLOWED_ORIGINS` phải gồm miền frontend (vì web gọi `POST /session/exchange` từ đó).
-4. Áp migration `0002_google_signin.sql` lên D1 production (`wrangler d1 migrations apply care_monitoring --remote`).
-5. **Cho phép từng tài khoản Google** (không có tự động tạo tài khoản hay cho cả miền): `python scripts/admin.py --api $api google-allow --user <user_id tài khoản chỉ xem> --email <email Google>`. Gỡ: `google-revoke --email …` (các phiên đang có không bị đóng). Email phải là email Google đã xác minh; lần đăng nhập đầu gắn `sub` của Google, sau đó cùng email với `sub` khác bị từ chối.
-6. Kiểm: `GET $api/api/app/v1/auth/google/config` trả `{"enabled": true}`; `GET /ready` có `google_signin: configured`; đăng nhập bằng email đã cho phép vào Live Demo; email khác bị từ chối; đăng nhập hai trình duyệt cùng lúc.
+1. Google Cloud Console → chọn (hoặc tạo) project → **Google Auth Platform** (tên cũ: *APIs & Services → OAuth consent screen*):
+   - **Branding:** tên ứng dụng (ví dụ "CareLens AI Live Demo"), email hỗ trợ, email liên hệ của nhà phát triển. Có thể thêm *Authorized domain* `vercel.app` và `workers.dev` nếu Console yêu cầu.
+   - **Audience:** User type **External**. Bấm **Publish app** để chuyển sang **In production**. Nếu để *Testing*, chỉ các email trong *Test users* (tối đa 100) đăng nhập được, còn mọi người khác bị Google chặn trước khi tới CareLens. Chỉ dùng scope không nhạy cảm `openid` và `email`, nên thường không cần xét duyệt; Google có thể vẫn hiện cảnh báo "ứng dụng chưa được xác minh" cho tới khi xác minh thương hiệu (chưa kiểm trên tài khoản này).
+   - **Data access:** chỉ `openid` và `.../auth/userinfo.email`. Không thêm scope khác.
+2. **Clients → Create client → Web application**:
+   - *Authorized redirect URIs*: đúng một dòng, đúng từng ký tự:
+     `https://care-monitoring.care-monitoring-worker.workers.dev/api/app/v1/auth/google/callback`
+   - *Authorized JavaScript origins*: để trống (trình duyệt không gọi Google trực tiếp; Worker làm mọi bước).
+   - Ghi lại Client ID (`…apps.googleusercontent.com`) và Client secret.
+3. Đặt cấu hình ở Worker (từ `backend/care-monitoring/worker`):
+   - Client secret, gõ ở dòng nhắc của Wrangler, không dán vào chat, tệp hay tham số: `npx wrangler secret put GOOGLE_CLIENT_SECRET`. Wrangler tự tạo phiên bản Worker mới mang secret này.
+   - Client ID không phải bí mật: điền vào `"GOOGLE_CLIENT_ID"` trong `wrangler.jsonc` rồi `npm run deploy` (bước này là lần deploy cần thiết). Đặt secret trước rồi mới deploy client ID, để không có lúc nào chỉ có một nửa cấu hình (nửa vời → các route Google báo 503 `misconfigured`, phần còn lại không ảnh hưởng).
+   - Frontend không cần deploy lại: nó hỏi `GET /auth/google/config` mỗi lần mở trang đăng nhập.
+4. Kiểm:
+   - `curl.exe --tls-max 1.2 -s $api/api/app/v1/auth/google/config` trả `{"enabled":true,"access":"open_viewer","password_sign_in":false}`; `/ready` có `google_signin: configured`, `google_access: open_viewer_read_only`.
+   - Cửa sổ riêng tư → `https://carelens-ai-eta.vercel.app/login` → "Đăng nhập bằng Google" → chọn tài khoản → về `/people` → thấy "Hồ sơ trình diễn". Thử bằng tài khoản Google thứ hai trên trình duyệt khác; đăng xuất một bên không ảnh hưởng bên kia.
+   - Hồ sơ trình diễn rỗng cho tới khi có thiết bị thật gán vào `rcp-showcase` (cần admin API). Như vậy là đúng, không phải lỗi.
+5. Kiểm soát sau đó:
+   - Đóng chế độ mở: đặt `"GOOGLE_OPEN_VIEWER_RECIPIENT_ID": ""` rồi `npm run deploy` (không ai mới vào được; phiên đang có hết sau `SESSION_TTL_HOURS`).
+   - Chặn một người: tắt tài khoản của họ trong D1 (`UPDATE caregivers SET status='disabled' WHERE user_id=…`, tra `user_id` qua bảng `google_viewers`) hoặc thu hồi grant bằng admin API.
+   - Tắt hẳn Google: `npx wrangler secret delete GOOGLE_CLIENT_SECRET` và để trống `GOOGLE_CLIENT_ID`, rồi deploy; xóa OAuth client ở Console nếu không dùng nữa.
 
-Sau buổi trình diễn: `google-revoke` cho từng email, và xóa OAuth client hoặc xoay secret nếu không dùng nữa.
+Chế độ danh sách cho phép (A37) vẫn còn: để trống `GOOGLE_OPEN_VIEWER_RECIPIENT_ID` và dùng `admin.py google-allow --user … --email …` (cần admin API).
 
 ## 9. Agent cục bộ trên PC Windows
 

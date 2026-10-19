@@ -71,6 +71,7 @@ Không sửa nội dung mục đã Accepted. Tạo mục mới ghi `Supersedes`.
 | A35 | Một hệ thiết kế (bảng màu landing) cho landing, đăng nhập và ứng dụng; một tài khoản Live Demo (thay A29) | Proposed | 2026-10-19 |
 | A36 | Đăng nhập web bằng tên đăng nhập, mật khẩu do owner chọn lưu bằng PBKDF2 (tài khoản trình diễn DAYONE) | Proposed | 2026-10-19 |
 | A37 | Đăng nhập bằng Google (OIDC code + PKCE) chỉ cho danh tính do owner cho phép; sửa lỗi "không kết nối" khi chạy cục bộ | Proposed | 2026-10-19 |
+| A38 | Bản deploy chỉ đăng nhập bằng Google; mọi tài khoản Google đã xác minh được xem (chỉ xem) đúng một hồ sơ trình diễn | Proposed | 2026-10-19 |
 
 ## Vấn đề sản phẩm chưa chốt (từ plan §3)
 
@@ -719,6 +720,18 @@ Owner của D01–D09 chưa được gán. Không dùng D02–D06 để chặn p
 - **Không đổi:** đăng nhập `DAYONE` bằng mật khẩu (A36), giới hạn tần suất (tính cả callback và exchange), phiên riêng cho mỗi lần đăng nhập, vé stream dùng một lần, quyền `viewer`.
 - **Đã kiểm chứng:** 23 test Worker với "Google giả" (khóa RSA thật ký ID token, JWKS thật) cho state/CSRF/PKCE/nonce/chữ ký/audience/issuer/hết hạn/email chưa xác minh/danh tính lạ/`sub` lệch/hết hạn mã/phiên độc lập; Worker thật cục bộ (client id giả) cho redirect bắt đầu, cookie, từ chối callback giả và nút trong trình duyệt. **Chưa kiểm:** đăng nhập với Google thật (cần client id/secret và tài khoản Google thật của owner), thời gian CPU của PBKDF2/RSA trên Workers Free, kiểm duyệt màn hình đồng ý của Google khi ra khỏi trạng thái Testing.
 - **Điều kiện giải quyết:** Owner tạo OAuth client, điền cấu hình, `google-allow` các email; kiểm một lần đăng nhập Google thật.
+- **Owner:** Chưa gán
+
+### A38 — Bản deploy chỉ đăng nhập bằng Google; mọi tài khoản Google đã xác minh được xem (chỉ xem) đúng một hồ sơ trình diễn
+
+- **Trạng thái:** Proposed · 2026-10-19 (theo yêu cầu của owner trong phiên: "mọi người dùng Google đều đăng nhập được vào Live Demo dùng chung, chỉ xem; không cần tài khoản `DAYONE`"). Mở rộng A37, không thay chính sách danh sách cho phép.
+- **Nội dung:**
+  - `GOOGLE_OPEN_VIEWER_RECIPIENT_ID` (biến, bản deploy: `rcp-showcase`). Khi có giá trị, mọi danh tính Google qua đủ kiểm tra của A37 (state, PKCE, nonce, chữ ký, `iss`, `aud`, `exp`, email đã xác minh) mà không có trong `google_identities` được gắn theo `sub` vào một tài khoản riêng (bảng `google_viewers`, migration `0003`) có đúng một grant `viewer` (chỉ `data.read`) trên hồ sơ đó. Không lưu email hay thông tin hồ sơ Google nào khác.
+  - Hồ sơ trình diễn được tạo **rỗng** (nhãn "Hồ sơ trình diễn", không thiết bị, không sự kiện) nếu chưa có, bằng `INSERT OR IGNORE`; không bao giờ kích hoạt lại khi owner đã tắt nó. Không seed dữ liệu.
+  - Owner vẫn kiểm soát: grant đã thu hồi không được tạo lại, tài khoản bị tắt (`caregivers.status = 'disabled'`) bị từ chối, để trống biến là đóng chế độ mở ngay (kể cả với người đã từng vào). Email trong danh sách cho phép không bao giờ rơi sang chế độ mở khi `sub` lệch.
+  - `PASSWORD_SIGN_IN` (`enabled` mặc định, bản deploy `disabled`): `POST /session` trả 403 `password_sign_in_disabled` trước mọi kiểm tra; `GET /auth/google/config` báo `password_sign_in` và trang đăng nhập ẩn biểu mẫu. Backend cục bộ (`start_backend.py`), test Worker và stack e2e Python bật lại mật khẩu.
+- **Rủi ro chấp nhận:** bất kỳ ai có tài khoản Google đều đọc được hồ sơ trình diễn, nên hồ sơ này **không bao giờ** được chứa dữ liệu người thật (AGENTS.md §6). Mỗi tài khoản Google mới thêm một dòng `caregivers`/`google_viewers`/`grants`; số lần tạo bị chặn bởi giới hạn đăng nhập 20 lần/60 s mỗi IP, chưa có giới hạn tổng.
+- **Đã kiểm chứng (2026-10-19):** 15 test Worker mới với Google giả (khóa RSA thật): cấp quyền chỉ xem đúng hồ sơ, cùng `sub` → cùng tài khoản, mọi lệnh ghi/lệnh thiết bị/admin → 403/401, hồ sơ khác → 404, phiên hết hạn và đăng xuất độc lập, grant thu hồi không tạo lại, tắt chế độ thì bị từ chối, token sai chữ ký/aud/iss/hết hạn/nonce và state sai vẫn bị từ chối mà không tạo tài khoản; mật khẩu tắt → 403. Toàn bộ 210 test Worker pass. Production: migration `0003` đã áp, Worker deploy, `/ready` báo `password_sign_in: disabled`, trang đăng nhập production (Chromium thật, backend thật) chỉ có nút Google. **Chưa kiểm:** đăng nhập với Google thật (chờ owner tạo OAuth client và đặt `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`).
 - **Owner:** Chưa gán
 
 ## Mẫu

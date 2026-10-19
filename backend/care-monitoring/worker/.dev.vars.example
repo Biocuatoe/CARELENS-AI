@@ -34,3 +34,10 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=http://localhost:8787/api/app/v1/auth/google/callback
 GOOGLE_POST_LOGIN_URL=http://localhost:5173/login
+# Open-viewer mode (A38): any verified Google account reads this one recipient, read-only. wrangler.jsonc sets
+# rcp-showcase for the deployed Worker; empty here = only identities allowed with `admin.py google-allow`.
+GOOGLE_OPEN_VIEWER_RECIPIENT_ID=
+
+# The deployed Worker is Google-only (PASSWORD_SIGN_IN=disabled in wrangler.jsonc). start_backend.py passes
+# --var PASSWORD_SIGN_IN:enabled for local development; keep it enabled here too.
+PASSWORD_SIGN_IN=enabled

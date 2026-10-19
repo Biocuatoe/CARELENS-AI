@@ -186,7 +186,9 @@ async function readiness(ctx: Ctx): Promise<Response> {
       checks,
       capabilities: {
         admin_api: ctx.config.adminTokenSha256 ? "configured" : "not_configured",
-        google_signin: ctx.config.google ? "configured" : "not_configured",
+        google_signin: ctx.config.google ? "configured" : ctx.config.googleConfigError ? "misconfigured" : "not_configured",
+        google_access: ctx.config.google ? (ctx.config.google.openViewerRecipientId ? "open_viewer_read_only" : "allowlist") : "none",
+        password_sign_in: ctx.config.passwordSignIn ? "enabled" : "disabled",
         vision_fall_rule: vRule ? `${vRule.rule_version}:${vRule.calibration}` : "not_configured_model_not_calibrated",
         imu_fall_rule: iRule ? `${iRule.rule_version}:${iRule.calibration}` : "not_configured",
         alerts: vRule && iRule ? "provisional_suspected_fall_needs_aligned_vision_and_raw_imu" : "none_until_both_rules_are_approved",

@@ -6,20 +6,23 @@
  *   Google ──302 /api/app/v1/auth/google/callback?code&state──▶ Worker:
  *       state single-use, unexpired and bound to this browser's cookie; code exchanged server-to-server with the
  *       client secret and the PKCE verifier; ID token checked (RS256 signature against Google's JWKS, issuer, audience,
- *       expiry, nonce, verified e-mail); identity looked up in the owner's allowlist (google_identities).
+ *       expiry, nonce, verified e-mail); identity looked up in the owner's allowlist (google_identities), or, in
+ *       open-viewer mode, enrolled by its Google subject as a read-only viewer of the one showcase recipient.
  *   Worker ──302 <GOOGLE_POST_LOGIN_URL>#code=<single-use exchange code>──▶ web app
  *   web app ──POST /api/app/v1/session/exchange {code}──▶ the application's own session (same as password sign-in)
  *
- * A Google account that is not in the allowlist gets nothing. The browser only ever supplies state and a code; it
- * never tells the server who it is. Redirect targets are fixed settings, never request input. Authorization codes,
- * tokens, the client secret and profile data are never logged.
+ * Without GOOGLE_OPEN_VIEWER_RECIPIENT_ID a Google account that is not in the allowlist gets nothing. With it, every
+ * verified Google account gets its own viewer account (keyed by `sub`, no e-mail stored) holding exactly one viewer
+ * grant on that recipient: data.read only, nothing else, and a grant the owner revoked is never recreated. The browser
+ * only ever supplies state and a code; it never tells the server who it is. Redirect targets are fixed settings, never
+ * request input. Authorization codes, tokens, the client secret and profile data are never logged.
  */
 import { z } from "zod";
 import { auditStatement, authFailure, clientIp, type Ctx } from "./context";
 import type { GoogleSettings } from "./env";
 import { HttpError, json, readJson } from "./http";
 import { issueSession } from "./session";
-import { addSeconds, iso, randomToken, sha256Hex } from "./util";
+import { addSeconds, iso, newId, randomToken, sha256Hex } from "./util";
 
 const AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -56,10 +59,12 @@ function doFetch(ctx: Ctx): typeof fetch {
   return ctx.outboundFetch ?? fetch;
 }
 
-/** GET /auth/google/config: lets the login page show an honest message instead of redirecting into a dead end. */
+/** GET /auth/google/config: lets the login page show an honest message instead of redirecting into a dead end, and
+ * hide the password form when the server refuses passwords. */
 export async function googleConfig(ctx: Ctx): Promise<Response> {
   if (ctx.config.googleConfigError) throw new HttpError(503, "misconfigured", "Service misconfigured", ctx.config.googleConfigError);
-  return json({ enabled: ctx.config.google !== null });
+  const g = ctx.config.google;
+  return json({ enabled: g !== null, access: g ? (g.openViewerRecipientId ? "open_viewer" : "allowlist") : null, password_sign_in: ctx.config.passwordSignIn });
 }
 
 async function spendBudget(ctx: Ctx): Promise<void> {
@@ -265,22 +270,87 @@ export async function googleCallback(ctx: Ctx): Promise<Response> {
   )
     .bind(identity.email)
     .first<{ user_id: string; google_sub: string | null; status: string }>();
-  if (!owner || owner.status !== "active" || (owner.google_sub !== null && owner.google_sub !== identity.sub)) {
+
+  let userId: string;
+  const nowDate = ctx.clock.now();
+  if (owner) {
+    // An allowlisted e-mail never falls back to open-viewer access: a disabled account or a foreign subject stays out.
+    if (owner.status !== "active" || (owner.google_sub !== null && owner.google_sub !== identity.sub)) return fail(ctx, "google_unauthorized");
+    await ctx.env.DB.prepare(`UPDATE google_identities SET google_sub = ?1, last_login_at = ?2 WHERE email = ?3 AND (google_sub IS NULL OR google_sub = ?1)`)
+      .bind(identity.sub, iso(nowDate), identity.email)
+      .run();
+    userId = owner.user_id;
+  } else if (g.openViewerRecipientId) {
+    const viewer = await openViewer(ctx, identity.sub, g.openViewerRecipientId);
+    if (!viewer) return fail(ctx, "google_unauthorized");
+    userId = viewer;
+  } else {
     return fail(ctx, "google_unauthorized");
   }
 
   const exchange = randomToken("clx");
-  const nowDate = ctx.clock.now();
-  await ctx.env.DB.batch([
-    ctx.env.DB.prepare(`UPDATE google_identities SET google_sub = ?1, last_login_at = ?2 WHERE email = ?3 AND (google_sub IS NULL OR google_sub = ?1)`).bind(identity.sub, iso(nowDate), identity.email),
-    ctx.env.DB.prepare(`INSERT INTO login_exchanges (code_sha256, user_id, created_at, expires_at) VALUES (?1, ?2, ?3, ?4)`).bind(
-      await sha256Hex(exchange),
-      owner.user_id,
-      iso(nowDate),
-      iso(addSeconds(nowDate, EXCHANGE_TTL_SECONDS)),
-    ),
-  ]);
+  await ctx.env.DB.prepare(`INSERT INTO login_exchanges (code_sha256, user_id, created_at, expires_at) VALUES (?1, ?2, ?3, ?4)`)
+    .bind(await sha256Hex(exchange), userId, iso(nowDate), iso(addSeconds(nowDate, EXCHANGE_TTL_SECONDS)))
+    .run();
   return backToApp(ctx, { code: exchange });
+}
+
+/** Label of the showcase recipient when open-viewer mode has to create it (it starts empty: no events, no devices). */
+export const OPEN_VIEWER_RECIPIENT_LABEL = "Hồ sơ trình diễn";
+const OPEN_VIEWER_DISPLAY_NAME = "Người xem (Google)";
+
+/**
+ * Open-viewer mode: returns the viewer account of this Google subject, creating it on first sign-in, or null when the
+ * owner disabled it. The only grant ever created is `viewer` on the configured recipient, and only when this account
+ * never had a grant there (a revoked grant stays revoked). The recipient is created empty if it does not exist and is
+ * never reactivated if the owner deactivated it. Nothing from the Google profile is stored besides the subject.
+ */
+async function openViewer(ctx: Ctx, sub: string, recipientId: string): Promise<string | null> {
+  const db = ctx.env.DB;
+  const now = iso(ctx.clock.now());
+  const ensureRecipient = [
+    db.prepare(`INSERT OR IGNORE INTO care_recipients (recipient_id, display_label, timezone, created_at) VALUES (?1, ?2, ?3, ?4)`).bind(
+      recipientId,
+      OPEN_VIEWER_RECIPIENT_LABEL,
+      ctx.config.reportTimezone,
+      now,
+    ),
+    db.prepare(`INSERT OR IGNORE INTO recipient_streams (recipient_id, seq, updated_at) VALUES (?1, 0, ?2)`).bind(recipientId, now),
+  ];
+  const grantOnce = (userId: string) =>
+    db
+      .prepare(
+        `INSERT INTO grants (grant_id, user_id, recipient_id, role, created_at)
+         SELECT ?1, ?2, ?3, 'viewer', ?4 WHERE NOT EXISTS (SELECT 1 FROM grants WHERE user_id = ?2 AND recipient_id = ?3)`,
+      )
+      .bind(newId("grt"), userId, recipientId, now);
+
+  const existing = await db
+    .prepare(`SELECT v.user_id, c.status FROM google_viewers v JOIN caregivers c ON c.user_id = v.user_id WHERE v.google_sub = ?1`)
+    .bind(sub)
+    .first<{ user_id: string; status: string }>();
+  if (existing) {
+    if (existing.status !== "active") return null;
+    await db.batch([...ensureRecipient, grantOnce(existing.user_id), db.prepare(`UPDATE google_viewers SET last_login_at = ?1 WHERE google_sub = ?2`).bind(now, sub)]);
+    return existing.user_id;
+  }
+
+  const userId = newId("usr");
+  try {
+    await db.batch([
+      ...ensureRecipient,
+      db.prepare(`INSERT INTO caregivers (user_id, display_name, created_at) VALUES (?1, ?2, ?3)`).bind(userId, OPEN_VIEWER_DISPLAY_NAME, now),
+      db.prepare(`INSERT INTO google_viewers (google_sub, user_id, created_at, last_login_at) VALUES (?1, ?2, ?3, ?3)`).bind(sub, userId, now),
+      grantOnce(userId),
+      auditStatement(ctx, { actorType: "system", actorId: null, action: "google_viewer.enroll", targetType: "caregiver", targetId: userId, recipientId }),
+    ]);
+    return userId;
+  } catch (err) {
+    // Two first sign-ins of the same subject at once: the batch that lost the primary-key race rolled back entirely.
+    const winner = await db.prepare(`SELECT user_id FROM google_viewers WHERE google_sub = ?1`).bind(sub).first<{ user_id: string }>();
+    if (winner) return openViewer(ctx, sub, recipientId);
+    throw err;
+  }
 }
 
 /* ------------------------------------------------------------------ exchange */

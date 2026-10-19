@@ -124,6 +124,8 @@ def local_backend(variables: dict[str, str]) -> Iterator[dict[str, Any]]:
         "ENVIRONMENT": "e2e-test",
         "ALLOWED_ORIGINS": "http://localhost:5173",
         "SSE_MAX_LIFETIME_SECONDS": "60",
+        # wrangler.jsonc is Google-only for production; these tests sign in with an owner-issued password.
+        "PASSWORD_SIGN_IN": "enabled",
         **variables,
     }
     cmd = [NPX, "wrangler", "dev", "--ip", "127.0.0.1", "--port", str(port), "--persist-to", str(tmp), "--test-scheduled", "--show-interactive-dev-session=false"]

@@ -70,6 +70,8 @@ test("vùng thông báo lỗi cố định: hiện lỗi không làm thẻ đăn
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/login");
   const card = page.locator("section[aria-label='Đăng nhập']");
+  // The password form appears once the server has said it accepts passwords; measure after that.
+  await expect(page.getByRole("button", { name: "Đăng nhập", exact: true })).toBeVisible();
   const before = await card.boundingBox();
   await googleButton(page).click();
   await expect(page.getByRole("alert")).toBeVisible();
@@ -77,11 +79,31 @@ test("vùng thông báo lỗi cố định: hiện lỗi không làm thẻ đăn
   expect(after).toEqual(before);
 });
 
-test("nút Google đi được bằng bàn phím sau nút Đăng nhập, có tên truy cập và vòng focus", async ({ page }) => {
+test("nút Google là lối chính: đứng trước biểu mẫu trong thứ tự bàn phím, có tên truy cập và vòng focus", async ({ page }) => {
   await mockBackend(page, { googleEnabled: true });
   await page.goto("/login");
-  await page.getByRole("button", { name: "Đăng nhập", exact: true }).focus();
-  await page.keyboard.press("Tab");
-  await expect(googleButton(page)).toBeFocused();
+  await expect(page.getByRole("textbox", { name: /^Tài khoản/ })).toBeVisible();
+  await googleButton(page).focus();
   expect(await googleButton(page).evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("textbox", { name: /^Tài khoản/ })).toBeFocused();
+});
+
+test("máy chủ chỉ nhận Google: không có biểu mẫu mật khẩu, chỉ còn nút Google", async ({ page }) => {
+  const mock = await mockBackend(page, { googleEnabled: true, passwordSignIn: false });
+  await page.goto("/login");
+  await expect(page.getByText("Dùng tài khoản Google để vào Demo trực tiếp ở chế độ chỉ xem.")).toBeVisible();
+  await expect(googleButton(page)).toBeEnabled();
+  await expect(page.getByRole("textbox", { name: /^Tài khoản/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Đăng nhập", exact: true })).toHaveCount(0);
+  await googleButton(page).click();
+  await expect(page).toHaveURL(`${BACKEND}/api/app/v1/auth/google/start`);
+  expect(mock.requests.filter((r) => r === "POST /api/app/v1/session")).toEqual([]);
+});
+
+test("máy chủ chỉ nhận Google nhưng chưa cấu hình Google: nói rõ là chưa đăng nhập được, không hiện biểu mẫu chết", async ({ page }) => {
+  await mockBackend(page, { googleEnabled: false, passwordSignIn: false });
+  await page.goto("/login");
+  await expect(page.getByText("Máy chủ chưa bật phương thức đăng nhập nào")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: /^Tài khoản/ })).toHaveCount(0);
 });

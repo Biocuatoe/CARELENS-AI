@@ -613,6 +613,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
     const res = await this.backendCall<LoginResponse>("POST", "/api/app/v1/session", { username: input.username.trim(), password: input.password }, null);
     if (res.status === 401) throw new ApiError(401, "unauthenticated", "Tài khoản hoặc mật khẩu không đúng.");
     if (res.status === 429) throw new ApiError(429, "rate_limited", "Có quá nhiều lần đăng nhập từ mạng này. Vui lòng thử lại sau một phút.");
+    if (res.status === 403) throw new ApiError(403, "forbidden","Máy chủ này chỉ nhận đăng nhập bằng Google.");
     if (res.status === 400 || res.status === 422) {
       throw new ApiError(res.status, "validation", "Máy chủ không chấp nhận định dạng tài khoản hoặc mật khẩu đã nhập.");
     }
@@ -625,11 +626,12 @@ export class DemoAdapter implements DataAdapter, DemoControls {
   /**
    * Google sign-in, step 1: asks the server whether it is configured, so an unconfigured server gives an honest message
    * instead of a redirect into a dead end. The redirect itself (and the OAuth exchange with Google) happens on the server.
+   * Older servers do not send `password_sign_in`; only an explicit false hides the password form.
    */
-  async getGoogleSignIn(): Promise<{ enabled: boolean; startUrl: string }> {
-    const res = await this.backendCall<{ enabled?: boolean }>("GET", "/api/app/v1/auth/google/config", undefined, null);
+  async getGoogleSignIn(): Promise<{ enabled: boolean; startUrl: string; passwordSignIn: boolean }> {
+    const res = await this.backendCall<{ enabled?: boolean; password_sign_in?: boolean }>("GET", "/api/app/v1/auth/google/config", undefined, null);
     if (res.status !== 200) throw new ApiError(503, "auth_unavailable", `Máy chủ không trả lời cấu hình đăng nhập Google (mã ${res.status}).`);
-    return { enabled: res.data?.enabled === true, startUrl: `${this.apiBase}/api/app/v1/auth/google/start` };
+    return { enabled: res.data?.enabled === true, startUrl: `${this.apiBase}/api/app/v1/auth/google/start`, passwordSignIn: res.data?.password_sign_in !== false };
   }
 
   /** Google sign-in, step 2: the web app trades the single-use code from the redirect for its own session (same shape as login). */
