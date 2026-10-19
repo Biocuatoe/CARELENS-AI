@@ -59,6 +59,27 @@ Re-render: `cd frontend && npm ci`, `cd ../brag-output/composition && npm ci`, t
 `bash scripts/encode.sh ../_render/frames ../audio/soundtrack.wav ..`, `python3 scripts/validate.py ..`.
 The standard `/brag` workflow favours shorter videos; the 30 s duration is the brief's explicit requirement and was not shortened.
 
-## 6. Known limitations
+## 6. Validation results (run on the delivered files, `python3 composition/scripts/validate.py .`)
 
-See the final report (kept in sync with the render): no voice-over (no high-quality Vietnamese TTS available offline), no true per-frame motion blur (soft cross-fades/flash instead), the figure is the landing's stylised synthetic figure, and the "Kena CI" mark is plain text because no official Kena CI logo exists in the repository.
+| Check | Result |
+| --- | --- |
+| `brag.mp4` exists, decodes end-to-end with no errors | PASS (15.9 MB, `ffmpeg -v error -f null` clean) |
+| Duration | PASS — container 30.0000 s, video stream 30.000000 s, audio stream 30.000000 s |
+| Resolution / frame rate / frames | PASS — 1920×1080, 30/1 fps, 900 frames, H.264 High yuv420p, AAC stereo |
+| Loudness | integrated −15.8 LUFS, true peak −1.2 dBFS (ebur128) |
+| Final 4 s (26.0–30.0) show the 20/10 greeting | PASS — inspected frames at 26.0, 26.5, 27.5, 29.0, 29.9; text is fully on screen from 28.4 s and static to the last frame |
+| `brag.jpg` | PASS — extracted from frame 0 of `brag.mp4` (poster composition is baked into frame zero) |
+| `share-copy.txt`, `brag-plan.md`, `composition/` | PASS |
+
+Pre-render stills were inspected for every scene and for the transitions 2→3 (flash), 3→4, 4→5, 5→6, 6→7 (flash → iris), plus a contact sheet of ~60 frames. Fixes made from that review: Vietnamese-capable monospace face (system monospace broke stacked diacritics), headline size/collision in scene 2, right label column clipping, call-outs covering the figure's face, backing panels behind step chips, brighter flash bridge, lens-centred final push, flash→greeting mask.
+
+## 7. Known limitations
+
+* **No voice-over.** No high-quality natural Vietnamese TTS is available offline; the brief allows on-screen text only in that case. The soundtrack is original procedural music + SFX. It was measured (levels, peaks, loudness) but could not be *listened to* in this environment — a human listen is recommended before publishing.
+* **No true per-frame motion blur** (selective motion blur was requested): moves are smooth and transitions use blooms/flashes/masks instead.
+* The figure, room, hub and data packet are the landing page's own stylised synthetic assets; the fall is deliberately simple and non-graphic.
+* Hardware parts are the repository's CAD/procedural models; sizes/variants/placements remain **estimated or unverified** exactly as the repository states, and the film says so on screen.
+* "Kena CI" is plain text (no official Kena CI logo exists in the repository, none was invented).
+* The scene-1 spot is a soft circular highlight, not a literal thin strip of light.
+* Rendering uses software WebGL (SwiftShader) in headless Chromium at pixel ratio 1.25; the full 900-frame render takes roughly 35–40 min on 4 cores. Intermediate frames (`_render/`) are git-ignored.
+* The composition imports the live landing source (`../../frontend/src`); a future change to the landing 3D code can change the render.

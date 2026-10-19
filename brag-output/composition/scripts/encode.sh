@@ -14,5 +14,5 @@ ffmpeg -y -hide_banner -loglevel warning \
   -frames:v 900 -t 30 -movflags +faststart \
   "$OUT/brag.mp4"
 # poster = frame zero of the video (the poster composition is baked into frame 0)
-ffmpeg -y -hide_banner -loglevel warning -i "$OUT/brag.mp4" -frames:v 1 -q:v 2 "$OUT/brag.jpg"
+ffmpeg -y -hide_banner -loglevel warning -i "$OUT/brag.mp4" -frames:v 1 -update 1 -q:v 2 "$OUT/brag.jpg"
 echo "encoded $OUT/brag.mp4"

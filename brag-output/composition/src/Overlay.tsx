@@ -116,7 +116,7 @@ function HardwareStory({ d }: { d: FrameData }) {
       {/* headline */}
       <div className="absolute" style={{ left: 110, top: 96, ...fx(t, 3.35, 6.9, { fi: 0.5, fo: 0.35, rise: 22, blur: 8 }) }}>
         <p className="font-mono text-[20px] font-medium tracking-[0.2em] text-signal uppercase">{stage.title}</p>
-        <h2 className="mt-5 font-display text-[58px] leading-[1.08] font-extrabold tracking-tight text-ivory">
+        <h2 className="mt-5 font-display text-[52px] leading-[1.08] font-extrabold tracking-tight text-ivory">
           Thiết kế nhỏ gọn.
           <br />
           Nhiều thành phần phối hợp.
@@ -233,12 +233,12 @@ function Shutter({ d }: { d: FrameData }) {
 
 /** The full-frame white of the photographic flash (scene 6) and the soft flash that bridges scene 2 to scene 3. */
 function TransitionFlash({ t }: { t: number }) {
-  const bridge = Math.max(0, 1 - Math.abs(t - 8.52) / 0.2) * 0.85;
+  const bridge = Math.min(1, Math.max(0, 1 - Math.abs(t - 8.52) / 0.17) * 1.25);
   // white photographic flash: rises over ~4 frames at 25.3, holds, and hands over to the greeting card from 26.0
   const flash = t >= 25.27 && t < 27.1 ? sm(t, 25.27, 25.4) : 0;
   return (
     <>
-      <div className="absolute inset-0" style={{ opacity: bridge, background: "radial-gradient(circle at 50% 50%, #ffffff 0%, #dff4ee 55%, #b0e4d8 100%)", pointerEvents: "none" }} />
+      <div className="absolute inset-0" style={{ opacity: bridge, background: "radial-gradient(circle at 50% 50%, #ffffff 0%, #f2fbf8 60%, #d3f0e8 100%)", pointerEvents: "none" }} />
       <div className="absolute inset-0" style={{ opacity: flash, background: "#ffffff", pointerEvents: "none" }} />
     </>
   );
