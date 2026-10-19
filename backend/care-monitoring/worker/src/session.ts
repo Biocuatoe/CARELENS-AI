@@ -33,7 +33,7 @@ export function loginSecret(): string {
  * correct guess cannot get through once the budget is spent. Its own key keeps it apart from other failed
  * authentications; with the AUTH_FAILURE_LIMITER setting (20 per 60 s) a panel of judges behind one venue
  * NAT still signs in. */
-async function spendLoginBudget(ctx: Ctx): Promise<void> {
+export async function spendLoginBudget(ctx: Ctx): Promise<void> {
   const limiter = ctx.env.AUTH_FAILURE_LIMITER;
   if (!limiter) return;
   const { success } = await limiter.limit({ key: `login:${clientIp(ctx.request) || "unknown"}` });

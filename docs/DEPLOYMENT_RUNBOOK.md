@@ -10,7 +10,7 @@ Phiên bản 2026-10-19 (đợt 3). Trạng thái: **đã triển khai backend v
 | R2 | `carelens-capture-media` (xóa sau 1 ngày), `carelens-voice-audio`; r2.dev tắt, không custom domain |
 | Vercel | team `dayone7`, project `carelens-ai`, Root Directory `frontend`, nối GitHub `Biocuatoe/CARELENS-AI` nhánh `main` (tự deploy khi push) |
 | Frontend | `https://carelens-ai-eta.vercel.app` (`carelens-ai.vercel.app` đã có người dùng) |
-| Đăng nhập | Chỉ Google (A38): `PASSWORD_SIGN_IN=disabled`, `GOOGLE_OPEN_VIEWER_RECIPIENT_ID=rcp-showcase`. Chưa có `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` → chưa ai đăng nhập được |
+| Đăng nhập | Chỉ Google (A38): `PASSWORD_SIGN_IN=disabled`, `GOOGLE_OPEN_VIEWER_RECIPIENT_ID=rcp-showcase`. `GOOGLE_CLIENT_ID` và secret `GOOGLE_CLIENT_SECRET` đã đặt, Worker bản `b2e7726f`; `/ready` báo `google_signin: configured`, Google chấp nhận client và redirect URI (tới trang chọn tài khoản). **Chưa có lần đăng nhập Google thật nào hoàn tất** |
 | Chưa làm | `ADMIN_TOKEN_SHA256` (admin API báo 503), agent cục bộ, thiết bị |
 
 Ghi chú mạng: ở mạng của máy dev, `curl`/Node mặc định (TLS 1.3 với khóa post-quantum) bắt tay lỗi tới `*.workers.dev`; `curl.exe --tls-max 1.2`, `openssl` và Chromium đều chạy. Dùng `--tls-max 1.2` cho các lệnh `curl` dưới đây nếu gặp lỗi 35. Lệnh chạy trong PowerShell trên Windows trừ khi ghi khác. `<…>` là chỗ điền giá trị thật; không dán giá trị bí mật vào tài liệu, chat hay commit.
@@ -198,7 +198,7 @@ Chế độ danh sách cho phép (A37) vẫn còn: để trống `GOOGLE_OPEN_VI
 
 ## 9. Agent cục bộ trên PC Windows
 
-Xem `integrations/carelens/local-agent/README.md`. Tóm tắt:
+Xem `integrations/carelens/local-agent/README.md`. **Chặn đã đo (2026-10-19):** Python của agent trên PC dev báo `certificate verify failed: certificate has expired` khi gọi Worker, vì kho gốc Windows có `ISRG Root X2` hết hạn; sửa kho chứng chỉ trước (`docs/ESP32_READINESS.md` §4). Agent cũng cần token `cla_…` từ admin API (chưa cấu hình). Tóm tắt:
 
 ```powershell
 cd integrations/carelens/local-agent
@@ -272,3 +272,34 @@ Không làm, không tuyên bố đã đạt trong đợt này:
 - Loa I2S: phát và xác nhận âm thanh, còi.
 - Độ trễ đầu-cuối thật, mất mạng, khởi động lại.
 - Chốt hoặc sửa ADR-017, ADR-019, D10, D11, A30, A33 theo bằng chứng thiết bị.
+
+## 16. Phát hành bảng điều khiển admin (Phase B + 0004 + 0005) — chờ owner duyệt từng bước
+
+**Hiện trạng đã đo (2026-10-19, chỉ đọc):** `GET /ready` của Worker production **không có** `capabilities.admin_signin` và `GET /api/admin/v1/me` trả 404, tức Worker production chưa có Phase B. Việc secret `ADMIN_BOOTSTRAP_EMAILS` đã được đặt (owner báo) **chưa làm** đăng nhập admin chạy: cần cả migration và bản Worker mới. Trong lúc đó trang `/admin/login` sẽ báo "Máy chủ này chưa hỗ trợ đăng nhập quản trị" thay vì hiện nút không dùng được.
+
+Không bước nào dưới đây đã được chạy. Mỗi bước cần owner đồng ý riêng.
+
+| # | Bước | Lệnh (PowerShell, từ `backend/care-monitoring/worker`) | Kỳ vọng | Quay lại |
+| --- | --- | --- | --- | --- |
+| 0 | Xem trước | `npx wrangler d1 migrations list care_monitoring --remote` | chờ áp: `0004_admin_auth.sql`, `0005_admin_ops.sql` (kèm các file chưa áp khác nếu có) | — |
+| 1 | Sao lưu mốc thời gian D1 | `npx wrangler d1 time-travel info care_monitoring` | in ra thời điểm khôi phục được; ghi lại | — |
+| 2 | Kiểm secret (không in giá trị) | `npx wrangler secret list` | có `ADMIN_BOOTSTRAP_EMAILS`, `GOOGLE_CLIENT_SECRET`; **không** có `ADMIN_TOKEN_SHA256` | — |
+| 3 | Áp migration **trước** Worker | `npm run db:migrate:remote` | `0004` và `0005` đạt. Cột `reminder_schedules.paused_at`, bảng `admins`, `admin_sessions`, `admin_login_exchanges` tồn tại | Migration không có bản đảo: sửa bằng migration mới hoặc Time Travel (ghi đè DB) |
+| 4 | Kiểm bundle | `npm run deploy:dry-run` | thành công, không đổi gì | — |
+| 5 | Deploy Worker | `npm run deploy` | `GET /ready` → `"status":"ready"`, `admin_signin":"configured"`, `simulated_sources":"rejected"` | `npx wrangler rollback <version-id>` (mã, không phải dữ liệu) |
+| 6 | Kiểm không đổi hành vi cũ | `curl.exe --tls-max 1.2 -s -i https://<worker>/api/admin/v1/me` | 401 (không còn 404) | — |
+| 7 | Deploy frontend | đẩy lên `main` (Vercel tự build); **trước đó** xác nhận `connect-src` trong `frontend/vercel.json` đúng origin Worker | trang `/`, `/login` hoạt động; DevTools Console không có lỗi CSP | Vercel → Deployments → Promote bản trước |
+| 8 | Đăng nhập admin thật, một lần | mở `/admin/login`, đăng nhập bằng Google của owner | `/admin` hiện đúng email và "Chủ sở hữu"; `GET /api/admin/v1/me` 200 | `DELETE /api/admin/v1/session` hoặc đổi `ADMIN_BOOTSTRAP_EMAILS` (thu hồi owner ngay) |
+| 9 | Kiểm các trang chỉ đọc | Thiết bị, Báo cáo ngày, Agent, Nhật ký | sổ thiết bị phản ánh đúng DB; thiết bị chưa đăng ký thì "Chưa có thiết bị nào được đăng ký" | — |
+
+Thứ tự bắt buộc: **migration → Worker → frontend**. Worker mới trên DB chưa có `paused_at` làm bước nhắc lịch của cron lỗi (`no such column`); frontend mới trên Worker cũ hiện "chưa có API này" ở các trang mới nhưng không hỏng.
+
+Chỉ sau khi owner đồng ý riêng và có thiết bị thật:
+
+| # | Bước | Ghi chú |
+| --- | --- | --- |
+| 10 | Cấp phát thiết bị đầu tiên | Dùng route cấp phát có sẵn (§8), **không** qua giao diện. Credential hiện một lần, đặt vào bộ nhớ an toàn của firmware; không đưa vào mã nguồn chung |
+| 11 | Gửi một lệnh âm thanh thử | Chỉ khi firmware đã nạp và trả lời được `commands/next`. Kết luận "đã phát" chỉ khi thiết bị tự báo `completed` |
+| 12 | Một nhắc lịch thử | Chọn giờ cách vài phút. Bằng chứng cron chạy: xuất hiện lệnh `reminder` cho lần hẹn đó; không có lệnh nghĩa là cron chưa chạy hoặc thiết bị bị coi là ngoại tuyến quá hạn |
+
+**Đã kiểm cục bộ, không thay cho các bước trên:** test Worker trong runtime Workers (287), `deploy:dry-run`, test giao diện và Playwright với Worker giả. Chưa có bằng chứng nào từ Google thật, D1 production, cron production hay phần cứng.

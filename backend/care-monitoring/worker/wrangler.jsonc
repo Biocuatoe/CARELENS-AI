@@ -82,7 +82,7 @@
     "SESSION_TTL_HOURS": "12",
     // Google sign-in stays off while GOOGLE_CLIENT_ID (public) is empty; the secret goes in with
     // `wrangler secret put GOOGLE_CLIENT_SECRET` (never a var). Procedure: docs/DEPLOYMENT_RUNBOOK.md §8.2.
-    "GOOGLE_CLIENT_ID": "",
+    "GOOGLE_CLIENT_ID": "979588489488-be9tq7gif9pncdiq2v26l4s427j2bj6v.apps.googleusercontent.com",
     // Register exactly this URI in Google Cloud Console (Authorized redirect URIs).
     "GOOGLE_REDIRECT_URI": "https://care-monitoring.care-monitoring-worker.workers.dev/api/app/v1/auth/google/callback",
     "GOOGLE_POST_LOGIN_URL": "https://carelens-ai-eta.vercel.app/login",

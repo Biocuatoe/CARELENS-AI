@@ -41,3 +41,8 @@ GOOGLE_OPEN_VIEWER_RECIPIENT_ID=
 # The deployed Worker is Google-only (PASSWORD_SIGN_IN=disabled in wrangler.jsonc). start_backend.py passes
 # --var PASSWORD_SIGN_IN:enabled for local development; keep it enabled here too.
 PASSWORD_SIGN_IN=enabled
+
+# Admin sign-in with Google (Phase B): e-mail addresses (comma separated) of the owners who may use the admin API.
+# Empty = admin sign-in is off. In production this is a secret: `wrangler secret put ADMIN_BOOTSTRAP_EMAILS`.
+# Needs the Google settings above, and the flow starts at /api/app/v1/auth/google/start?mode=admin.
+ADMIN_BOOTSTRAP_EMAILS=

@@ -11,6 +11,9 @@
  *   Worker ──302 <GOOGLE_POST_LOGIN_URL>#code=<single-use exchange code>──▶ web app
  *   web app ──POST /api/app/v1/session/exchange {code}──▶ the application's own session (same as password sign-in)
  *
+ * `?mode=admin` starts the same flow for the admin API (adminAuth.ts): the purpose is stored with the state and read back in the
+ * callback, the result is an admin exchange code on /admin/login, and neither the viewer allowlist nor open-viewer mode applies.
+ *
  * Without GOOGLE_OPEN_VIEWER_RECIPIENT_ID a Google account that is not in the allowlist gets nothing. With it, every
  * verified Google account gets its own viewer account (keyed by `sub`, no e-mail stored) holding exactly one viewer
  * grant on that recipient: data.read only, nothing else, and a grant the owner revoked is never recreated. The browser
@@ -18,6 +21,7 @@
  * request input. Authorization codes, tokens, the client secret and profile data are never logged.
  */
 import { z } from "zod";
+import { completeAdminSignIn, requireAdminSignInConfigured } from "./adminAuth";
 import { auditStatement, authFailure, clientIp, type Ctx } from "./context";
 import type { GoogleSettings } from "./env";
 import { HttpError, json, readJson } from "./http";
@@ -90,6 +94,11 @@ function bindingCookie(ctx: Ctx, value: string, maxAge: number): string {
 /** GET /auth/google/start */
 export async function googleStart(ctx: Ctx): Promise<Response> {
   const g = settings(ctx);
+  // `?mode=admin` starts the admin flow; anything but the two known modes is refused rather than treated as a viewer.
+  const mode = ctx.url.searchParams.get("mode");
+  if (mode !== null && mode !== "viewer" && mode !== "admin") throw new HttpError(400, "invalid_mode", "Bad request", "mode must be viewer or admin.");
+  const purpose: OAuthPurpose = mode === "admin" ? "admin" : "viewer";
+  if (purpose === "admin") requireAdminSignInConfigured(ctx);
   await spendBudget(ctx);
   // The cookie is host-only, so the flow must start on the very host Google will send the user back to.
   if (ctx.url.origin !== new URL(g.redirectUri).origin) {
@@ -102,9 +111,9 @@ export async function googleStart(ctx: Ctx): Promise<Response> {
   const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
   const now = ctx.clock.now();
   await ctx.env.DB.prepare(
-    `INSERT INTO oauth_states (state_sha256, binding_sha256, nonce, code_verifier, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+    `INSERT INTO oauth_states (state_sha256, binding_sha256, nonce, code_verifier, created_at, expires_at, purpose) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
   )
-    .bind(await sha256Hex(state), await sha256Hex(binding), nonce, verifier, iso(now), iso(addSeconds(now, STATE_TTL_SECONDS)))
+    .bind(await sha256Hex(state), await sha256Hex(binding), nonce, verifier, iso(now), iso(addSeconds(now, STATE_TTL_SECONDS)), purpose)
     .run();
   const url = new URL(AUTHORIZE_URL);
   url.search = new URLSearchParams({
@@ -121,9 +130,17 @@ export async function googleStart(ctx: Ctx): Promise<Response> {
   return new Response(null, { status: 302, headers: { location: url.toString(), "cache-control": "no-store", "set-cookie": bindingCookie(ctx, binding, STATE_TTL_SECONDS) } });
 }
 
-function backToApp(ctx: Ctx, fragment: Record<string, string>): Response {
+export type OAuthPurpose = "viewer" | "admin";
+/** Fixed path of the admin sign-in page, on the same origin as GOOGLE_POST_LOGIN_URL. Never request input. */
+export const ADMIN_POST_LOGIN_PATH = "/admin/login";
+
+function backToApp(ctx: Ctx, fragment: Record<string, string>, purpose: OAuthPurpose = "viewer"): Response {
   const g = ctx.config.google;
   const target = new URL(g?.postLoginUrl ?? ctx.url.origin);
+  if (purpose === "admin") {
+    target.pathname = ADMIN_POST_LOGIN_PATH;
+    target.search = "";
+  }
   target.hash = new URLSearchParams(fragment).toString();
   return new Response(null, {
     status: 302,
@@ -131,9 +148,18 @@ function backToApp(ctx: Ctx, fragment: Record<string, string>): Response {
   });
 }
 
-async function fail(ctx: Ctx, reason: GoogleFailure, detail?: Record<string, unknown>): Promise<Response> {
-  await auditStatement(ctx, { actorType: "system", actorId: null, action: "session.google_login", outcome: "denied", detail: { reason, ...(detail ?? {}) } }).run();
-  return backToApp(ctx, { error: reason });
+async function fail(ctx: Ctx, reason: GoogleFailure, detail?: Record<string, unknown>, purpose: OAuthPurpose = "viewer"): Promise<Response> {
+  const action = purpose === "admin" ? "admin.google_login" : "session.google_login";
+  await auditStatement(ctx, { actorType: "system", actorId: null, action, outcome: "denied", detail: { reason, ...(detail ?? {}) } }).run();
+  return backToApp(ctx, { error: reason }, purpose);
+}
+
+/** Best-effort: which sign-in page to return to when the callback fails before its state could be consumed. Only picks
+ * between two fixed pages; it grants nothing. */
+async function purposeOfState(ctx: Ctx, state: string | null): Promise<OAuthPurpose> {
+  if (!state || state.length > 256) return "viewer";
+  const row = await ctx.env.DB.prepare(`SELECT purpose FROM oauth_states WHERE state_sha256 = ?1`).bind(await sha256Hex(state)).first<{ purpose: OAuthPurpose }>();
+  return row?.purpose === "admin" ? "admin" : "viewer";
 }
 
 /* ------------------------------------------------------------------ ID token */
@@ -215,25 +241,28 @@ export async function verifyIdToken(ctx: Ctx, idToken: string, expectedNonce: st
 export async function googleCallback(ctx: Ctx): Promise<Response> {
   const g = settings(ctx);
   const params = ctx.url.searchParams;
-  if (params.get("error")) return fail(ctx, "google_denied");
   const code = params.get("code");
   const state = params.get("state");
+  const early = () => purposeOfState(ctx, state);
+  if (params.get("error")) return fail(ctx, "google_denied", undefined, await early());
   const binding = cookieValue(ctx.request, COOKIE);
-  if (!code || !state || !binding || code.length > 2048 || state.length > 256) return fail(ctx, "google_state");
+  if (!code || !state || !binding || code.length > 2048 || state.length > 256) return fail(ctx, "google_state", undefined, await early());
   try {
     await spendBudget(ctx);
   } catch (err) {
-    if (err instanceof HttpError) return fail(ctx, "google_unavailable", { why: "rate_limited" });
+    if (err instanceof HttpError) return fail(ctx, "google_unavailable", { why: "rate_limited" }, await early());
     throw err;
   }
 
   const now = iso(ctx.clock.now());
   const row = await ctx.env.DB.prepare(
-    `UPDATE oauth_states SET used_at = ?1 WHERE state_sha256 = ?2 AND binding_sha256 = ?3 AND used_at IS NULL AND expires_at > ?1 RETURNING nonce, code_verifier`,
+    `UPDATE oauth_states SET used_at = ?1 WHERE state_sha256 = ?2 AND binding_sha256 = ?3 AND used_at IS NULL AND expires_at > ?1 RETURNING nonce, code_verifier, purpose`,
   )
     .bind(now, await sha256Hex(state), await sha256Hex(binding))
-    .first<{ nonce: string; code_verifier: string }>();
-  if (!row) return fail(ctx, "google_state");
+    .first<{ nonce: string; code_verifier: string; purpose: OAuthPurpose }>();
+  // From here on the flow's purpose is the one stored when it started; the request cannot change it.
+  if (!row) return fail(ctx, "google_state", undefined, await early());
+  const purpose = row.purpose;
 
   let idToken: string;
   try {
@@ -249,12 +278,12 @@ export async function googleCallback(ctx: Ctx): Promise<Response> {
         code_verifier: row.code_verifier,
       }).toString(),
     });
-    if (!res.ok) return fail(ctx, "google_exchange", { http: res.status });
+    if (!res.ok) return fail(ctx, "google_exchange", { http: res.status }, purpose);
     const body = (await res.json()) as { id_token?: string };
-    if (typeof body.id_token !== "string") return fail(ctx, "google_exchange", { why: "no_id_token" });
+    if (typeof body.id_token !== "string") return fail(ctx, "google_exchange", { why: "no_id_token" }, purpose);
     idToken = body.id_token;
   } catch {
-    return fail(ctx, "google_unavailable", { why: "token_endpoint" });
+    return fail(ctx, "google_unavailable", { why: "token_endpoint" }, purpose);
   }
 
   let identity: VerifiedIdentity;
@@ -262,7 +291,14 @@ export async function googleCallback(ctx: Ctx): Promise<Response> {
     identity = await verifyIdToken(ctx, idToken, row.nonce, g);
   } catch (err) {
     // Only the failed check is recorded, never the token or its claims.
-    return fail(ctx, "google_token", { check: err instanceof Error ? err.message.slice(0, 40) : "invalid" });
+    return fail(ctx, "google_token", { check: err instanceof Error ? err.message.slice(0, 40) : "invalid" }, purpose);
+  }
+
+  if (purpose === "admin") {
+    // Admin identity is decided by adminAuth.ts only; the viewer allowlist and open-viewer mode never apply here.
+    const admin = await completeAdminSignIn(ctx, identity);
+    if (!admin.ok) return fail(ctx, "google_unauthorized", { why: admin.why }, "admin");
+    return backToApp(ctx, { admin_code: admin.code }, "admin");
   }
 
   const owner = await ctx.env.DB.prepare(

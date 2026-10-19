@@ -12,6 +12,7 @@ import { HistoryPage } from "../features/history/HistoryPage";
 import { ReportsPage } from "../features/reports/ReportsPage";
 import { SharingPage } from "../features/sharing/SharingPage";
 import { NotificationSettingsPage } from "../features/settings/NotificationSettingsPage";
+import { RequireAdmin } from "./adminAuth";
 import { NotFoundPage } from "./NotFoundPage";
 import { GeneralLayout, RecipientLayout, RequireAuth, RequireProduct, RequireRecipientPermission } from "./layouts";
 
@@ -31,6 +32,27 @@ export const routes = [
   {
     path: "/hardware-story",
     lazy: async () => ({ Component: (await import("../features/hardware/HardwareStoryPage")).HardwareStoryPage }),
+  },
+  // Khu quản trị: trạng thái phiên riêng (app/adminAuth.tsx), tách khỏi RequireAuth của người xem. Tải lười để không vào bundle chính.
+  { path: "/admin/login", lazy: async () => ({ Component: (await import("../features/admin/AdminLoginPage")).AdminLoginPage }) },
+  {
+    element: <RequireAdmin />,
+    children: [
+      {
+        lazy: async () => ({ Component: (await import("../features/admin/AdminLayout")).AdminLayout }),
+        children: [
+          { path: "/admin", lazy: async () => ({ Component: (await import("../features/admin/AdminOverviewPage")).AdminOverviewPage }) },
+          { path: "/admin/devices", lazy: async () => ({ Component: (await import("../features/admin/AdminDevicesPage")).AdminDevicesPage }) },
+          { path: "/admin/devices/:deviceId", lazy: async () => ({ Component: (await import("../features/admin/AdminDevicesPage")).AdminDevicesPage }) },
+          { path: "/admin/reports", lazy: async () => ({ Component: (await import("../features/admin/AdminReportPage")).AdminReportPage }) },
+          { path: "/admin/messages", lazy: async () => ({ Component: (await import("../features/admin/AdminMessagesPage")).AdminMessagesPage }) },
+          { path: "/admin/reminders", lazy: async () => ({ Component: (await import("../features/admin/AdminRemindersPage")).AdminRemindersPage }) },
+          { path: "/admin/agents", lazy: async () => ({ Component: (await import("../features/admin/AdminAgentsPage")).AdminAgentsPage }) },
+          { path: "/admin/audit", lazy: async () => ({ Component: (await import("../features/admin/AdminAuditPage")).AdminAuditPage }) },
+          { path: "/admin/*", element: <NotFoundPage inline /> },
+        ],
+      },
+    ],
   },
   {
     element: <RequireAuth />,

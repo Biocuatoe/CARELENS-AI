@@ -104,3 +104,21 @@ export function toDateInputValue(iso: string): string {
 export function fromDateInputValue(value: string, endOfDay = false): string {
   return new Date(`${value}T${endOfDay ? "23:59:59" : "00:00:00"}+07:00`).toISOString();
 }
+
+const timeSecondsFmt = new Intl.DateTimeFormat("vi-VN", {
+  timeZone: DISPLAY_TIMEZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+/** Giờ:phút:giây theo múi giờ hiển thị (dòng thời gian báo cáo, cần độ phân giải giây). */
+export function formatTimeSeconds(iso: string): string {
+  return timeSecondsFmt.format(new Date(iso));
+}
+
+/** Ngày lịch YYYY-MM-DD của một thời điểm theo múi giờ hiển thị (mặc định: hôm nay ở Việt Nam, không phải theo múi giờ của trình duyệt). */
+export function localDateKey(at: Date = new Date()): string {
+  return dayKeyFmt.format(at);
+}

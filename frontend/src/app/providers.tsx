@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AdapterProvider, createDataAdapter } from "../data";
 import { isAccessError, isAuthError } from "../data/errors";
+import { AdminAuthProvider } from "./adminAuth";
 import { AuthProvider, useAuth } from "./auth";
 
 type Listener = () => void;
@@ -44,7 +45,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <AuthFailureBridge />
-          {children}
+          {/* Phiên quản trị tách khỏi AuthProvider và QueryClient: lỗi hay đăng xuất bên này không chạm phiên người xem. */}
+          <AdminAuthProvider>{children}</AdminAuthProvider>
         </AuthProvider>
       </QueryClientProvider>
     </AdapterProvider>

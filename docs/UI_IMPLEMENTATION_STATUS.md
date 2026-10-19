@@ -27,6 +27,12 @@ Nút **Dữ liệu mô phỏng** trên header mở công cụ demo với các t�
 | ID | Màn hình | Route | Trạng thái | Nguồn dữ liệu |
 | --- | --- | --- | --- | --- |
 | Shell | Sidebar ≥1024px, rail 768–1023px, hamburger <768px, header sticky, đổi hồ sơ | – | Đã dựng | Mô phỏng |
+| Admin | Đăng nhập quản trị, tổng quan | `/admin/login`, `/admin` | Đã dựng (A39/A40). Google `mode=admin` qua máy chủ; tổng quan đọc `/status`, `/capabilities`, `/devices`, `/audit`. **Chưa kiểm với Google thật hoặc production** | Máy chủ care-monitoring, không mô phỏng |
+| Admin | Thiết bị (danh sách, chi tiết) | `/admin/devices`, `/admin/devices/:id` | Đã dựng (A40). Hiện đăng ký, trạng thái credential (không bao giờ có credential), liên lạc, sức khỏe do thiết bị tự báo, lệnh. Không có đăng ký/xoay/thu hồi trong giao diện | Máy chủ, không mô phỏng |
+| Admin | Báo cáo hoạt động theo ngày | `/admin/reports` | Đã dựng (A40). Ngày theo giờ Việt Nam → `[start, end)`, trạng thái từng nguồn (đầy đủ / cắt bớt / một phần / quá hạn lưu giữ / không được lưu), xuất CSV chống công thức | Máy chủ; bản ghi từ thiết bị mô phỏng được gắn "Dữ liệu mô phỏng" |
+| Admin | Gửi âm thanh | `/admin/messages` | Đã dựng (A40). Tải WAV lên, nghe thử qua blob, hộp xác nhận cuối, theo dõi trạng thái do thiết bị báo. **Không có chuyển văn bản thành giọng nói**; phát trên loa thật chưa kiểm chứng | Máy chủ, không mô phỏng |
+| Admin | Nhắc lịch | `/admin/reminders` | Đã dựng (A40). Một lần hoặc lặp hằng tuần, tạm dừng/tiếp tục/hủy; thực hiện bởi cron của Worker, không phải trình duyệt. Chưa có bằng chứng cron chạy trên production | Máy chủ, không mô phỏng |
+| Admin | Agent và dịch vụ, Nhật ký | `/admin/agents`, `/admin/audit` | Đã dựng (A40). Nói rõ máy chủ không quan sát được Vision API/Ollama trực tiếp | Máy chủ, không mô phỏng |
 | S01 | Đăng nhập | `/login` | Đã dựng theo bảng màu landing (A35). Một tài khoản Live Demo dùng chung, đăng nhập qua backend care-monitoring; không còn chọn người dùng mô phỏng. Build thiếu `VITE_API_BASE_URL` thì báo chưa kết nối máy chủ | Máy chủ thật (đã kiểm bằng backend giả ở tầng mạng trong e2e; chưa kiểm trên bản deploy) |
 | S02 | Onboarding 5 bước | (đã gỡ) | Gỡ theo A35: tài khoản Live Demo chỉ có một hồ sơ do máy chủ cấp, không tạo hồ sơ từ giao diện | Không áp dụng |
 | S03 | Chọn hồ sơ | `/people` | Đã dựng | Mô phỏng |

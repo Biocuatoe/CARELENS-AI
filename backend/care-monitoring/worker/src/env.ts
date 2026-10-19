@@ -54,6 +54,11 @@ export interface Env {
   GOOGLE_OPEN_VIEWER_RECIPIENT_ID?: string;
   /** "enabled" (default) or "disabled": whether POST /api/app/v1/session accepts owner-issued passwords. */
   PASSWORD_SIGN_IN?: string;
+  /** Secret (`wrangler secret put`, never a var): e-mail addresses of the owners who may sign in to the admin API with
+   * Google, separated by commas, semicolons or whitespace. Empty = admin sign-in is off (fail closed). */
+  ADMIN_BOOTSTRAP_EMAILS?: string;
+  /** Lifetime of an admin session in minutes (default 120, 15-720). */
+  ADMIN_SESSION_TTL_MINUTES?: string;
   DEVICE_AUDIO_SAMPLE_RATES?: string;
 }
 
@@ -171,6 +176,11 @@ export interface Config {
   googleConfigError: string | null;
   /** false when PASSWORD_SIGN_IN=disabled: owner-issued passwords are refused and the login page hides the form. */
   passwordSignIn: boolean;
+  /** Lower-cased, de-duplicated ADMIN_BOOTSTRAP_EMAILS; empty when unset or when any entry is malformed. */
+  adminBootstrapEmails: string[];
+  /** Set when ADMIN_BOOTSTRAP_EMAILS is present but malformed. Only the admin routes fail on it. Never contains the values. */
+  adminConfigError: string | null;
+  adminSessionTtlMinutes: number;
   deviceAudioSampleRates: number[];
 }
 
@@ -228,6 +238,21 @@ function googleSettings(env: Env): GoogleSettings | null {
   return { clientId, clientSecret, redirectUri, postLoginUrl, openViewerRecipientId: openViewerRecipientId || null };
 }
 
+const MAX_BOOTSTRAP_ADMINS = 10;
+
+/** Parses ADMIN_BOOTSTRAP_EMAILS. Normalisation is deliberately plain (trim + lower-case): no gmail dot or "+tag" folding,
+ * so the comparison with Google's verified `email` claim is predictable. One bad entry disables the whole list, because
+ * guessing what the owner meant is not safe for an admin allowlist. Error text never repeats a value. */
+function adminBootstrap(value: string | undefined): { emails: string[]; error: string | null } {
+  const entries = (value ?? "").split(/[\s,;]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+  if (entries.length === 0) return { emails: [], error: null };
+  const wellFormed = (e: string) => e.length <= 254 && /^[^\s@,;<>()"']+@[^\s@,;<>()"']+\.[^\s@,;<>()"']+$/.test(e);
+  if (entries.length > MAX_BOOTSTRAP_ADMINS || !entries.every(wellFormed)) {
+    return { emails: [], error: `ADMIN_BOOTSTRAP_EMAILS must list 1-${MAX_BOOTSTRAP_ADMINS} plain e-mail addresses; admin sign-in is off until it is fixed.` };
+  }
+  return { emails: [...new Set(entries)], error: null };
+}
+
 function passwordSignIn(value: string | undefined): boolean {
   const v = (value ?? "").trim() || "enabled";
   if (v !== "enabled" && v !== "disabled") throw new ConfigError('PASSWORD_SIGN_IN must be "enabled" or "disabled"');
@@ -282,6 +307,7 @@ export function loadConfig(env: Env): Config {
     throw new ConfigError(`DEVICE_AUDIO_SAMPLE_RATES must list values from ${SUPPORTED_AUDIO_SAMPLE_RATES.join(", ")}`);
   }
 
+  const bootstrap = adminBootstrap(env.ADMIN_BOOTSTRAP_EMAILS);
   return {
     environment: (env.ENVIRONMENT ?? "production").trim(),
     allowedOrigins: list(env.ALLOWED_ORIGINS),
@@ -312,6 +338,9 @@ export function loadConfig(env: Env): Config {
     loginPbkdf2Iterations: int(env.LOGIN_PBKDF2_ITERATIONS, 100_000, 1_000, 100_000, "LOGIN_PBKDF2_ITERATIONS"),
     ...googleConfig(env),
     passwordSignIn: passwordSignIn(env.PASSWORD_SIGN_IN),
+    adminBootstrapEmails: bootstrap.emails,
+    adminConfigError: bootstrap.error,
+    adminSessionTtlMinutes: int(env.ADMIN_SESSION_TTL_MINUTES, 120, 15, 720, "ADMIN_SESSION_TTL_MINUTES"),
     deviceAudioSampleRates: [...new Set(rates)].sort((a, b) => a - b),
   };
 }

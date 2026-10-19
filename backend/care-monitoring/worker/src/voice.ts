@@ -92,8 +92,22 @@ function versionStatement(ctx: Ctx, assetId: string, version: number, key: strin
   ).bind(assetId, version, key, info.sampleRateHz, info.channels, info.bitsPerSample, info.durationMs, size, sha, by, iso(ctx.clock.now()));
 }
 
+/** Who stores a recording. `createdBy` is written to audio_assets/audio_asset_versions (free text: a caregiver user id, or
+ * "admin:<admin_id>"); `actorType`/`actorId` go to the audit log. */
+export interface VoiceActor {
+  actorType: "admin" | "caregiver";
+  actorId: string;
+  createdBy: string;
+  auditDetail?: Record<string, unknown>;
+}
+
 export async function uploadVoice(ctx: Ctx, user: CaregiverPrincipal, recipientId: string): Promise<Response> {
   await requireRecipient(ctx, user, recipientId, "voice.manage");
+  return storeVoice(ctx, { actorType: "caregiver", actorId: user.userId, createdBy: user.userId }, recipientId);
+}
+
+/** Validates (WAV contract) and stores a new recording of a recipient. Authorization is the caller's job. */
+export async function storeVoice(ctx: Ctx, actor: VoiceActor, recipientId: string): Promise<Response> {
   const title = titleParam(ctx, true) as string;
   const { bytes, info, sha } = await readAudio(ctx);
   const assetId = newId("vm");
@@ -104,9 +118,9 @@ export async function uploadVoice(ctx: Ctx, user: CaregiverPrincipal, recipientI
     await ctx.env.DB.batch([
       ctx.env.DB.prepare(
         `INSERT INTO audio_assets (asset_id, recipient_id, title, current_version, status, created_by, created_at, updated_at) VALUES (?1, ?2, ?3, 1, 'active', ?4, ?5, ?5)`,
-      ).bind(assetId, recipientId, title, user.userId, now),
-      versionStatement(ctx, assetId, 1, key, info, bytes.byteLength, sha, user.userId),
-      auditStatement(ctx, { actorType: "caregiver", actorId: user.userId, action: "voice.upload", targetType: "voice_message", targetId: assetId, recipientId }),
+      ).bind(assetId, recipientId, title, actor.createdBy, now),
+      versionStatement(ctx, assetId, 1, key, info, bytes.byteLength, sha, actor.createdBy),
+      auditStatement(ctx, { actorType: actor.actorType, actorId: actor.actorId, action: "voice.upload", targetType: "voice_message", targetId: assetId, recipientId, detail: actor.auditDetail }),
       bumpStreamStatement(ctx, recipientId),
     ]);
   } catch (err) {
@@ -153,6 +167,10 @@ export async function replaceVoice(ctx: Ctx, user: CaregiverPrincipal, recipient
 
 export async function listVoice(ctx: Ctx, user: CaregiverPrincipal, recipientId: string): Promise<Response> {
   await requireRecipient(ctx, user, recipientId, "data.read");
+  return listVoiceOf(ctx, recipientId);
+}
+
+export async function listVoiceOf(ctx: Ctx, recipientId: string): Promise<Response> {
   const rows = await ctx.env.DB.prepare(
     `SELECT a.*, v.version AS v_version, v.content_type, v.sample_rate_hz, v.channels, v.bits_per_sample, v.duration_ms, v.byte_size, v.sha256, v.uploaded_at, v.r2_key, v.uploaded_by
      FROM audio_assets a JOIN audio_asset_versions v ON v.asset_id = a.asset_id AND v.version = a.current_version
@@ -168,9 +186,14 @@ export async function listVoice(ctx: Ctx, user: CaregiverPrincipal, recipientId:
 
 export async function getVoiceAudio(ctx: Ctx, user: CaregiverPrincipal, recipientId: string, assetId: string): Promise<Response> {
   await requireRecipient(ctx, user, recipientId, "data.read");
+  return voiceAudioOf(ctx, recipientId, assetId);
+}
+
+/** The current recording as a private, uncacheable response. `recipientId` null = any recipient (admin preview). */
+export async function voiceAudioOf(ctx: Ctx, recipientId: string | null, assetId: string): Promise<Response> {
   const row = await ctx.env.DB.prepare(
     `SELECT v.* FROM audio_assets a JOIN audio_asset_versions v ON v.asset_id = a.asset_id AND v.version = a.current_version
-     WHERE a.asset_id = ?1 AND a.recipient_id = ?2 AND a.status = 'active'`,
+     WHERE a.asset_id = ?1 AND (?2 IS NULL OR a.recipient_id = ?2) AND a.status = 'active'`,
   )
     .bind(assetId, recipientId)
     .first<VersionRow>();

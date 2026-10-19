@@ -20,6 +20,10 @@ export default defineConfig(async () => {
             // conservative defaults and opt in per test.
             PASSWORD_SIGN_IN: "enabled",
             GOOGLE_OPEN_VIEWER_RECIPIENT_ID: "",
+            // The production client id in wrangler.jsonc has no secret here; Google tests set their own test client.
+            GOOGLE_CLIENT_ID: "",
+            // Admin sign-in is off unless a test turns it on (the real list is a production secret).
+            ADMIN_BOOTSTRAP_EMAILS: "",
           },
         },
       }),

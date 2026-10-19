@@ -250,7 +250,7 @@ async function deviceView(ctx: Ctx, row: CommandRow): Promise<Record<string, unk
 }
 
 /** What caregivers see: the full truthful lifecycle. played === true only after the device said so. */
-function caregiverView(row: CommandRow): Record<string, unknown> {
+export function caregiverView(row: CommandRow): Record<string, unknown> {
   const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
   return {
     command_id: row.command_id,
@@ -401,6 +401,27 @@ export async function deviceCommandAudio(ctx: Ctx, device: DevicePrincipal, comm
 export async function caregiverCreateCommand(ctx: Ctx, user: CaregiverPrincipal, recipientId: string, deviceId: string): Promise<Response> {
   await requireRecipient(ctx, user, recipientId, "devices.command");
   const body = await readJson(ctx.request, CommandCreateV1);
+  return createVoiceCommand(ctx, { actorType: "caregiver", actorId: user.userId, createdBy: user.userId, keyScope: `caregiver:${user.userId}` }, recipientId, deviceId, body);
+}
+
+/** Who issues a command. `createdBy` is stored on the command; `keyScope` prefixes the client's idempotency key so two
+ * actors can never collide on (or replay) each other's keys. */
+export interface CommandActor {
+  actorType: "admin" | "caregiver";
+  actorId: string;
+  createdBy: string;
+  keyScope: string;
+}
+
+/** Queues one play_voice_message command for a device of the recipient. Authorization and body validation are the caller's. */
+export async function createVoiceCommand(
+  ctx: Ctx,
+  actor: CommandActor,
+  recipientId: string,
+  deviceId: string,
+  body: { voice_message_id: string; idempotency_key: string; expires_in_seconds: number },
+  view: (row: CommandRow) => Record<string, unknown> = caregiverView,
+): Promise<Response> {
   const device = await ctx.env.DB.prepare(`SELECT device_id FROM devices WHERE device_id = ?1 AND recipient_id = ?2 AND status = 'active'`)
     .bind(deviceId, recipientId)
     .first();
@@ -416,7 +437,7 @@ export async function caregiverCreateCommand(ctx: Ctx, user: CaregiverPrincipal,
     throw invalid("audio_not_playable", `The device profile plays ${ctx.config.deviceAudioSampleRates.join("/")} Hz; this recording is ${asset.sample_rate_hz} Hz. Upload it again.`);
   }
   const now = ctx.clock.now();
-  const key = `caregiver:${user.userId}:${body.idempotency_key}`;
+  const key = `${actor.keyScope}:${body.idempotency_key}`;
   const payload = { voice: { voice_message_id: body.voice_message_id, version: asset.current_version } };
   const { commandId, statements } = insertCommandStatements(ctx, {
     deviceId,
@@ -425,15 +446,25 @@ export async function caregiverCreateCommand(ctx: Ctx, user: CaregiverPrincipal,
     payload,
     idempotencyKey: key,
     sourceType: "caregiver",
-    sourceId: user.userId,
-    createdBy: user.userId,
+    sourceId: actor.actorId,
+    createdBy: actor.createdBy,
     notBefore: now,
     expiresAt: addSeconds(now, body.expires_in_seconds),
     maxDeliveryAttempts: 3,
   });
+  // A replay of the same key inserts no second command (ON CONFLICT DO NOTHING); the attempt is still audited, so the audit
+  // detail names no command id (a replayed request would carry an id that was never stored).
   await ctx.env.DB.batch([
     ...statements,
-    auditStatement(ctx, { actorType: "caregiver", actorId: user.userId, action: "command.create", targetType: "device", targetId: deviceId, recipientId }),
+    auditStatement(ctx, {
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      action: "command.create",
+      targetType: "device",
+      targetId: deviceId,
+      recipientId,
+      detail: actor.actorType === "admin" ? { device_id: deviceId, command_type: "play_voice_message", voice_message_id: body.voice_message_id } : undefined,
+    }),
     bumpStreamStatement(ctx, recipientId),
   ]);
   const row = await ctx.env.DB.prepare(`SELECT * FROM device_commands WHERE idempotency_key = ?1`).bind(key).first<CommandRow>();
@@ -443,11 +474,15 @@ export async function caregiverCreateCommand(ctx: Ctx, user: CaregiverPrincipal,
     throw conflict("idempotency_key_reused", "idempotency_key was already used for a different command.");
   }
   if (created) ctx.exec.waitUntil(notifyRecipient(ctx.env, recipientId, "command.updated", row.command_id));
-  return json({ command: caregiverView(row), created }, created ? 201 : 200);
+  return json({ command: view(row), created }, created ? 201 : 200);
 }
 
 export async function caregiverListCommands(ctx: Ctx, user: CaregiverPrincipal, recipientId: string, deviceId: string): Promise<Response> {
   await requireRecipient(ctx, user, recipientId, "data.read");
+  return listCommandsOf(ctx, recipientId, deviceId);
+}
+
+export async function listCommandsOf(ctx: Ctx, recipientId: string, deviceId: string, view: (row: CommandRow) => Record<string, unknown> = caregiverView): Promise<Response> {
   const limit = limitParam(ctx.url, 50, 200);
   const cursor = decodeCursor(ctx.url.searchParams.get("cursor"));
   const rows = await ctx.env.DB.prepare(
@@ -460,7 +495,7 @@ export async function caregiverListCommands(ctx: Ctx, user: CaregiverPrincipal, 
   const items = rows.results.slice(0, limit);
   const last = items[items.length - 1];
   return json({
-    items: items.map(caregiverView),
+    items: items.map(view),
     next_cursor: rows.results.length > limit && last ? encodeCursor(last.created_at, last.command_id) : null,
   });
 }
@@ -478,6 +513,10 @@ export async function caregiverCommandTimeline(ctx: Ctx, user: CaregiverPrincipa
  * cannot be cancelled here (it stops on its own after 30 s). */
 export async function caregiverCancelCommand(ctx: Ctx, user: CaregiverPrincipal, recipientId: string, commandId: string): Promise<Response> {
   await requireRecipient(ctx, user, recipientId, "devices.command");
+  return cancelCommandOf(ctx, { actorType: "caregiver", actorId: user.userId }, recipientId, commandId);
+}
+
+export async function cancelCommandOf(ctx: Ctx, actor: { actorType: "admin" | "caregiver"; actorId: string }, recipientId: string, commandId: string): Promise<Response> {
   const now = iso(ctx.clock.now());
   const db = ctx.env.DB;
   const current = await db.prepare(`SELECT * FROM device_commands WHERE command_id = ?1 AND recipient_id = ?2`).bind(commandId, recipientId).first<CommandRow>();
@@ -497,8 +536,17 @@ export async function caregiverCancelCommand(ctx: Ctx, user: CaregiverPrincipal,
   }
   if (!row) throw conflict("not_cancellable", `Command is ${current.status}.`, { current_status: current.status });
   await db.batch([
-    eventStatement(ctx, commandId, row.status === "cancelled" ? "cancelled" : "cancel_requested", "cancelled_by_caregiver", "caregiver"),
-    auditStatement(ctx, { actorType: "caregiver", actorId: user.userId, action: "command.cancel", targetType: "command", targetId: commandId, recipientId }),
+    // device_command_events only knows device/caregiver/system as actors; an admin's cancel is attributed in the audit log.
+    eventStatement(ctx, commandId, row.status === "cancelled" ? "cancelled" : "cancel_requested", actor.actorType === "admin" ? "cancelled_by_admin" : "cancelled_by_caregiver", actor.actorType === "admin" ? "system" : "caregiver"),
+    auditStatement(ctx, {
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      action: "command.cancel",
+      targetType: "command",
+      targetId: commandId,
+      recipientId,
+      detail: actor.actorType === "admin" ? { device_id: current.device_id } : undefined,
+    }),
     bumpStreamStatement(ctx, recipientId),
   ]);
   ctx.exec.waitUntil(notifyRecipient(ctx.env, recipientId, "command.updated", commandId));

@@ -1,6 +1,6 @@
 # Giao thức thiết bị ESP32-S3 CAM ↔ care-monitoring
 
-Phiên bản 2026-10-19. Dành cho người viết firmware. Trạng thái: **Đề xuất** (ADR-019). Backend và harness kiểm thử (`integrations/carelens/local-agent/tools/sample_device.py`) **đã kiểm chứng** theo đúng giao thức này bằng test cục bộ; **chưa có firmware và chưa chạy trên ESP32 thật**. Schema chính thức: `contracts/carelens/*.schema.json` (sinh từ `backend/care-monitoring/worker/src/contracts.ts`), ví dụ hợp lệ ở `contracts/carelens/fixtures/valid/`.
+Phiên bản 2026-10-19. Dành cho người viết firmware. Trạng thái: **Đề xuất** (ADR-019). Backend và harness kiểm thử (`integrations/carelens/local-agent/tools/sample_device.py`) **đã kiểm chứng** theo đúng giao thức này bằng test cục bộ; **chưa có firmware và chưa chạy trên ESP32 thật**. Đánh giá sẵn sàng và kế hoạch thử đầu tiên: `docs/ESP32_READINESS.md`. Schema chính thức: `contracts/carelens/*.schema.json` (sinh từ `backend/care-monitoring/worker/src/contracts.ts`), ví dụ hợp lệ ở `contracts/carelens/fixtures/valid/`.
 
 ## 1. Xác thực
 
@@ -12,6 +12,7 @@ Phiên bản 2026-10-19. Dành cho người viết firmware. Trạng thái: **Đ
 | Thu hồi / xoay | 401 sau khi owner thu hồi hoặc xoay token: dừng gửi, báo lỗi cục bộ, chờ cấp lại. Không thử lại vòng lặp nhanh |
 | Bí mật khác | Firmware không chứa token admin, agent hay bất kỳ secret Cloudflare nào |
 | Mạng | Chỉ HTTPS tới URL Worker (ví dụ `https://care-monitoring.<subdomain>.workers.dev`), kiểm chứng chỉ TLS |
+| TLS thực tế (đã đo bằng `openssl s_client`, 2026-10-19) | Bản deploy `care-monitoring.care-monitoring-worker.workers.dev` trình chuỗi **ECDSA**: lá P-256 (Let's Encrypt `YE2`) → `Root YE` → `ISRG Root X2` (ký chéo bởi `ISRG Root X1`). Chấp nhận TLS 1.2 và 1.3. Chuỗi do Cloudflare chọn và có thể đổi (nhà phát hành khác, ví dụ Google Trust Services). Firmware phải: bật bộ mã ECDHE-ECDSA và đường cong secp256r1 + secp384r1 của mbedTLS; có gốc tin cậy phù hợp (kho gốc của ESP-IDF hoặc ghim **ISRG Root X1**, hết hạn 2035, và dự phòng khi nhà phát hành đổi); **đồng bộ SNTP trước yêu cầu HTTPS đầu tiên**, vì kiểm hạn chứng chỉ cần giờ đúng (giờ 1970 làm bắt tay lỗi). Chưa kiểm trên ESP32 thật |
 
 ## 2. Đồng hồ (bắt buộc trong mọi yêu cầu)
 
@@ -27,6 +28,8 @@ Phiên bản 2026-10-19. Dành cho người viết firmware. Trạng thái: **Đ
 | `wall_time` | Giờ tường RFC 3339 có offset khi đã đồng bộ, ngược lại `null` (gửi giờ tường khi chưa đồng bộ → 422 `invalid_clock`) |
 
 Mọi mốc thời gian của bằng chứng (khung ảnh, mẫu IMU, kích hoạt) là `uptime_ms` của cùng boot. Máy chủ ước lượng UTC của `uptime_ms = 0` bằng giá trị nhỏ nhất của (thời điểm nhận − `clock.uptime_ms`) trong boot đó, nên sai lệch chỉ bằng độ trễ mạng nhỏ nhất (thường < 1 s). Hợp nhất IMU–hình ảnh so sánh `uptime_ms` trực tiếp, nên đồng hồ tường sai hoặc chưa đồng bộ không ảnh hưởng. Bằng chứng khác `boot_id` không bao giờ được ghép theo thời gian. Lệch giờ tường > 2 s so với máy chủ được ghi cờ chẩn đoán.
+
+**Ví dụ trong tài liệu này:** khối JSON của heartbeat, `imu-event.v2` và `command-status.v2` đã được kiểm với schema thật và hợp lệ (2026-10-19). Ví dụ `capture-session.v2` và `imu-batch.v1` được **rút gọn bằng "…"** nên không gửi nguyên văn được; dùng fixture đầy đủ `contracts/carelens/fixtures/valid/capture-session.v2.{normal,triggered}.json` và `imu-batch.v1.raw-100hz.json` làm mẫu cấu trúc. Đó là dữ liệu thử, không phải bằng chứng từ cảm biến.
 
 ## 3. Vòng lặp gợi ý
 
@@ -151,7 +154,7 @@ Máy chủ **không sửa, không nội suy, không bịa mẫu**. Cờ chất l
 }
 ```
 
-Kích hoạt chỉ **mở** một quyết định và ưu tiên xử lý; nó **không phải bằng chứng ngã**. `trigger_type`, `device_metrics` được ghi lại nhưng không dùng để quyết định. Thứ tự gợi ý: gửi kích hoạt (kèm `capture_id` sẽ dùng) → gửi lô IMU phủ thời điểm kích hoạt → upload burst `triggered` có `trigger_id`. Phản hồi 201 `{event_id, fusion: decided|waiting}`. Gửi lại cùng nội dung → 200; khác nội dung → 409 `trigger_id_reused`.
+Kích hoạt chỉ **mở** một quyết định và ưu tiên xử lý; nó **không phải bằng chứng ngã**. `trigger_type`, `device_metrics` được ghi lại nhưng không dùng để quyết định. Thứ tự gợi ý: gửi kích hoạt (kèm `capture_id` sẽ dùng) → gửi lô IMU phủ thời điểm kích hoạt → upload burst `triggered` có `trigger_id`. Phản hồi 201 `{event_id, fusion: decided|waiting}`. Gửi lại cùng nội dung → 200; khác nội dung → 409 `trigger_id_reused`. Mã nguồn còn từ chối (422) `trigger_timing` khi `triggered_uptime_ms` lớn hơn `clock.uptime_ms`, và `event_too_old` khi kích hoạt cũ hơn 24 giờ (`src/imu.ts`).
 
 Quyết định do máy chủ tính (`fusion-rules.v2`, ADR-017). Với cấu hình hiện tại (chưa có quy tắc đã hiệu chỉnh) **không có cảnh báo nghi ngã nào**, chỉ các mục cần người chăm sóc xem lại.
 
@@ -258,4 +261,6 @@ Lỗi luôn là `application/problem+json` với `code` và `request_id`.
 - Độ trễ mạng thật và sai số ước lượng mốc boot.
 - Vị trí gắn MPU6050 (đeo trên người hay đặt cố định) — quyết định ý nghĩa của mọi quy tắc IMU (D11).
 - Phát I2S, thời lượng còi, hành vi khi mất điện giữa chừng.
+- Bắt tay TLS của mbedTLS với chuỗi ECDSA của `workers.dev` và việc có giờ đúng trước lần gọi HTTPS đầu (mục 1).
+- Thời gian CPU của Worker (giới hạn 10 ms/lần gọi trên Free) khi nhận một chunk 8 khung: SHA-256 và kiểm header JPEG chạy trong test cục bộ nhưng chưa đo trên Cloudflare.
 - Khả năng chịu tải free plan với nhịp chụp và nhịp IMU thật; cách firmware ghi số thực (làm tròn hay float32 đầy đủ) quyết định dung lượng IMU gấp khoảng 3 lần.

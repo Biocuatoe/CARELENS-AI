@@ -12,12 +12,15 @@
  * Inference never runs here: the agent on the home PC pulls jobs over outbound HTTPS.
  */
 import * as admin from "./admin";
+import * as comms from "./adminComms";
+import * as ops from "./adminOps";
 import * as alerts from "./alerts";
 import * as app from "./app";
 import * as captures from "./captures";
 import * as commands from "./commands";
 import { observeClock } from "./clock";
-import { authenticateAdmin, authenticateAgent, authenticateCaregiver, authenticateDevice, type Ctx } from "./context";
+import { adminMe, authenticateAdmin, exchangeAdminSession, logoutAdmin } from "./adminAuth";
+import { authenticateAgent, authenticateCaregiver, authenticateDevice, type Ctx } from "./context";
 import { DeviceHeartbeatV2 } from "./contracts";
 import { ConfigError, loadConfig, type Env } from "./env";
 import { HttpError, corsHeaders, forbidden, json, notFound, problem, readJson, withHeaders } from "./http";
@@ -145,10 +148,14 @@ route("POST", `${R}/commands/:id/cancel`, user((ctx, u, p) => commands.caregiver
 
 /* ---------------- admin */
 const adminOnly = (fn: (ctx: Ctx, p: string[]) => Promise<Response>): Handler => async (ctx, p) => {
-  await authenticateAdmin(ctx);
+  await authenticateAdmin(ctx); // also sets ctx.admin, which attributes the audit entries of this request
   return fn(ctx, p);
 };
-route("POST", "/api/admin/v1/recipients", adminOnly((ctx) => admin.createRecipient(ctx, { type: "admin" })));
+// Sign-in for the admin API: the single-use code from the Google callback (GET /api/app/v1/auth/google/start?mode=admin) becomes a session.
+route("POST", "/api/admin/v1/session/exchange", (ctx) => exchangeAdminSession(ctx));
+route("DELETE", "/api/admin/v1/session", async (ctx) => logoutAdmin(ctx, await authenticateAdmin(ctx)));
+route("GET", "/api/admin/v1/me", async (ctx) => adminMe(await authenticateAdmin(ctx)));
+route("POST", "/api/admin/v1/recipients", adminOnly((ctx) => admin.createRecipient(ctx)));
 route("GET", "/api/admin/v1/recipients", adminOnly((ctx) => admin.listRecipients(ctx)));
 route("POST", "/api/admin/v1/devices", adminOnly((ctx) => admin.createDevice(ctx)));
 route("POST", "/api/admin/v1/devices/:id/rotate-token", adminOnly((ctx, p) => admin.rotateDeviceToken(ctx, p[0] as string)));
@@ -164,6 +171,22 @@ route("POST", "/api/admin/v1/grants", adminOnly((ctx) => admin.createGrant(ctx))
 route("POST", "/api/admin/v1/grants/:id/revoke", adminOnly((ctx, p) => admin.revokeGrant(ctx, p[0] as string)));
 route("POST", "/api/admin/v1/daily-reports/:id/retry", adminOnly((ctx, p) => admin.retryReport(ctx, p[0] as string)));
 route("GET", "/api/admin/v1/status", adminOnly((ctx) => admin.opsStatus(ctx)));
+// Dashboard reads and device messaging (docs/API_CONTRACT.md "Admin dashboard"). Reuses the device protocol; no new device route.
+route("GET", "/api/admin/v1/capabilities", adminOnly(async (ctx) => comms.capabilities(ctx)));
+route("GET", "/api/admin/v1/devices", adminOnly((ctx) => ops.listDevices(ctx)));
+route("GET", "/api/admin/v1/devices/:id", adminOnly((ctx, p) => ops.getDevice(ctx, p[0] as string)));
+route("GET", "/api/admin/v1/devices/:id/activity", adminOnly((ctx, p) => ops.deviceActivity(ctx, p[0] as string)));
+route("GET", "/api/admin/v1/devices/:id/voice-messages", adminOnly((ctx, p) => comms.adminListVoice(ctx, p[0] as string)));
+route("POST", "/api/admin/v1/devices/:id/voice-messages", adminOnly((ctx, p) => comms.adminUploadVoice(ctx, p[0] as string)));
+route("GET", "/api/admin/v1/voice-messages/:id/audio", adminOnly((ctx, p) => comms.adminVoiceAudio(ctx, p[0] as string)));
+route("POST", "/api/admin/v1/devices/:id/voice-commands", adminOnly((ctx, p) => comms.adminCreateVoiceCommand(ctx, p[0] as string)));
+route("GET", "/api/admin/v1/devices/:id/commands", adminOnly((ctx, p) => comms.adminListCommands(ctx, p[0] as string)));
+route("GET", "/api/admin/v1/commands/:id", adminOnly((ctx, p) => comms.adminCommandTimeline(ctx, p[0] as string)));
+route("POST", "/api/admin/v1/commands/:id/cancel", adminOnly((ctx, p) => comms.adminCancelCommand(ctx, p[0] as string)));
+route("GET", "/api/admin/v1/devices/:id/reminders", adminOnly((ctx, p) => comms.adminListReminders(ctx, p[0] as string)));
+route("POST", "/api/admin/v1/devices/:id/reminders", adminOnly((ctx, p) => comms.adminCreateReminder(ctx, p[0] as string)));
+route("POST", "/api/admin/v1/reminders/:id/(pause|resume|cancel)", adminOnly((ctx, p) => comms.adminChangeReminder(ctx, p[0] as string, p[1] as "pause" | "resume" | "cancel")));
+route("GET", "/api/admin/v1/audit", adminOnly((ctx) => ops.listAudit(ctx)));
 
 async function readiness(ctx: Ctx): Promise<Response> {
   const checks: Record<string, string> = {};
@@ -186,6 +209,7 @@ async function readiness(ctx: Ctx): Promise<Response> {
       checks,
       capabilities: {
         admin_api: ctx.config.adminTokenSha256 ? "configured" : "not_configured",
+        admin_signin: ctx.config.adminConfigError ? "misconfigured" : ctx.config.adminBootstrapEmails.length > 0 ? "configured" : "not_configured",
         google_signin: ctx.config.google ? "configured" : ctx.config.googleConfigError ? "misconfigured" : "not_configured",
         google_access: ctx.config.google ? (ctx.config.google.openViewerRecipientId ? "open_viewer_read_only" : "allowlist") : "none",
         password_sign_in: ctx.config.passwordSignIn ? "enabled" : "disabled",

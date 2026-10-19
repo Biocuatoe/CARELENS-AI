@@ -52,6 +52,7 @@ Không sửa nội dung mục đã Accepted. Tạo mục mới ghi `Supersedes`.
 | ADR-017 | Hợp nhất IMU thô và hình ảnh bằng luật minh bạch `fusion-rules.v2`, không ngưỡng mặc định, không cảnh báo đơn nguồn | Proposed (sửa lần 2 cùng ngày) | 2026-10-19 |
 | ADR-018 | Đăng nhập web bằng thông tin do owner cấp và vé stream dùng một lần cho Live Demo | Proposed | 2026-10-19 |
 | ADR-019 | Hợp đồng thiết bị v2: đồng hồ boot/uptime, lô IMU thô, xác nhận lệnh đủ vòng đời | Proposed | 2026-10-19 |
+| ADR-020 | Danh tính admin: đăng nhập Google riêng (`mode=admin`), danh sách bootstrap bằng secret, phiên `clm_` tách khỏi người xem | Proposed | 2026-10-19 |
 | A01 | Múi giờ hiển thị mặc định Asia/Ho_Chi_Minh | Proposed | 2026-09-14 |
 | A02 | Type contract viết tay ở web cho tới khi có OpenAPI | Proposed | 2026-09-14 |
 | A03 | Diễn giải trạng thái hover và pressed của nút primary | Proposed | 2026-09-14 |
@@ -72,6 +73,8 @@ Không sửa nội dung mục đã Accepted. Tạo mục mới ghi `Supersedes`.
 | A36 | Đăng nhập web bằng tên đăng nhập, mật khẩu do owner chọn lưu bằng PBKDF2 (tài khoản trình diễn DAYONE) | Proposed | 2026-10-19 |
 | A37 | Đăng nhập bằng Google (OIDC code + PKCE) chỉ cho danh tính do owner cho phép; sửa lỗi "không kết nối" khi chạy cục bộ | Proposed | 2026-10-19 |
 | A38 | Bản deploy chỉ đăng nhập bằng Google; mọi tài khoản Google đã xác minh được xem (chỉ xem) đúng một hồ sơ trình diễn | Proposed | 2026-10-19 |
+| A39 | Khu quản trị `/admin` (giao diện Phase B-UI): phiên admin tách khỏi người xem, chỉ đọc, không có dữ liệu giả | Proposed | 2026-10-19 |
+| A40 | Bảng điều khiển admin có API thật: thiết bị, báo cáo ngày, gửi âm thanh, nhắc lịch, nhật ký; header bảo mật Vercel; migration 0005 | Proposed | 2026-10-19 |
 
 ## Vấn đề sản phẩm chưa chốt (từ plan §3)
 
@@ -397,6 +400,20 @@ Owner của D01–D09 chưa được gán. Không dùng D02–D06 để chặn p
 - **Lý do:** Căn chỉnh trong một boot chính xác tuyệt đối, chịu được đồng hồ tường sai hoặc chưa đồng bộ; lệnh và âm thanh có ngữ nghĩa xác nhận trung thực.
 - **Hệ quả:** Firmware phải dùng `esp_timer_get_time()`, sinh `boot_id` ngẫu nhiên mỗi lần khởi động, gửi IMU thô theo lô bao phủ mỗi burst. Chưa xác minh trên ESP32 thật.
 - **Xem lại khi:** Bắt đầu viết firmware (M5).
+
+### ADR-020 — Danh tính admin: Google `mode=admin`, bootstrap bằng secret, phiên `clm_` riêng
+
+- **Trạng thái:** Proposed · 2026-10-19 · Phase B của lộ trình admin/credential/firmware. Chưa deploy, chưa áp migration `0004` lên production.
+- **Bối cảnh:** Admin API chỉ có một bearer tĩnh (`ADMIN_TOKEN_SHA256`), không có danh tính (audit ghi `actor_id = "admin"`), và owner không muốn token admin thủ công. Cấp thiết bị/agent bị chặn vì vậy.
+- **Lựa chọn:**
+  - Dùng lại luồng OIDC của người xem (PKCE, state, nonce, JWKS) với `?mode=admin`. Mục đích luồng nằm trong `oauth_states.purpose` và callback đọc từ DB; request không chọn được kết quả.
+  - Ai được là admin do máy chủ quyết: email Google đã xác minh nằm trong secret `ADMIN_BOOTSTRAP_EMAILS` (vai `owner`, tạo hàng `admins` ở lần đăng nhập đầu) hoặc hàng `admins` đang hoạt động (vai `admin`, dành cho Phase sau). `sub` gắn ở lần đầu. Danh sách bootstrap rỗng hoặc sai định dạng → đăng nhập admin tắt (đóng cửa), lỗi không lặp lại giá trị.
+  - Phiên `clm_` (bảng `admin_sessions`, chỉ lưu SHA-256, TTL mặc định 120 phút, chỉ trong bộ nhớ trình duyệt) tách khỏi `caregiver_tokens`/`clc_`; mã đổi phiên `cax_` ở bảng riêng `admin_login_exchanges`. Mỗi request đọc lại phiên và hàng admin; `owner` chỉ hợp lệ khi email còn trong secret, nên xoay secret là thu hồi.
+  - Token tĩnh giữ lại cho môi trường phát triển/CLI khi được đặt; production để trống.
+- **Hệ quả:** Lộ tài khoản Google của owner là lộ admin (cần xác minh 2 bước cho tài khoản đó); Google gián đoạn thì không đăng nhập admin được (đường dự phòng: owner tạm đặt `ADMIN_TOKEN_SHA256`). Email so sánh bằng `trim` + chữ thường, không gộp dấu chấm/`+tag` của Gmail. Hàng `admins` bị tắt (`status = 'disabled'`) thắng cả danh sách bootstrap; muốn bật lại owner phải sửa D1 hoặc xóa hàng. Chưa có giao diện, thêm/gỡ admin, hay xác thực lại (`auth_at` đã lưu để dùng sau).
+- **Đã kiểm chứng (2026-10-19, cục bộ):** 35 test mới `test/admin-auth.test.ts` + toàn bộ 245 test Worker pass với Google giả (khóa RSA thật). **Chưa kiểm:** đăng nhập admin với Google thật, migration trên D1 production, hành vi `ALTER TABLE … CHECK` trên D1 thật.
+- **Điều kiện giải quyết:** Owner chấp nhận thiết kế, đặt secret `ADMIN_BOOTSTRAP_EMAILS` bằng `wrangler secret put`, áp migration `0004`, và một lần đăng nhập admin thật thành công.
+- **Owner:** Chưa gán
 
 ## Giả định tạm
 
@@ -732,6 +749,41 @@ Owner của D01–D09 chưa được gán. Không dùng D02–D06 để chặn p
   - `PASSWORD_SIGN_IN` (`enabled` mặc định, bản deploy `disabled`): `POST /session` trả 403 `password_sign_in_disabled` trước mọi kiểm tra; `GET /auth/google/config` báo `password_sign_in` và trang đăng nhập ẩn biểu mẫu. Backend cục bộ (`start_backend.py`), test Worker và stack e2e Python bật lại mật khẩu.
 - **Rủi ro chấp nhận:** bất kỳ ai có tài khoản Google đều đọc được hồ sơ trình diễn, nên hồ sơ này **không bao giờ** được chứa dữ liệu người thật (AGENTS.md §6). Mỗi tài khoản Google mới thêm một dòng `caregivers`/`google_viewers`/`grants`; số lần tạo bị chặn bởi giới hạn đăng nhập 20 lần/60 s mỗi IP, chưa có giới hạn tổng.
 - **Đã kiểm chứng (2026-10-19):** 15 test Worker mới với Google giả (khóa RSA thật): cấp quyền chỉ xem đúng hồ sơ, cùng `sub` → cùng tài khoản, mọi lệnh ghi/lệnh thiết bị/admin → 403/401, hồ sơ khác → 404, phiên hết hạn và đăng xuất độc lập, grant thu hồi không tạo lại, tắt chế độ thì bị từ chối, token sai chữ ký/aud/iss/hết hạn/nonce và state sai vẫn bị từ chối mà không tạo tài khoản; mật khẩu tắt → 403. Toàn bộ 210 test Worker pass. Production: migration `0003` đã áp, Worker deploy, `/ready` báo `password_sign_in: disabled`, trang đăng nhập production (Chromium thật, backend thật) chỉ có nút Google. **Chưa kiểm:** đăng nhập với Google thật (chờ owner tạo OAuth client và đặt `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`).
+- **Owner:** Chưa gán
+
+### A39 — Khu quản trị `/admin` trong frontend: phiên admin riêng, chỉ đọc, không dữ liệu giả
+
+- **Trạng thái:** Proposed · 2026-10-19 · Giao diện của ADR-020. Chưa deploy; chưa chạy với Google thật hay Worker production.
+- **Quan hệ với A35:** A35 gỡ `AdminPage` và `/admin` vì đó là persona quản trị **mô phỏng** của nhiều người dùng giả. Khu mới này là việc khác: đăng nhập quản trị thật qua máy chủ, không persona, không dữ liệu mô phỏng. A35 vẫn đúng với phần đã gỡ.
+- **Nội dung:**
+  - `/admin/login` bắt đầu luồng bằng điều hướng toàn trang tới `…/api/app/v1/auth/google/start?mode=admin`. Callback trả về `/admin/login#admin_code=cax_…` hoặc `#error=…`; trang đọc fragment một lần, xóa khỏi thanh địa chỉ bằng `history.replaceState` ngay, chỉ chấp nhận đúng dạng `cax_…` (mã người xem `clx_…` không bao giờ được đổi ở đây), rồi `POST /api/admin/v1/session/exchange` đúng một lần (không thử lại mã dùng một lần).
+  - `/admin` chỉ hiện sau khi `GET /api/admin/v1/me` xác nhận phiên (trạng thái `signed_in` chỉ tồn tại sau lời gọi này), và hỏi lại khi vào lại sau hơn 10 giây. 401 hoặc 403 ở bất kỳ lời gọi admin nào kết thúc phiên và đưa về `/admin/login`. Vai trò và email hiển thị đúng như máy chủ trả về; giao diện không có cờ vai trò riêng.
+  - Phiên admin nằm trong `AdminAuthProvider` (`app/adminAuth.tsx`), tách khỏi `AuthProvider`, adapter và `QueryClient` của người xem. Dùng lớp lỗi riêng `AdminApiError` (không phải `ApiError`) vì `AuthFailureBridge` trong `providers.tsx` đăng xuất người xem khi gặp lỗi xác thực của `ApiError`; nếu dùng chung, một phiên admin hết hạn sẽ đăng xuất nhầm người xem. Dữ liệu admin không vào cache TanStack nên không sót lại sau khi đăng xuất. Token chỉ ở một `ref` trong bộ nhớ.
+  - Tổng quan chỉ đọc `GET /api/admin/v1/status` (API có sẵn): trạng thái hệ thống, sổ thiết bị (chỉ xem), agent. Nhật ký audit ghi rõ "chưa khả dụng" vì chưa có API đọc. Không có nút cấp phát, xoay, thu hồi hay mời.
+  - Trước khi hiện nút đăng nhập, trang đọc `GET /ready` (`capabilities.admin_signin`, `google_signin`) để không dẫn người dùng tới trang JSON lỗi của máy chủ. Máy chủ cũ không có trường này được báo là "chưa hỗ trợ đăng nhập quản trị" (đúng với production hiện tại).
+- **Lưu ý bảo mật cho owner (chưa xử lý, không đổi kiến trúc):**
+  1. Bearer trong bộ nhớ không bền qua tải lại trang (tải lại = đăng nhập Google lại) và vẫn đọc được bởi bất kỳ script nào chạy trong trang (XSS). Cookie HttpOnly sẽ giảm rủi ro rò token nhưng cần đổi backend (CORS có thông tin xác thực, chống CSRF) nên cần quyết định riêng.
+  2. (Đã xử lý ở A40.) `frontend/vercel.json` ban đầu không đặt header bảo mật. Nên thêm `Content-Security-Policy`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` (hoặc `frame-ancestors`) và `X-Content-Type-Options` trước khi dùng quyền admin trên bản deploy.
+  3. Phiên admin sống tối đa `ADMIN_SESSION_TTL_MINUTES` (mặc định 120). Chưa có xác thực lại cho thao tác nhạy cảm; sẽ cần khi có hiện/xoay credential.
+  4. Phía máy chủ vẫn là nơi duy nhất thực thi quyền; guard giao diện chỉ để điều hướng.
+- **Đã kiểm chứng (2026-10-19, cục bộ):** 46 test Vitest mới (`data/admin/adminClient.test.ts`, `features/admin/admin.test.tsx`), 4 test Playwright mới cho bản build production với Worker giả (`e2e/admin-login.spec.ts`), 14 test Playwright viewer `google-login.spec.ts` vẫn đạt. **Chưa kiểm:** đăng nhập admin với Google thật, migration `0004` và quyền admin trên production.
+- **Owner:** Chưa gán
+
+### A40 — Bảng điều khiển admin có API thật; header bảo mật; migration 0005
+
+- **Trạng thái:** Proposed · 2026-10-19 · Mở rộng A39. Chưa deploy; chưa chạy với Google thật, Worker production hay thiết bị ESP32.
+- **Phạm vi:** `/admin` có thêm Thiết bị (danh sách, chi tiết), Báo cáo ngày, Gửi âm thanh, Nhắc lịch, Agent và dịch vụ, Nhật ký. Mỗi màn hình gọi một route thật trong ma trận ở `docs/API_CONTRACT.md` "Bảng điều khiển admin"; chỗ chưa có API thì ghi rõ "không có / không được lưu", không có số liệu dựng sẵn.
+- **Tái dùng, không tạo giao thức mới:** lệnh phát âm thanh là `play_voice_message`, nhắc lịch là hàng `reminder_schedules` do cron mỗi phút (đã có) biến thành lệnh `reminder` một lần cho mỗi lần hẹn. Lõi tạo lệnh, hủy lệnh, lưu bản ghi âm được tách khỏi route người chăm sóc (`createVoiceCommand`, `cancelCommandOf`, `storeVoice`) để hai đường dùng cùng mã; 245 test Worker có từ trước vẫn đạt.
+- **Ghi nhận người thao tác mà không đổi ràng buộc CHECK cũ:** `device_commands.source_type` chỉ nhận `alert|reminder|caregiver` và `device_command_events.actor_type` chỉ nhận `device|caregiver|system`. SQLite không sửa CHECK tại chỗ, nên lệnh của admin dùng `source_type='caregiver'`, `created_by='admin:<admin_id>'`; sự kiện hủy của admin ghi `actor_type='system'` với lý do `cancelled_by_admin`. Người thao tác thật nằm trong `audit_log` (`actor_type='admin'`, `actor_id`). Đổi sang bảng riêng cần dựng lại bảng, để quyết định sau nếu cần.
+- **Migration `0005_admin_ops.sql` (chỉ cộng thêm):** cột `reminder_schedules.paused_at` (tạm dừng khác hủy), chỉ mục `events(device_id, observed_at)`, `device_commands(device_id, created_at)`, `audit_log(actor_id, at)`. **Thứ tự triển khai bắt buộc:** áp migration `0004` và `0005` trước, rồi mới deploy Worker, vì cron chọn `paused_at`; Worker mới chạy trên DB chưa có cột sẽ làm bước nhắc lịch của cron lỗi.
+- **Báo cáo ngày:** ngày lịch theo `REPORT_TIMEZONE` → khoảng UTC nửa mở `[start, end)`, mỗi nguồn lọc theo mốc thời gian chính của nó bằng cùng quy tắc nên một bản ghi thuộc đúng một ngày (có test ở ranh giới mili-giây). Mỗi nguồn trả trạng thái riêng (`ok`, `truncated`, `partial`, `retention_expired`, `not_stored`) để "không thấy dòng nào" không bị đọc thành "không có hoạt động". Lỗi truy vấn là lỗi HTTP, không bao giờ là danh sách rỗng. **Khoảng trống dữ liệu đã biết:** heartbeat chỉ lưu bản gần nhất; không có lịch sử online/offline của thiết bị hay agent; IMU thô chỉ giữ `IMU_RAW_RETENTION_HOURS` (72 giờ) và chỉ được tóm tắt theo giờ trong báo cáo.
+- **Âm thanh:** chỉ phát được bản ghi WAV đã tải lên (PCM 16-bit mono, tốc độ theo `DEVICE_AUDIO_SAMPLE_RATES`). **Chuyển văn bản thành giọng nói chưa có** (Ollama không phải TTS; không có dịch vụ nào được kiểm chứng), nên không có ô nhập văn bản đọc to. Nghe thử qua `fetch` có Bearer rồi phát từ blob; không có URL công khai. Thiết bị tải âm thanh qua route có xác thực của chính lệnh đó (`/api/device/v1/commands/{id}/audio`), như giao thức hiện có.
+- **Chống gửi nhầm và trùng:** thân yêu cầu bắt buộc `confirm: true` ở máy chủ (giao diện cũng có hộp xác nhận), khóa idempotency gắn tiền tố theo admin, nút gửi bị khóa khi đang gửi, giới hạn 20 thay đổi/phút/admin tính từ chính `audit_log`.
+- **Nhắc lịch bền:** lịch nằm trong D1 và do cron của Worker thực hiện; không dùng bộ hẹn giờ trình duyệt. Mỗi lần hẹn đúng một lệnh (khóa `reminder:<id>:<occurrence>`, có test chạy cron nhiều lần), thiết bị ngoại tuyến quá `deadline_minutes` thì lệnh hết hạn và không bao giờ phát muộn. **Chưa có bằng chứng cron chạy trên production:** bằng chứng duy nhất là xuất hiện lệnh cho lần hẹn đầu tiên sau khi deploy.
+- **Đăng ký / xoay / thu hồi credential thiết bị: chưa đưa vào giao diện.** Route cấp phát (`POST /devices`, `rotate-token`, `revoke`) đã có từ trước, trả credential một lần và ghi audit, nhưng giao diện hiển thị bí mật cần xác thực lại gần đây (step-up) mà phiên admin hiện chưa có (`auth_at` đã lưu, chưa có route kiểm). Trong lúc firmware chưa nạp, rủi ro lớn hơn lợi ích. Mở trang thiết bị không bao giờ tạo hay lộ credential.
+- **Header bảo mật (`frontend/vercel.json`):** CSP (`default-src 'self'`; `script-src 'self'`; `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com` vì React/Tailwind dùng thuộc tính `style`; `font-src https://fonts.gstatic.com`; `img-src 'self' data: blob:`; `media-src 'self' blob:` cho nghe thử; `connect-src 'self'` + **địa chỉ Worker production** mã cứng; `object-src 'none'`; `base-uri 'self'`; `form-action 'self'`; `frame-ancestors 'none'`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy` tắt camera, micro, định vị. **Đổi `VITE_API_BASE_URL` sang origin khác thì phải sửa `connect-src` cùng lúc**, nếu không toàn bộ lời gọi API bị chặn. Đăng nhập Google là điều hướng toàn trang nên không bị CSP chặn. Đã kiểm bản build thật trong Chromium với đúng các header này: không vi phạm CSP trên 5 route, nhúng iframe bị từ chối, kết nối tới origin ngoài chính sách bị chặn. **Chưa kiểm trên Vercel thật.**
+- **Đánh đổi giữ nguyên (không đổi âm thầm):** phiên admin vẫn là Bearer trong bộ nhớ (tải lại = đăng nhập lại; script trong trang đọc được token nếu có XSS). CSP giảm rủi ro XSS nhưng không loại bỏ; chuyển sang cookie HttpOnly cần thiết kế riêng cho CORS có thông tin xác thực và CSRF.
+- **Đã kiểm chứng cục bộ (2026-10-19):** Worker 287/287 (`admin-ops` 38, `device-flow` 4, 245 test cũ), typecheck và `contracts:check` sạch, `deploy:dry-run` đạt; frontend: test giao diện và client mới, 8 test Playwright admin (bản build production, Worker giả, `<dialog>` thật), 14 test Playwright viewer vẫn đạt. **Chưa kiểm:** Google OAuth thật, migration `0004`/`0005` trên production, cron trên production, bất kỳ thiết bị ESP32 thật.
 - **Owner:** Chưa gán
 
 ## Mẫu

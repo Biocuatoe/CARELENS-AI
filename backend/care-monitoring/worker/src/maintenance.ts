@@ -37,6 +37,9 @@ async function purgeExpired(ctx: Ctx): Promise<{ imu: number; tickets: number }>
     db.prepare(`DELETE FROM stream_tickets WHERE ticket_sha256 IN (SELECT ticket_sha256 FROM stream_tickets WHERE expires_at < ?1 LIMIT 500)`).bind(iso(addSeconds(now, -3600))),
     db.prepare(`DELETE FROM oauth_states WHERE state_sha256 IN (SELECT state_sha256 FROM oauth_states WHERE expires_at < ?1 LIMIT 500)`).bind(iso(addSeconds(now, -3600))),
     db.prepare(`DELETE FROM login_exchanges WHERE code_sha256 IN (SELECT code_sha256 FROM login_exchanges WHERE expires_at < ?1 LIMIT 500)`).bind(iso(addSeconds(now, -3600))),
+    db.prepare(`DELETE FROM admin_login_exchanges WHERE code_sha256 IN (SELECT code_sha256 FROM admin_login_exchanges WHERE expires_at < ?1 LIMIT 500)`).bind(iso(addSeconds(now, -3600))),
+    // Admin sessions stay for a week after they end, so the audit trail can still be tied to a session row.
+    db.prepare(`DELETE FROM admin_sessions WHERE token_id IN (SELECT token_id FROM admin_sessions WHERE expires_at < ?1 LIMIT 500)`).bind(iso(addSeconds(now, -7 * 86_400))),
   ]);
   return { imu: imu?.meta?.changes ?? 0, tickets: tickets?.meta?.changes ?? 0 };
 }

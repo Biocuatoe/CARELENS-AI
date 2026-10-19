@@ -1,7 +1,7 @@
 /** Per-request context, principals, authorization and audit. */
 import type { Config, Env } from "./env";
-import { HttpError, forbidden, notFound, unauthorized, unavailable } from "./http";
-import { addSeconds, iso, newId, sha256Hex, timingSafeEqualHex, type Clock } from "./util";
+import { HttpError, forbidden, notFound, unauthorized } from "./http";
+import { addSeconds, iso, newId, sha256Hex, type Clock } from "./util";
 
 export interface Ctx {
   env: Env;
@@ -13,6 +13,8 @@ export interface Ctx {
   exec: ExecutionContext;
   /** Outbound fetch (Google token and key endpoints). Defaults to the global fetch; tests inject a fake. */
   outboundFetch?: typeof fetch;
+  /** Set by authenticateAdmin on admin routes so audit entries name the person who acted. */
+  admin?: AdminPrincipal;
 }
 
 export interface DevicePrincipal {
@@ -29,9 +31,10 @@ export interface CaregiverPrincipal {
   userId: string;
   tokenId: string;
 }
-export interface AdminPrincipal {
-  type: "admin";
-}
+/** An admin API caller: a signed-in person (Google, clm_ session) or the legacy static operator token. */
+export type AdminPrincipal =
+  | { type: "admin"; method: "session"; adminId: string; email: string; role: "owner" | "admin"; tokenId: string; expiresAt: string; authenticatedAt: string }
+  | { type: "admin"; method: "static_token"; adminId: null };
 
 export type Permission =
   | "data.read"
@@ -142,13 +145,14 @@ export async function authenticateCaregiver(ctx: Ctx): Promise<CaregiverPrincipa
   return { type: "caregiver", userId: row.user_id, tokenId: row.token_id };
 }
 
-export async function authenticateAdmin(ctx: Ctx): Promise<AdminPrincipal> {
-  if (!ctx.config.adminTokenSha256) throw unavailable("admin_not_configured", "ADMIN_TOKEN_SHA256 is not set.");
-  const token = bearer(ctx.request);
-  if (!token) return authFailure(ctx);
-  const digest = await sha256Hex(token);
-  if (!timingSafeEqualHex(digest, ctx.config.adminTokenSha256)) return authFailure(ctx);
-  return { type: "admin" };
+/** Bearer token of the request, for authenticators that live outside this module (adminAuth.ts). */
+export function bearerToken(request: Request): string | null {
+  return bearer(request);
+}
+
+/** Id recorded as the actor of an admin audit entry: the signed-in admin, or "admin" for the legacy static token. */
+export function adminActorId(ctx: Ctx): string {
+  return ctx.admin?.adminId ?? "admin";
 }
 
 export interface GrantRow {

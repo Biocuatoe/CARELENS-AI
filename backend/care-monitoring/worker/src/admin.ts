@@ -4,7 +4,7 @@
  * Device, agent and caregiver credentials can never call these routes.
  */
 import { z } from "zod";
-import { auditStatement, type AdminPrincipal, type Ctx } from "./context";
+import { adminActorId, auditStatement, type Ctx } from "./context";
 import { conflict, json, notFound, readJson } from "./http";
 import { closeUserStreams } from "./realtime";
 import { hashChosenSecret, legacyDigest } from "./password";
@@ -28,7 +28,7 @@ const LoginCreate = z
   .refine((body) => (body.login_id ?? body.login_email) !== undefined, { message: "login_id is required", path: ["login_id"] });
 
 function audit(ctx: Ctx, action: string, targetType: string, targetId: string, recipientId: string | null = null) {
-  return auditStatement(ctx, { actorType: "admin", actorId: "admin", action, targetType, targetId, recipientId });
+  return auditStatement(ctx, { actorType: "admin", actorId: adminActorId(ctx), action, targetType, targetId, recipientId });
 }
 
 function uniqueConflict(err: unknown, what: string): never {
@@ -36,7 +36,7 @@ function uniqueConflict(err: unknown, what: string): never {
   throw err;
 }
 
-export async function createRecipient(ctx: Ctx, _admin: AdminPrincipal): Promise<Response> {
+export async function createRecipient(ctx: Ctx): Promise<Response> {
   const body = await readJson(ctx.request, RecipientCreate);
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: body.timezone });

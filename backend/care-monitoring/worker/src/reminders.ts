@@ -11,7 +11,7 @@ import { auditStatement, bumpStreamStatement, requireRecipient, type CaregiverPr
 import { conflict, invalid, json, notFound, readJson } from "./http";
 import { addDays, addSeconds, isValidDate, iso, localDate, newId, weekdayOf, zonedToUtc } from "./util";
 
-interface ReminderRow {
+export interface ReminderRow {
   reminder_id: string;
   recipient_id: string;
   device_id: string;
@@ -25,6 +25,8 @@ interface ReminderRow {
   end_date: string | null;
   deadline_minutes: number;
   status: "active" | "cancelled";
+  /** Set while an admin has paused the schedule: the cron skips it, nothing is queued, and it is not cancelled. */
+  paused_at: string | null;
   version: number;
   created_by: string;
   created_at: string;
@@ -32,7 +34,7 @@ interface ReminderRow {
   cancelled_at: string | null;
 }
 
-function view(r: ReminderRow): Record<string, unknown> {
+export function reminderView(r: ReminderRow): Record<string, unknown> {
   return {
     reminder_id: r.reminder_id,
     device_id: r.device_id,
@@ -46,6 +48,7 @@ function view(r: ReminderRow): Record<string, unknown> {
     end_date: r.end_date,
     deadline_minutes: r.deadline_minutes,
     status: r.status,
+    paused_at: r.paused_at,
     version: r.version,
     created_by: r.created_by,
     created_at: r.created_at,
@@ -53,7 +56,7 @@ function view(r: ReminderRow): Record<string, unknown> {
   };
 }
 
-function validTimezone(tz: string): boolean {
+export function validTimezone(tz: string): boolean {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: tz });
     return true;
@@ -62,7 +65,7 @@ function validTimezone(tz: string): boolean {
   }
 }
 
-async function checkRefs(ctx: Ctx, recipientId: string, deviceId: string | null, voiceId: string | null | undefined): Promise<void> {
+export async function checkRefs(ctx: Ctx, recipientId: string, deviceId: string | null, voiceId: string | null | undefined): Promise<void> {
   if (deviceId) {
     const d = await ctx.env.DB.prepare(`SELECT 1 FROM devices WHERE device_id = ?1 AND recipient_id = ?2 AND status = 'active'`).bind(deviceId, recipientId).first();
     if (!d) throw invalid("device_not_found", "device_id is not an active device of this recipient.");
@@ -73,7 +76,7 @@ async function checkRefs(ctx: Ctx, recipientId: string, deviceId: string | null,
   }
 }
 
-function checkSchedule(s: { timezone?: string; start_date?: string; end_date?: string | null; times_local?: string[]; days_of_week?: number[] }): void {
+export function checkSchedule(s: { timezone?: string; start_date?: string; end_date?: string | null; times_local?: string[]; days_of_week?: number[] }): void {
   if (s.timezone !== undefined && !validTimezone(s.timezone)) throw invalid("invalid_timezone", "timezone must be an IANA time zone.");
   if (s.start_date !== undefined && !isValidDate(s.start_date)) throw invalid("invalid_date", "start_date is not a calendar date.");
   if (s.end_date && !isValidDate(s.end_date)) throw invalid("invalid_date", "end_date is not a calendar date.");
@@ -114,13 +117,13 @@ export async function createReminder(ctx: Ctx, user: CaregiverPrincipal, recipie
     bumpStreamStatement(ctx, recipientId),
   ]);
   const row = await ctx.env.DB.prepare(`SELECT * FROM reminder_schedules WHERE reminder_id = ?1`).bind(id).first<ReminderRow>();
-  return json({ reminder: row ? view(row) : null }, 201);
+  return json({ reminder: row ? reminderView(row) : null }, 201);
 }
 
 export async function listReminders(ctx: Ctx, user: CaregiverPrincipal, recipientId: string): Promise<Response> {
   await requireRecipient(ctx, user, recipientId, "data.read");
   const rows = await ctx.env.DB.prepare(`SELECT * FROM reminder_schedules WHERE recipient_id = ?1 ORDER BY status, created_at DESC LIMIT 200`).bind(recipientId).all<ReminderRow>();
-  return json({ items: rows.results.map(view) });
+  return json({ items: rows.results.map(reminderView) });
 }
 
 export async function updateReminder(ctx: Ctx, user: CaregiverPrincipal, recipientId: string, reminderId: string): Promise<Response> {
@@ -129,7 +132,7 @@ export async function updateReminder(ctx: Ctx, user: CaregiverPrincipal, recipie
   const current = await ctx.env.DB.prepare(`SELECT * FROM reminder_schedules WHERE reminder_id = ?1 AND recipient_id = ?2`).bind(reminderId, recipientId).first<ReminderRow>();
   if (!current) throw notFound("Reminder not found.");
   if (current.status !== "active") throw conflict("reminder_cancelled", "Cancelled reminders cannot be edited.");
-  if (current.version !== body.expected_version) throw conflict("version_conflict", `Reminder is at version ${current.version}.`, { reminder: view(current) });
+  if (current.version !== body.expected_version) throw conflict("version_conflict", `Reminder is at version ${current.version}.`, { reminder: reminderView(current) });
   const merged = {
     kind: body.kind ?? current.kind,
     label: body.label ?? current.label,
@@ -167,7 +170,7 @@ export async function updateReminder(ctx: Ctx, user: CaregiverPrincipal, recipie
   ]);
   if ((res[0]?.meta?.changes ?? 0) === 0) throw conflict("version_conflict", "Reminder changed concurrently.");
   const row = await ctx.env.DB.prepare(`SELECT * FROM reminder_schedules WHERE reminder_id = ?1`).bind(reminderId).first<ReminderRow>();
-  return json({ reminder: row ? view(row) : null });
+  return json({ reminder: row ? reminderView(row) : null });
 }
 
 export async function cancelReminder(ctx: Ctx, user: CaregiverPrincipal, recipientId: string, reminderId: string): Promise<Response> {
@@ -222,7 +225,7 @@ export async function queueDueReminders(ctx: Ctx, maxStatements = 24): Promise<n
   const now = ctx.clock.now();
   const rows = await ctx.env.DB.prepare(
     `SELECT r.* FROM reminder_schedules r JOIN devices d ON d.device_id = r.device_id
-     WHERE r.status = 'active' AND d.status = 'active' AND r.start_date <= ?1 AND (r.end_date IS NULL OR r.end_date >= ?2) LIMIT 100`,
+     WHERE r.status = 'active' AND r.paused_at IS NULL AND d.status = 'active' AND r.start_date <= ?1 AND (r.end_date IS NULL OR r.end_date >= ?2) LIMIT 100`,
   )
     .bind(localDate(addSeconds(now, 86_400), "UTC"), localDate(addSeconds(now, -2 * 86_400), "UTC"))
     .all<ReminderRow>();
@@ -268,4 +271,25 @@ export async function queueDueReminders(ctx: Ctx, maxStatements = 24): Promise<n
   if (statements.length === 0) return 0;
   const results = await ctx.env.DB.batch(statements);
   return insertIndexes.filter((i) => (results[i]?.meta?.changes ?? 0) > 0).length;
+}
+
+/** The next occurrence of a schedule that can still be delivered at `now`: the first whose window [t, t + deadline) has not
+ * ended (so one that is due right now counts). Null when the schedule has nothing left (a finished one-time reminder, or a
+ * recurring one past its end date). Looks at most a year ahead. */
+export function nextOccurrence(r: Pick<ReminderRow, "times_local_json" | "days_of_week_json" | "timezone" | "start_date" | "end_date" | "deadline_minutes">, now: Date): Date | null {
+  const times = [...(JSON.parse(r.times_local_json) as string[])].sort();
+  const days = new Set(JSON.parse(r.days_of_week_json) as number[]);
+  const today = localDate(now, r.timezone);
+  // Yesterday first: a window of up to 240 minutes can reach across local midnight.
+  for (let offset = -1; offset <= 366; offset++) {
+    const date = addDays(today, offset);
+    if (date < r.start_date) continue;
+    if (r.end_date && date > r.end_date) return null;
+    if (!days.has(weekdayOf(date))) continue;
+    for (const hhmm of times) {
+      const at = zonedToUtc(date, hhmm, r.timezone);
+      if (at.getTime() + r.deadline_minutes * 60_000 > now.getTime()) return at;
+    }
+  }
+  return null;
 }
