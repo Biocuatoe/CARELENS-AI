@@ -2,7 +2,8 @@
 
 Phiên bản: 0.1  
 Ngày: 2026-09-14  
-Trạng thái: **Accepted** (người dùng duyệt ADR-002…ADR-010 ngày 2026-09-14). Chưa có code. Riêng chữ trắng trên nút primary trong ADR-009 còn Open.
+Trạng thái: **Accepted** (người dùng duyệt ADR-002…ADR-010 ngày 2026-09-14). Riêng chữ trắng trên nút primary trong ADR-009 còn Open.  
+Cập nhật 2026-10-19 (ADR-015, Proposed): CareLens AI là hệ thống dùng thật; backend EcoPatch, Firebase và Telegram đã gỡ. Cập nhật tiếp 2026-10-19 (ADR-016, ADR-017, D10, Proposed): `backend/care-monitoring` là Cloudflare Worker + D1 + R2 + Durable Object, agent cục bộ ở `integrations/carelens/local-agent` (§6.7). Cập nhật lần 3 cùng ngày (ADR-017 sửa, ADR-018, ADR-019, A33, A34, Proposed): hợp nhất trên IMU thô và đồng hồ thiết bị, hợp đồng thiết bị v2, đăng nhập web + vé stream; Live Demo của frontend nối backend ở lớp dữ liệu, giao diện giữ nguyên.
 
 Tài liệu này chuyển `docs/IMPLEMENTATION_PLAN.md` §4, §5, §8–§11 thành kiến trúc cụ thể để scaffold và phát triển. Nghiệp vụ, quyền và nghiệm thu vẫn lấy từ plan. Khi mâu thuẫn, plan thắng và mâu thuẫn được ghi vào `docs/DECISIONS.md`.
 
@@ -10,10 +11,10 @@ Tài liệu này chuyển `docs/IMPLEMENTATION_PLAN.md` §4, §5, §8–§11 th�
 
 | Động lực | Hệ quả thiết kế |
 | --- | --- |
-| Ranh giới riêng tư CareLens: ảnh chỉ tồn tại ở hub | Webapp chỉ nhận event văn bản qua ingest. Không có đường ảnh trong API, DB, log |
+| Ranh giới riêng tư CareLens: frame chỉ tồn tại tạm thời để suy luận (D10, Proposed) | Frame chỉ qua API upload thiết bị vào R2 riêng tư, xóa sau suy luận hoặc tối đa 15 phút. Không có đường ảnh trong D1, API người chăm sóc, log, webapp |
 | Quyền theo từng hồ sơ | Lớp authz tập trung ở backend, query có scope trong SQL, test cách ly bắt buộc |
 | Trình bày dữ liệu trung thực | `observed_at`/`received_at`, `last_seen`, trạng thái nguồn là dữ liệu hạng nhất |
-| Chưa có thiết bị thật | Simulator đi cùng đường ingest như nguồn thật. UI đọc qua `DataAdapter` |
+| Chưa có thiết bị đã xác minh | Ingest có xác thực là đường duy nhất vào backend. Dữ liệu tổng hợp chỉ ở test. UI đọc qua `DataAdapter` |
 | Cảnh báo không mất, không trùng | Transactional outbox, idempotency, optimistic version |
 | Nhóm nhỏ, lịch 6–8 tuần | Modular monolith, ít hạ tầng: một API, một worker, một PostgreSQL |
 
@@ -22,34 +23,42 @@ Tài liệu này chuyển `docs/IMPLEMENTATION_PLAN.md` §4, §5, §8–§11 th�
 ```mermaid
 flowchart LR
   subgraph Home["Nhà người được chăm sóc"]
-    Badge["Camera đeo ESP32-S3"] -- "frame, chỉ trong LAN" --> Hub["CareLens hub - AI local"]
-    Core["EcoPatch core"] -- BLE --> Gateway["Điện thoại / gateway"]
+    Cam["ESP32-S3 CAM + MPU6050 (firmware chưa có)"]
+    subgraph PC["PC Windows, RTX 2060 - D:\AI, ngoài repo"]
+      Agent["Local AI Agent - integrations/carelens/local-agent"]
+      M1["Module 1 - Vision API 127.0.0.1:8080"]
+      M2["Module 2 - Ollama, Qwen3 4B"]
+    end
   end
-  subgraph Platform["Webapp - repo này"]
-    Web["frontend/ - SPA landing + app"]
-    API["backend/api/ - FastAPI"]
-    Worker["worker - outbox, nhắc việc, export"]
-    DB[("PostgreSQL")]
-    Sink[("Notification sink")]
+  subgraph CF["Cloudflare (chưa deploy)"]
+    W["Worker care-monitoring"]
+    D1[("D1 - trạng thái bền")]
+    R2[("R2 MEDIA - frame tạm, ≤ 15 phút")]
+    DO["Durable Object RealtimeHub"]
   end
-  Sim["integrations/* simulator"] -- "ingest + credential thiết bị" --> API
-  Hub -. "event văn bản, M5, chờ D01" .-> API
-  Gateway -. "measurement, M5, chờ D04" .-> API
-  Caregiver(("Người chăm sóc")) --> Web
-  Web -- "REST + SSE" --> API
-  API --> DB
-  Worker --> DB
-  Worker --> Sink
+  Web["frontend/ - SPA, giữ nguyên"]
+  Caregiver(("Người chăm sóc"))
+  Cam -. "HTTPS /api/device/v1: capture, IMU, lệnh" .-> W
+  W --> D1
+  W --> R2
+  Agent -- "HTTPS đi ra /api/agent/v1: claim, media, kết quả" --> W
+  Agent --> M1
+  Agent --> M2
+  W --> DO
+  DO -- "SSE" --> Web
+  Caregiver --> Web
+  Caregiver -. "/api/app/v1 (chưa có UI)" .-> W
 ```
 
-Nét đứt là đường chưa tồn tại, chỉ bật ở M5 sau khi quyết định liên quan được chốt. Frame ảnh không bao giờ rời khỏi nhà.
+Nét đứt là đường đã có API nhưng chưa có client thật (firmware, UI). Cảnh báo đi Vision → Worker (quyết định hợp nhất + cảnh báo trong một giao dịch) → SSE, không qua Module 2. Frame chỉ nằm tạm trong R2 riêng tư (D10, Proposed).
 
 ## 3. Chế độ triển khai
 
 | Chế độ | Mô tả | Trạng thái |
 | --- | --- | --- |
-| Demo local | Web, API, worker chạy native. PostgreSQL chạy trong Docker Compose. Simulator gửi dữ liệu tổng hợp. Thông báo ghi vào sink | Mục tiêu M0–M4 |
-| Tích hợp kỹ thuật | Nối hub và gateway thật, thiết kế truy cập local/cloud | Chưa thiết kế, chờ D01, D02, D04, D09 |
+| Local một máy | Web (`npm run dev`), Worker qua `wrangler dev` với D1/R2/DO cục bộ (`npm run dev:backend`), agent + Module 1/2 ở `D:\AI` | Đã kiểm chứng 2026-10-19 (test e2e) |
+| Cloudflare + PC tại nhà | Worker trên Cloudflare, agent trên PC gọi ra ngoài, frontend trên Vercel | Cấu hình sẵn, chưa deploy (cần tài khoản, owner đồng ý) |
+| Tích hợp thiết bị | ESP32 thật gửi capture/IMU, nhận lệnh | Chưa có firmware, chờ D02, D09 |
 
 Không deploy public ở chế độ demo.
 
@@ -102,14 +111,11 @@ IStartup/
 │  │  └─ worker/        outbox runner, escalation, export
 │  │  ├─ alembic/
 │  │  └─ tests/{unit,integration}/
-│  └─ services/
-│     └─ demo-bridge/   Telegram ↔ WebSocket bridge
+│  └─ care-monitoring/     Cloudflare Worker (worker/: src, migrations, test), start_backend.py, scripts/ (§6.7, ADR-016)
 ├─ integrations/
-│  ├─ carelens/            simulator CLI, adapter hub (M5)
-│  └─ ecopatch/            simulator CLI, adapter gateway (M5)
+│  └─ carelens/local-agent/  agent Python nối Vision (Module 1) và Ollama (Module 2) với Worker
 ├─ contracts/
 │  ├─ carelens/care_event.v1.schema.json, fixtures/
-│  ├─ ecopatch/measurement.v1.schema.json, fixtures/
 │  └─ common/error.v1.schema.json
 ├─ tests/e2e/              Playwright
 ├─ docs/
@@ -204,6 +210,25 @@ sequenceDiagram
 - Thời gian lưu `timestamptz` UTC. Server gán `received_at` qua clock inject được để test.
 - Cấu hình qua biến môi trường với pydantic-settings. Mỗi biến mới có trong `.env.example`.
 - Notification provider mặc định là `sink`. Provider thật chỉ bật qua cấu hình tường minh sau khi D09 được chốt.
+
+### 6.7 `backend/care-monitoring` (ADR-016, Proposed)
+
+Cloudflare Worker TypeScript, mã ở `backend/care-monitoring/worker`. Hợp đồng: `docs/API_CONTRACT.md`; giao thức thiết bị: `docs/DEVICE_API.md`; triển khai: `docs/DEPLOYMENT_RUNBOOK.md`. Đối chiếu với luồng §6.3:
+
+| Bước §6.3 | care-monitoring |
+| --- | --- |
+| Xác thực thiết bị, validate | Token mỗi thiết bị (SHA-256 trong D1). zod strict, giới hạn kích thước. `device_id` trong payload phải trùng credential |
+| Kiểm tra trùng | `(device_id, capture_id)`, `(device_id, boot_id, batch_seq)` của IMU, `trigger_id`, `idempotency_key` của agent và lệnh; cùng nội dung 200, khác nội dung 409 |
+| `observed_at` của nguồn | Thiết bị gửi `clock{boot_id, uptime_ms}`; bằng chứng mang `uptime_ms`. Máy chủ ước lượng mốc boot = min(thời điểm nhận − uptime) và lưu cả đồng hồ thiết bị lẫn UTC ước lượng. Hợp nhất chỉ so `uptime_ms` trong cùng boot (ADR-019) |
+| DeviceAssignment theo `observed_at` | Thiết bị gắn cố định một hồ sơ; đổi người thì cấp `device_id` mới |
+| Lưu event + alert + outbox trong transaction | `db.batch()` (giao dịch D1) gồm sự kiện, quyết định hợp nhất, cảnh báo, lệnh còi, cập nhật job; bảng `tx_guard` hủy batch khi lease/trạng thái sai. Thay outbox: job bền trong D1 + Durable Object phát SSE sau commit |
+| Rule cảnh báo | `fusion-rules.v2` (ADR-017): bằng chứng hình ảnh + IMU thô do backend đánh giá (độ phủ, cảm biến đứng yên, quy tắc đã duyệt, khớp thời gian). Kết quả `suspected_fall`, `needs_review`, `not_enough_data`, `no_fall_detected`, `processing_failed`. Chỉ `suspected_fall` tạo cảnh báo; không có cảnh báo đơn nguồn. Mặc định không quy tắc: không cảnh báo nghi ngã (D11) |
+| Worker | Local AI Agent trên PC kéo job (claim nguyên tử, lease, retry, hết hạn theo media) |
+| SSE | `RealtimeHub` (WebSocket hibernation) → Worker giữ SSE: gợi ý `{seq, type, entity_id}` cho `/api/app/v1/recipients/{id}/stream`; khung `state_update` đầy đủ cho `/api/demo/stream` của Live Demo, mở bằng vé dùng một lần sau khi đăng nhập (ADR-018, D12) |
+| Xác thực web | ADR-006 (cookie) chưa áp dụng: đăng nhập bằng thông tin owner cấp → bearer token phiên trong bộ nhớ trình duyệt; vé `cls_` 60 s cho EventSource (ADR-018) |
+| Lệnh thiết bị | `queued → delivered → accepted → started → completed` (+ `failed`, `rejected`, `expired`, `cancelled`, `superseded`); chỉ thiết bị chuyển sang trạng thái phát; âm thanh giao theo lệnh với `Range` và SHA-256 |
+| Báo cáo ngày | Cron 00:15 Asia/Ho_Chi_Minh, job `daily_report`, số liệu tính ở backend, LLM chỉ tóm tắt; không nằm trên đường cảnh báo |
+| Media | Frame chỉ trong R2 `MEDIA`, xóa sau suy luận, khi thất bại hẳn, hoặc khi hết `MEDIA_MAX_AGE_SECONDS` |
 
 ## 7. Frontend
 
@@ -306,13 +331,14 @@ Hợp đồng nguồn hiện là **đề xuất của adapter** theo plan §8.3�
 - Export kiểm quyền khi tạo và khi tải, escape ô bắt đầu bằng `=`, `+`, `-`, `@`.
 - Không cache phản hồi sức khỏe bằng service worker. Logout xóa cache TanStack Query.
 - Log có cấu trúc kèm `request_id`, lọc token, cookie, payload sức khỏe.
+- Frame CareLens: chỉ API upload thiết bị → R2 riêng tư, tạm thời; agent tải bằng lease token, xử lý trong bộ nhớ, ghi đè bộ đệm, dọn predictor của Vision server bằng khung trung tính; không vào D1, log, export (D10, Proposed). Vision API và Ollama chỉ nghe loopback.
 
 ## 11. Chủ động không làm
 
 - Microservices, Kubernetes, Redis, Celery, Kafka.
 - Next.js hoặc SSR.
 - Web Bluetooth trong trình duyệt.
-- Đồng bộ event CareLens lên cloud. Đây là thay đổi phạm vi riêng, mặc định tắt.
+- ~~Đồng bộ event CareLens lên cloud~~: người dùng chọn kiến trúc cloud ngày 2026-10-19 (D10, ADR-016, Proposed).
 - Thư viện i18n. App chỉ có tiếng Việt, nhãn tập trung trong `features/<domain>/labels.ts`.
 - Dark mode, theme riêng theo sản phẩm.
 - Component library lớn trước vertical slice.
@@ -323,7 +349,10 @@ Hợp đồng nguồn hiện là **đề xuất của adapter** theo plan §8.3�
 | --- | --- | --- |
 | Cách truy cập từ xa hub CareLens (VPN, tunnel, relay) | D01 | M5 |
 | Danh tính và quyền giữa hub local và backend | D01 | M5 |
-| Schema GATT và telemetry EcoPatch | D04 | M5 |
+| Firmware ESP32 theo hợp đồng `/api/device/v1` và kiểm thử thiết bị thật | D10, ADR-016 | Tích hợp thật |
+| Ngưỡng hiệu chỉnh hình ảnh, chính sách cảnh báo đơn nguồn | D11, ADR-017 | Cảnh báo nghi ngã thật |
+| Đăng nhập web và adapter http thay `/api/demo/stream` không xác thực | ADR-006, D12 | Dùng qua mạng |
+| Deploy Cloudflare (D1, R2, secret), gói Free hay Paid | ADR-016, A30 | Chạy thật |
 | Nhà cung cấp thông báo, Web Push | D09 | M5 |
 | Thời hạn lưu dữ liệu và waveform | D08 | Dữ liệu thật |
 | Tương phản chữ trắng trên nút accent | ADR-009 | G1 ở M0 |

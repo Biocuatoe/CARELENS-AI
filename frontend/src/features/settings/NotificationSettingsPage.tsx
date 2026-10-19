@@ -52,7 +52,7 @@ export function NotificationSettingsPage() {
         <SoftSurface as="section" aria-labelledby="channels-title" className="flex flex-col gap-4">
           <SectionTitle id="channels-title">Kênh nhận thông báo</SectionTitle>
           <div className="flex gap-3 rounded-control p-4 shadow-inset-sm">
-            <IconWell size="sm" depth="inset">
+            <IconWell size="sm">
               <Radio />
             </IconWell>
             <div>
@@ -64,7 +64,7 @@ export function NotificationSettingsPage() {
             </div>
           </div>
           <div className="flex gap-3 rounded-control p-4 shadow-inset-sm">
-            <IconWell size="sm" depth="inset">
+            <IconWell size="sm">
               <MonitorSmartphone />
             </IconWell>
             <div>
@@ -81,13 +81,13 @@ export function NotificationSettingsPage() {
         <SoftSurface as="section" aria-labelledby="account-title" className="flex flex-col gap-4">
           <SectionTitle id="account-title">Tài khoản</SectionTitle>
           <div className="flex items-center gap-3 rounded-control p-4 shadow-inset-sm">
-            <IconWell size="sm" depth="inset">
+            <IconWell size="sm">
               <UserRound />
             </IconWell>
             <div className="min-w-0">
               <p className="font-bold">{session.user.displayName}</p>
-              <p className="break-all">{session.user.email}</p>
-              <p className="text-sm">{session.mode === "demo" ? "Người dùng mô phỏng · phiên chỉ tồn tại trong trình duyệt" : "Tài khoản"}</p>
+              {session.user.email ? <p className="break-all">{session.user.email}</p> : null}
+              <p className="text-sm">Tài khoản Demo trực tiếp dùng chung · phiên chỉ tồn tại trong trình duyệt này</p>
             </div>
           </div>
           <SoftButton

@@ -83,7 +83,7 @@ export function HistoryPage() {
               <ol className="flex flex-col gap-3">
                 {items.map((item) => (
                   <li key={item.id} className="flex gap-3 rounded-control p-4 shadow-inset-sm">
-                    <IconWell size="sm" depth="inset">
+                    <IconWell size="sm">
                       <ItemIcon item={item} />
                     </IconWell>
                     <div className="min-w-0 flex-1">

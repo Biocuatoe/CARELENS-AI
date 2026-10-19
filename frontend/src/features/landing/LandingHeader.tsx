@@ -4,7 +4,7 @@ import { Menu, X } from "lucide-react";
 import { cn } from "../../design-system/cn";
 import { landingButtonClasses } from "../../design-system/landing";
 import { useAuth } from "../../app/auth";
-import { Wordmark } from "./Brand";
+import { Wordmark } from "../../design-system/Brand";
 import { CTA, NAV_ITEMS, SECTION_IDS } from "./content";
 
 const navLink =

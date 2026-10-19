@@ -8,7 +8,7 @@ export function NotFoundPage({ inline = false }: { inline?: boolean }) {
     <EmptyState icon={<Compass />} title="Không tìm thấy trang" decorative={!inline}>
       <p>Đường dẫn không tồn tại hoặc đã thay đổi.</p>
       <Link to="/people" className={buttonClasses({ className: "mt-4" })}>
-        Về danh sách hồ sơ
+        Về bảng theo dõi
       </Link>
     </EmptyState>
   );

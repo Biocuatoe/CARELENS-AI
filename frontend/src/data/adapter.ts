@@ -77,7 +77,10 @@ export interface DataAdapter {
 
   // Auth
   getSession(): Promise<Session>;
-  login(input: { email: string; password: string }): Promise<Session>;
+  login(input: { username: string; password: string }): Promise<Session>;
+  /** Google sign-in runs on the server (OIDC code flow); the browser only learns whether it is configured, where to start, and finally trades a one-time code for a session. */
+  getGoogleSignIn(): Promise<{ enabled: boolean; startUrl: string }>;
+  completeGoogleSignIn(code: string): Promise<Session>;
   logout(): Promise<void>;
 
   // Recipients

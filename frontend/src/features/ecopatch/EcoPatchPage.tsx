@@ -257,7 +257,7 @@ export function EcoPatchPage() {
                 <div className="flex flex-col gap-4">
                   {activePatch ? (
                     <div className="flex gap-4 rounded-control p-4 shadow-inset-sm">
-                      <IconWell size="sm" depth="inset">
+                      <IconWell size="sm">
                         <Sticker />
                       </IconWell>
                       <dl className="grid flex-1 gap-2">

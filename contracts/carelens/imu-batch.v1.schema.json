@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://carelens.invalid/contracts/carelens/imu-batch.v1.schema.json",
+  "title": "imu-batch.v1",
+  "x-generated-from": "backend/care-monitoring/worker/src/contracts.ts (do not edit by hand)",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "imu-batch.v1"
+    },
+    "source_mode": {
+      "type": "string",
+      "enum": [
+        "device",
+        "simulated"
+      ]
+    },
+    "device_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "clock": {
+      "type": "object",
+      "properties": {
+        "boot_id": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9._:-]+$",
+          "description": "Random identifier the firmware generates at every boot. All uptime_ms values are relative to this boot."
+        },
+        "uptime_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000,
+          "description": "Device monotonic clock when this request body was built."
+        },
+        "wall_clock_synced": {
+          "type": "boolean",
+          "description": "true only after SNTP synchronisation succeeded in this boot."
+        },
+        "wall_time": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Device wall clock at uptime_ms when synced; diagnostics only, never used to order evidence."
+        }
+      },
+      "required": [
+        "boot_id",
+        "uptime_ms",
+        "wall_clock_synced",
+        "wall_time"
+      ],
+      "additionalProperties": false,
+      "description": "Clock block of every device request. The backend maps uptime to server time per boot (received_at − uptime_ms, minimum over the boot); evidence from the same boot is aligned on uptime_ms directly."
+    },
+    "batch_seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647,
+      "description": "Increases by 1 per batch within a boot; restarts at 0 after a reboot."
+    },
+    "sensor": {
+      "type": "string",
+      "const": "mpu6050"
+    },
+    "sample_rate_hz": {
+      "type": "number",
+      "minimum": 10,
+      "maximum": 1000,
+      "description": "Configured nominal output data rate."
+    },
+    "accel_range_g": {
+      "anyOf": [
+        {
+          "type": "number",
+          "const": 2
+        },
+        {
+          "type": "number",
+          "const": 4
+        },
+        {
+          "type": "number",
+          "const": 8
+        },
+        {
+          "type": "number",
+          "const": 16
+        }
+      ]
+    },
+    "gyro_range_dps": {
+      "anyOf": [
+        {
+          "type": "number",
+          "const": 250
+        },
+        {
+          "type": "number",
+          "const": 500
+        },
+        {
+          "type": "number",
+          "const": 1000
+        },
+        {
+          "type": "number",
+          "const": 2000
+        }
+      ]
+    },
+    "units": {
+      "type": "object",
+      "properties": {
+        "time": {
+          "type": "string",
+          "const": "ms_since_boot"
+        },
+        "accel": {
+          "type": "string",
+          "const": "g"
+        },
+        "gyro": {
+          "type": "string",
+          "const": "deg_per_s"
+        }
+      },
+      "required": [
+        "time",
+        "accel",
+        "gyro"
+      ],
+      "additionalProperties": false
+    },
+    "samples": {
+      "type": "object",
+      "properties": {
+        "uptime_ms": {
+          "minItems": 1,
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000000000
+          }
+        },
+        "ax": {
+          "minItems": 1,
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "ay": {
+          "minItems": 1,
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "az": {
+          "minItems": 1,
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "gx": {
+          "minItems": 1,
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "gy": {
+          "minItems": 1,
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "gz": {
+          "minItems": 1,
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        }
+      },
+      "required": [
+        "uptime_ms",
+        "ax",
+        "ay",
+        "az",
+        "gx",
+        "gy",
+        "gz"
+      ],
+      "additionalProperties": false,
+      "description": "Raw accelerometer (g) and gyroscope (°/s) readings, columnar, one timestamp per sample. Not orientation, posture or body angle."
+    }
+  },
+  "required": [
+    "schema_version",
+    "source_mode",
+    "device_id",
+    "clock",
+    "batch_seq",
+    "sensor",
+    "sample_rate_hz",
+    "accel_range_g",
+    "gyro_range_dps",
+    "units",
+    "samples"
+  ],
+  "additionalProperties": false,
+  "description": "A batch of raw MPU6050 samples. Adapter proposal; not yet verified against ESP32 firmware."
+}

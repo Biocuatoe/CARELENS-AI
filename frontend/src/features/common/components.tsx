@@ -210,7 +210,7 @@ export function AiObservation({ event, summary, careLevel }: { event?: CareEvent
   return (
     <div className="flex flex-col gap-3 rounded-control p-4 shadow-inset-sm">
       <div className="flex items-start gap-3">
-        <IconWell size="sm" depth="inset">
+        <IconWell size="sm">
           <Bot />
         </IconWell>
         <div className="min-w-0">

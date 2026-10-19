@@ -43,8 +43,8 @@ export function StatusLabel({
     <span
       className={cn(
         "inline-flex min-h-7 items-center gap-1.5 rounded-full bg-surface px-3 text-sm text-fg [&_svg]:size-4 [&_svg]:shrink-0",
-        tone === "urgent" && "font-bold shadow-extruded-sm [&_svg]:text-accent",
-        tone === "attention" && "font-bold shadow-inset-sm [&_svg]:text-accent",
+        tone === "urgent" && "font-bold shadow-inset-deep [&_svg]:text-accent",
+        tone === "attention" && "font-bold shadow-extruded-sm [&_svg]:text-accent",
         tone === "neutral" && "font-medium shadow-inset-sm",
         tone === "success" && "font-medium shadow-inset-sm [&_svg]:text-accent-secondary",
         tone === "inactive" && "font-medium shadow-inset-sm",
@@ -159,7 +159,7 @@ export function InlineError({
     <div
       role="alert"
       className={cn(
-        "flex flex-col gap-3 rounded-control bg-surface p-4 shadow-inset-sm sm:flex-row sm:items-center",
+        "flex flex-col gap-3 rounded-control bg-surface p-4 shadow-inset sm:flex-row sm:items-center",
         className,
       )}
     >

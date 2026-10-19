@@ -1,0 +1,32 @@
+{
+  "name": "care-monitoring-worker",
+  "private": true,
+  "version": "0.3.0",
+  "description": "CareLens AI care-monitoring cloud backend (Cloudflare Worker + D1 + R2 + Durable Object). Kept outside the root npm workspaces on purpose: it has its own lockfile.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --ip 127.0.0.1 --port 8787 --persist-to .wrangler/state",
+    "db:migrate:local": "wrangler d1 migrations apply care_monitoring --local --persist-to .wrangler/state",
+    "db:migrate:remote": "wrangler d1 migrations apply care_monitoring --remote",
+    "deploy": "wrangler deploy",
+    "deploy:dry-run": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "contracts:generate": "node scripts/generate-contracts.ts",
+    "contracts:check": "node scripts/generate-contracts.ts --check"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.4.4",
+    "@cloudflare/workers-types": "5.20261018.1",
+    "@types/node": "24.10.1",
+    "typescript": "6.0.3",
+    "vitest": "5.0.5",
+    "wrangler": "4.151.1"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

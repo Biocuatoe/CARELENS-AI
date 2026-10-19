@@ -155,7 +155,7 @@ function AuditPanel({ data }: { data: AlertDetail }) {
         <ol className="flex flex-col gap-3">
           {data.actions.map((a) => (
             <li key={a.id} className="flex gap-3 rounded-control p-4 shadow-inset-sm">
-              <IconWell size="sm" depth="inset">
+              <IconWell size="sm">
                 {ACTION_ICONS[a.type]}
               </IconWell>
               <div className="min-w-0">

@@ -1,0 +1,91 @@
+// care-monitoring — Cloudflare Worker configuration.
+// Before the first deploy: create the D1 database and both R2 buckets (see ../README.md, "Triển khai"),
+// paste the real database_id below, set the secret with `wrangler secret put ADMIN_TOKEN_SHA256`,
+// and set ALLOWED_ORIGINS to the Vercel frontend origin. Nothing here is a secret.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "care-monitoring",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  // Do not send Wrangler usage telemetry from this project.
+  "send_metrics": false,
+  "observability": {
+    "enabled": true,
+    "redact_query_string": true,
+    // Invocation logs would record request metadata for every call; only our structured console
+    // lines (ids, codes; never tokens, media or sensor samples) are kept.
+    "logs": { "enabled": true, "invocation_logs": false }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "care_monitoring",
+      // Placeholder for local development. Replace with the id printed by `wrangler d1 create care_monitoring`.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    // Camera chunks only; objects are deleted by the Worker within MEDIA_MAX_AGE_SECONDS. Add a 1-day
+    // lifecycle rule as a backstop: wrangler r2 bucket lifecycle add carelens-capture-media ...
+    { "binding": "MEDIA", "bucket_name": "carelens-capture-media" },
+    // Caregiver voice messages; kept until a caregiver deletes them.
+    { "binding": "AUDIO", "bucket_name": "carelens-voice-audio" }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "REALTIME", "class_name": "RealtimeHub" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RealtimeHub"] }],
+  "triggers": {
+    // "* * * * *": maintenance (media expiry, lease recovery, reminders, overdue IMU decisions).
+    // "15 17 * * *": daily report jobs at 00:15 Asia/Ho_Chi_Minh (UTC+7, no DST). Keep in sync with
+    // DAILY_REPORT_LOCAL_TIME; the maintenance cron also catches up every 10 minutes.
+    "crons": ["* * * * *", "15 17 * * *"]
+  },
+  "ratelimits": [
+    { "name": "AUTH_FAILURE_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } },
+    { "name": "DEVICE_LIMITER", "namespace_id": "1002", "simple": { "limit": 120, "period": 60 } }
+  ],
+  "vars": {
+    "ENVIRONMENT": "production",
+    // Comma-separated browser origins allowed by CORS (e.g. the Vercel URL of the frontend).
+    "ALLOWED_ORIGINS": "",
+    "ACCEPT_SIMULATED_SOURCES": "false",
+    "MEDIA_MAX_AGE_SECONDS": "900",
+    "UPLOAD_SESSION_TTL_SECONDS": "120",
+    "MAX_CAPTURE_AGE_SECONDS": "600",
+    "FRAMES_PER_CHUNK": "8",
+    "CADENCE_TOLERANCE_MS": "40",
+    "MAX_NORMAL_CAPTURES_PER_HOUR": "60",
+    "MAX_TRIGGERED_CAPTURES_PER_HOUR": "20",
+    "DEVICE_ONLINE_WINDOW_SECONDS": "180",
+    "REPORT_TIMEZONE": "Asia/Ho_Chi_Minh",
+    "DAILY_REPORT_LOCAL_TIME": "00:15",
+    // Empty = DEFAULT_FUSION_POLICY in src/env.ts (fusion-rules.v2 without candidate rules: no fall alerts
+    // until the owner approves both a vision rule and a raw-IMU rule, see docs/DECISIONS.md D11).
+    "FUSION_POLICY_JSON": "",
+    // Development only: expose one recipient on /api/demo/stream without a ticket to these client IPs.
+    // Leave empty in production; the frontend uses sign-in + single-use stream tickets.
+    "LEGACY_STREAM_RECIPIENT_ID": "",
+    "LEGACY_STREAM_DEVICE_ID": "",
+    "LEGACY_STREAM_ALLOWED_IPS": "",
+    "SSE_MAX_LIFETIME_SECONDS": "300",
+    "EMERGENCY_COMMAND_TTL_SECONDS": "300",
+    // Raw MPU6050 batches are kept this long for fusion and investigation, then purged by the cron.
+    "IMU_RAW_RETENTION_HOURS": "72",
+    "IMU_MAX_BATCH_AGE_SECONDS": "3600",
+    // Refuse raw IMU batches (507 imu_storage_budget_exceeded) while the D1 database is larger than this many
+    // MB, so a full database never blocks alerts. 400 suits the Free 500 MB limit; raise it on D1 Paid.
+    "IMU_STORAGE_SOFT_LIMIT_MB": "400",
+    // Web sign-in sessions (owner-issued credentials) end after this many hours.
+    "SESSION_TTL_HOURS": "12",
+    // Google sign-in is off while GOOGLE_CLIENT_ID is empty. Fill the three vars below and set the secret with
+    // `wrangler secret put GOOGLE_CLIENT_SECRET` (never a var). Procedure: docs/DEPLOYMENT_RUNBOOK.md §8.2.
+    "GOOGLE_CLIENT_ID": "",
+    "GOOGLE_REDIRECT_URI": "",
+    "GOOGLE_POST_LOGIN_URL": "",
+    // WAV sample rates the device firmware will play; uploads at other rates are refused.
+    "DEVICE_AUDIO_SAMPLE_RATES": "16000"
+  }
+}

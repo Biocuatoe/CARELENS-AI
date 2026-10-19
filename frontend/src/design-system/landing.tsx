@@ -23,6 +23,9 @@ const variants: Record<Tone, Record<ButtonVariant, string>> = {
   },
 };
 
+/** Màu nút theo tông; dùng chung cho nút landing và nút của ứng dụng (`buttonClasses`). */
+export const buttonVariantClasses = variants;
+
 export function landingButtonClasses({ variant = "primary", tone = "dark", className }: { variant?: ButtonVariant; tone?: Tone; className?: string } = {}) {
   return cn(base, variants[tone][variant], className);
 }

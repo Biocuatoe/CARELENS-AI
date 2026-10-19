@@ -7,19 +7,23 @@ paths:
 
 Spec: `docs/CARELENS_ECOPATCH_SYSTEM_UI_PROMPT.md` cho app, `docs/CARELENS_ECOPATCH_LANDING_PROMPT.md` cho landing, `docs/IMPLEMENTATION_PLAN.md` §6. Kiến trúc: `docs/ARCHITECTURE.md` §7.
 
-## Design system Neumorphism
+## Design system (bảng màu landing, A35)
 
-- Token chỉ định nghĩa một lần trong `src/design-system/tokens.css` (`@theme`). Component dùng utility sinh từ token (`bg-surface`, `text-fg`, `shadow-extruded`, `rounded-container`). Không chép hex hay shadow vào `features/`.
-- Giá trị gốc không làm tròn, không đổi: nền `#E0E5EC`, chữ `#3D4852`, muted `#6B7280`, accent `#6C63FF`, accent light `#8B84FF`, teal `#38B2AC`, placeholder `#A0AEC0`. Công thức 6 shadow (extruded, extruded-hover, extruded-sm, inset, inset-deep, inset-sm) theo ARCHITECTURE §7.4.
-- Radius: container 32px, button/input 16px, chi tiết bên trong 12px hoặc full.
-- Font: Plus Jakarta Sans (500–800) cho heading, DM Sans (400/500/700) cho body và control, Google Fonts với `display=swap`.
-- Trạng thái: nghỉ = extruded. Hover = extruded-hover + nhấc −1px (button) hoặc −2px (card). Pressed = inset-sm + ấn +0.5px. Input = inset, focus = inset-deep + ring. Icon well = inset-deep hoặc inset.
-- Motion: 300ms ease-out cho UI, 500ms cho nested depth (ADR-008). `prefers-reduced-motion` tắt float, rotate, smooth scroll.
-- Focus ring 2px accent, offset 2px trên mọi phần tử tương tác.
-- **Cấm:** `bg-white`, viền hiển thị, shadow hex đục, `rounded-sm/md/lg` cho surface, `#A0AEC0`/`#8B95A5` cho chữ, theme riêng cho từng sản phẩm, dark mode, palette đỏ/hổ phách chưa được duyệt.
+- Token chỉ định nghĩa một lần trong `src/design-system/tokens.css` (`@theme`). Component dùng utility sinh từ token (`bg-surface`, `text-fg`, `text-accent`, `shadow-extruded`, `rounded-container`, hoặc trực tiếp `bg-midnight`, `bg-paper`, `text-ivory`). Không chép hex hay shadow vào `features/`.
+- Bảng màu gốc là bảng màu landing (A19), giá trị không đổi: `midnight #14232D`, `graphite #233642`, `teal-deep #245F5A`, `signal #55B9A8`, `mint #B0E4D8`, `ivory #F2F0E9`, `paper #FAFBF8`, `ink #26363E`. Token ngữ nghĩa của app là bí danh: `surface` = ivory, `fg` = ink, `accent` = teal-deep. Landing, đăng nhập và app dùng chung bảng màu và primitive; không thêm palette hay theme riêng.
+- Tông: khung điều hướng (thanh bên, thanh đầu trang, khu thương hiệu của đăng nhập) là tông tối `data-tone="dark"` (midnight, ivory, signal). Nội dung là tông sáng (ivory nền trang, paper cho thẻ, ink cho chữ). Một tông cố định như landing, không có công tắc sáng/tối và không lưu tông vào web storage.
+- Độ nổi: thẻ = `shadow-extruded` (vòng 1px ink/15 cộng bóng giấy mềm). Viền nhãn và nút phụ = `shadow-extruded-sm`; ô lồng trong thẻ = `shadow-inset-sm`; ô nhập = `shadow-inset`; focus = `shadow-inset-deep`. Tên token giữ từ thời Neumorphism, nghĩa là các vòng viền mảnh như landing.
+- Radius: thẻ `rounded-container` 24px; ô nhập và ô lồng `rounded-control` 16px; chi tiết bên trong 12px; nút, nhãn, tab và vòng icon là pill (`rounded-full`).
+- Nút: dùng `buttonClasses`/`SoftButton` (hoặc `landingButtonClasses` ở landing), cùng màu: chính = nền teal-deep chữ paper; phụ = viền ink/30. Tông `dark` cho nút trên nền tối.
+- Font: Plus Jakarta Sans (500–800) cho heading, DM Sans (400/500/700) cho body và control, nhãn nhỏ dùng font mono in hoa như landing (`Eyebrow`), Google Fonts với `display=swap`.
+- Motion: 300ms ease-out cho UI. `prefers-reduced-motion` tắt float, rotate, smooth scroll.
+- Focus ring 2px offset 2px trên mọi phần tử tương tác; màu theo tông (`signal` trên nền tối, `accent` trên nền sáng) qua quy tắc `[data-tone]` trong `tokens.css`. Không đặt `outline-accent` trên phần tử có thể nằm trong khung tối.
+- **Ngoại lệ có chủ ý:** nút "Đăng nhập bằng Google" dùng màu do hướng dẫn thương hiệu của Google quy định (nền trắng, viền #747775, chữ #1F1F1F, biểu tượng G nhiều màu); không dùng cho thứ gì khác.
+- **Cấm:** `bg-white`, viền dày hay shadow hex đục trong `features/`, `#A0AEC0`/`#8B95A5` cho chữ, theme riêng cho từng sản phẩm, công tắc đổi tông, palette đỏ/hổ phách chưa được duyệt, logo hay tên thương hiệu khác với wordmark "CareLens AI" (`design-system/Brand.tsx`).
 - **Tương phản (ADR-009):** chữ thiết yếu (timestamp, đơn vị, nhãn trạng thái, lỗi, cảnh báo) dùng `text-fg`. `text-muted` chỉ cho chữ lớn hoặc không thiết yếu. Không tuyên bố đạt WCAG AA toàn app.
-- **Mức độ khẩn** diễn đạt bằng chữ, icon, vị trí, font weight và CTA. Teal chỉ nghĩa là thao tác thành công, không nghĩa là người được chăm sóc khỏe.
-- **Bố cục app** khác landing: panel raised 32px, padding 32px. Dữ liệu dày đặt trong một panel, không đổ bóng từng ô. Không dùng heading 72px hay `py-32` trong app. Trang trí concentric chỉ ở onboarding và empty state.
+- **Mức độ khẩn** diễn đạt bằng chữ, icon, vị trí, font weight, độ đậm viền và CTA, không chỉ bằng màu. Teal là màu tương tác và nhấn, không nghĩa là người được chăm sóc khỏe.
+- **Bố cục app:** thẻ `SoftSurface` (paper, 24px). Dữ liệu dày đặt trong một thẻ, ô lồng dùng viền nhạt. Không dùng heading 72px hay `py-32` trong app. Trang trí concentric chỉ ở empty state.
+- **Một tài khoản Live Demo (A35):** không có chọn người dùng mô phỏng, đăng ký, khôi phục mật khẩu hay trang danh sách hồ sơ. Đăng nhập thành công vào thẳng `/people` → tổng quan của hồ sơ máy chủ cấp quyền xem. Điểm vào persona của `DemoAdapter` chỉ dùng trong unit test.
 
 ## Cấu trúc
 

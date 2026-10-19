@@ -92,7 +92,7 @@ export function OverviewPage() {
               </SectionTitle>
               {data.openAlerts.length === 0 ? (
                 <div className="flex flex-col gap-3 rounded-control p-5 shadow-inset-sm sm:flex-row sm:items-center">
-                  <IconWell size="sm" depth="inset">
+                  <IconWell size="sm">
                     <BellOff />
                   </IconWell>
                   <div>
@@ -184,7 +184,7 @@ export function OverviewPage() {
               <ul className="flex flex-col gap-4">
                 {setupIncomplete.map((e) => (
                   <li key={e.product} className="flex flex-col gap-3 rounded-control p-4 shadow-inset-sm sm:flex-row sm:items-center sm:p-5">
-                    <IconWell size="sm" depth="inset">
+                    <IconWell size="sm">
                       <Settings2 />
                     </IconWell>
                     <p className="flex-1">
@@ -200,7 +200,7 @@ export function OverviewPage() {
                 ))}
                 {enrolled("ecopatch") ? (
                   <li className="flex flex-col gap-3 rounded-control p-4 shadow-inset-sm sm:flex-row sm:items-center sm:p-5">
-                    <IconWell size="sm" depth="inset">
+                    <IconWell size="sm">
                       <CalendarClock />
                     </IconWell>
                     <p className="flex-1">
@@ -227,7 +227,7 @@ export function OverviewPage() {
                 ) : null}
                 {data.pendingInvitationCount ? (
                   <li className="flex flex-col gap-3 rounded-control p-4 shadow-inset-sm sm:flex-row sm:items-center sm:p-5">
-                    <IconWell size="sm" depth="inset">
+                    <IconWell size="sm">
                       <MailPlus />
                     </IconWell>
                     <p className="flex-1">{data.pendingInvitationCount} lời mời truy cập đang chờ chấp nhận.</p>
@@ -260,7 +260,7 @@ export function OverviewPage() {
                 <ol className="flex flex-col gap-3">
                   {data.recent.map((item) => (
                     <li key={item.id} className="flex gap-3 rounded-control p-4 shadow-inset-sm">
-                      <IconWell size="sm" depth="inset">
+                      <IconWell size="sm">
                         {item.type === "note" ? <NotebookPen /> : item.origin === "ai" ? <Bot /> : item.origin === "human" ? <UserRound /> : <Cpu />}
                       </IconWell>
                       <div className="min-w-0">

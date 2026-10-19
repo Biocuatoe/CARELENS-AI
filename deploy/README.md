@@ -1,14 +1,18 @@
-# Deploying CareLens + EcoPatch Demo to Cloud Run
+# Deploying the CareLens + EcoPatch Web Demo to Cloud Run
 
-This guide covers deploying the demo infrastructure to Google Cloud Run.
+This guide covers deploying the static web demo (`frontend/`) to Google Cloud Run (ADR-011, still **Proposed**). Do not deploy publicly unless the user asks (AGENTS.md §6).
+
+The former Telegram bridge service and its Cloud Build config were removed (ADR-014).
+
+This guide deploys only the frontend. The CareLens cloud backend (`backend/care-monitoring`, Cloudflare Worker, ADR-016 Proposed) is deployed with [docs/DEPLOYMENT_RUNBOOK.md](../docs/DEPLOYMENT_RUNBOOK.md); it has not been deployed. Keep `LEGACY_STREAM_RECIPIENT_ID` and `LEGACY_STREAM_ALLOWED_IPS` empty on any public deployment: they expose one recipient without sign-in and exist for local development only (D12).
+
+For Vercel (the intended frontend host), follow [docs/DEPLOYMENT_RUNBOOK.md](../docs/DEPLOYMENT_RUNBOOK.md) §8: Root Directory `frontend`, build-time variable `VITE_API_BASE_URL=https://care-monitoring.<subdomain>.workers.dev`, and the Worker's `ALLOWED_ORIGINS` must contain the Vercel origin. `frontend/vercel.json` rewrites every path to `index.html` so deep links such as `/login` work. The Live Demo persona signs in through the existing login form with owner-issued credentials and opens `/api/demo/stream` with a single-use ticket (ADR-018); the other personas keep the in-browser demo adapter (`VITE_DATA_MODE` unset or `demo`). A production build without `VITE_API_BASE_URL` never calls localhost; the Live Demo then reports its stream as unavailable.
 
 ## Prerequisites
 
 1. **GCP Project** with billing enabled
 2. **Google Cloud SDK** installed and configured
 3. **Docker** installed locally
-4. **Telegram Bot Token** from [@BotFather](https://t.me/BotFather)
-5. **Telegram Chat ID** from [@userinfobot](https://t.me/userinfobot)
 
 ## One-Time Setup
 
@@ -20,23 +24,10 @@ gcloud config set project YOUR_PROJECT_ID
 gcloud services enable \
   run.googleapis.com \
   cloudbuild.googleapis.com \
-  secretmanager.googleapis.com \
   artifactregistry.googleapis.com
 ```
 
-### 2. Create Secrets
-
-Create secrets in Secret Manager for sensitive values:
-
-```bash
-# Create secret for Telegram bot token
-echo -n "YOUR_BOT_TOKEN" | gcloud secrets create TELEGRAM_BOT_TOKEN --data-file=-
-
-# Grant Cloud Build access to secrets
-./deploy/grant.sh YOUR_PROJECT_ID
-```
-
-### 3. Configure Artifact Registry
+### 2. Configure Artifact Registry
 
 ```bash
 gcloud artifacts repositories create carelens-demo \
@@ -56,95 +47,23 @@ gcloud builds submit --config=cloudbuild-web.yaml
 
 This will:
 1. Build the Docker image
-2. Push to Artifact Registry
-3. Deploy to Cloud Run (us-central1)
-4. Set environment variable for bridge URL
+2. Push to the registry
+3. Deploy to Cloud Run (asia-southeast1)
 
-### Deploy Bridge Service
-
-```bash
-gcloud builds submit --config=cloudbuild-bridge.yaml \
-  --substitutions=\
-  _TELEGRAM_ALLOWED_CHAT_ID=YOUR_CHAT_ID,\
-  _SM_ENABLED=1
-```
-
-This will:
-1. Build the Docker image
-2. Push to Artifact Registry
-3. Deploy to Cloud Run (no public access)
-4. Mount Telegram bot token from Secret Manager
-5. Set environment variables
+`cloudbuild-web.yaml` still sets `VITE_BRIDGE_PUBLIC_URL`, which pointed at the removed bridge. Vite variables are read at build time, so this Cloud Run runtime variable has no effect on the static bundle.
 
 ## URLs
 
-After deployment, you'll get URLs like:
-
-- **Web App:** `https://carelens-demo-web-<hash>-as.a.run.app`
-- **Bridge:** `https://carelens-demo-bridge-<hash>-as.a.run.app`
-
-Note the bridge URL — you'll use it as `WEB_ORIGIN` in the next step.
+After deployment, you'll get a URL like `https://carelens-demo-web-<hash>-as.a.run.app`.
 
 ## Verification
-
-### 1. Verify Web App
 
 Open the web app URL and verify:
 - Page loads with "Bản demo · Dữ liệu mô phỏng" banner
 - No console errors
 - Demo login works
 
-### 2. Verify Bridge
-
-Check the bridge health:
-
-```bash
-curl https://carelens-demo-bridge-<hash>-as.a.run.app/healthz
-# Should return: ok
-```
-
-### 3. Verify Telegram Bot
-
-1. Open Telegram and find your bot
-2. Send `/start`
-3. Send `/who` to verify connection
-4. Send `/safe_check` to print safety checklist
-
-## Switching Modes
-
-### Long Polling (Default)
-
-Long polling works out of the box without any additional setup.
-
-```bash
-# In cloudbuild-bridge.yaml:
---set-env-vars=BRIDGE_MODE=polling
-```
-
-### Webhook (Requires Domain)
-
-If you have a domain, use webhook mode for faster updates:
-
-1. Set up your domain with Cloud Run
-2. Configure Telegram webhook:
-
-```bash
-# Set webhook URL in Telegram
-curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook" \
-  -d "url=https://your-domain.com/telegram/webhook" \
-  -d "secret_token=YOUR_SECRET"
-```
-
-3. Update environment:
-
-```bash
-# In cloudbuild-bridge.yaml:
---set-env-vars=BRIDGE_MODE=webhook,TELEGRAM_WEBHOOK_PUBLIC_URL=https://your-domain.com
-```
-
 ## Troubleshooting
-
-### Build Failures
 
 **Problem:** `docker: unauthorized` error
 
@@ -153,124 +72,23 @@ curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook" \
 gcloud auth configure-docker asia-southeast1-docker.pkg.dev
 ```
 
-### Secret Not Found
-
-**Problem:** `Secret version not found`
-
-**Solution:**
-```bash
-# Verify secret exists
-gcloud secrets list
-
-# Check secret value
-echo -n $(gcloud secrets versions access latest --secret=TELEGRAM_BOT_TOKEN)
-```
-
-### Bridge Not Connecting
-
-**Problem:** WebSocket connection fails
-
-**Solution:**
-1. Check bridge logs:
-```bash
-gcloud run logs read carelens-demo-bridge --region=asia-southeast1
-```
-
-2. Verify environment variables:
-```bash
-gcloud run services describe carelens-demo-bridge --region=asia-southeast1 --format=json | jq '.spec.template.spec.containerConcurrency'
-```
-
-### Permission Denied
-
-**Problem:** Cloud Build can't access secrets
-
-**Solution:**
-```bash
-# Re-run grant script
-./deploy/grant.sh YOUR_PROJECT_ID
-
-# Or manually:
-PROJECT_NUM=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
-SA="${PROJECT_NUM}-compute@developer.gserviceaccount.com"
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:$SA" \
-  --role="roles/secretmanager.secretAccessor"
-```
-
 ## Cleanup
-
-### Delete Services
 
 ```bash
 gcloud run services delete carelens-demo-web --region=asia-southeast1 --quiet
-gcloud run services delete carelens-demo-bridge --region=asia-southeast1 --quiet
-```
-
-### Delete Images
-
-```bash
 gcloud artifacts docker images delete asia-southeast1-docker.pkg.dev/YOUR_PROJECT_ID/carelens-demo-web:latest --quiet
-gcloud artifacts docker images delete asia-southeast1-docker.pkg.dev/YOUR_PROJECT_ID/carelens-demo-bridge:latest --quiet
 ```
-
-### Delete Secrets
-
-```bash
-gcloud secrets delete TELEGRAM_BOT_TOKEN --quiet
-```
-
-## Cost Estimate
-
-Cloud Run has a generous free tier:
-
-| Service | Free Tier | Estimated Cost |
-|---------|------------|----------------|
-| Web App | 2M requests/month | $0 (under free tier) |
-| Bridge | 2M requests/month | $0 (under free tier) |
-| Cloud Build | 120 min/day | ~$0 |
-| Secret Manager | 10k secret versions | ~$0.03/month |
-| Artifact Registry | 0.5 GB | ~$0.025/month |
-
-**Total estimated cost:** ~$0.06/month for moderate demo usage
 
 ## Security Considerations
 
-- Bridge service has **no-allow-unauthenticated** — only Cloud Build and web app can access
-- Telegram bot token stored in Secret Manager, never in environment variables
 - All data is in-memory only — no persistence
 - No PII stored — all demo data is synthetic
 - Cloud Build has limited permissions via IAM
-
-## Environment Variables Reference
-
-### Web App (Cloud Run)
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `VITE_BRIDGE_PUBLIC_URL` | WebSocket URL for bridge | `wss://carelens-demo-bridge-xxx.a.run.app/ws` |
-
-### Bridge Service (Cloud Run)
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `BRIDGE_MODE` | `polling` or `webhook` | `polling` |
-| `TELEGRAM_BOT_TOKEN` | Bot token (from Secret) | Secret Manager |
-| `TELEGRAM_ALLOWED_CHAT_ID` | Your Telegram chat ID | `123456789` |
-| `WEB_ORIGIN` | Web app URL for CORS | `https://carelens-demo-web-xxx.a.run.app` |
-| `TELEGRAM_WEBHOOK_SECRET` | Webhook verification secret | Random string |
-| `TELEGRAM_WEBHOOK_PUBLIC_URL` | Public webhook URL | `https://your-domain.com` |
-| `SM_ENABLED` | Use Secret Manager | `1` or `0` |
-| `GOOGLE_CLOUD_PROJECT` | GCP project ID | `carelens-demo` |
 
 ## Files Reference
 
 | File | Purpose |
 |------|---------|
 | `cloudbuild-web.yaml` | Cloud Build config for web app |
-| `cloudbuild-bridge.yaml` | Cloud Build config for bridge |
-| `deploy/grant.sh` | IAM permissions script |
 | `frontend/Dockerfile` | Web app container |
 | `frontend/nginx.conf` | Nginx configuration |
-| `backend/services/demo-bridge/Dockerfile` | Bridge container |
-| `backend/services/demo-bridge/.env.example` | Environment template |

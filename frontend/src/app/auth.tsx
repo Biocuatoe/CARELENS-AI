@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Session } from "../data/contracts";
-import { useAdapter, useDemoControls } from "../data";
+import { useAdapter } from "../data";
 import { isAuthError } from "../data/errors";
 
 type AuthState =
@@ -11,8 +11,8 @@ type AuthState =
 
 interface AuthContextValue {
   state: AuthState;
-  enterDemo: (personaId: string) => Promise<Session>;
-  login: (email: string, password: string) => Promise<Session>;
+  login: (username: string, password: string) => Promise<Session>;
+  completeGoogleSignIn: (code: string) => Promise<Session>;
   logout: () => Promise<void>;
   markExpired: () => void;
 }
@@ -25,7 +25,6 @@ const AuthContext = createContext<AuthContextValue | null>(null);
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const adapter = useAdapter();
-  const demo = useDemoControls();
   const queryClient = useQueryClient();
   const [state, setState] = useState<AuthState>({ status: "loading", session: null });
 
@@ -40,24 +39,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [adapter]);
 
-  const enterDemo = useCallback(
-    async (personaId: string) => {
-      if (!demo) throw new Error("Chế độ demo không khả dụng.");
+  const login = useCallback(
+    async (username: string, password: string) => {
+      const session = await adapter.login({ username, password });
       queryClient.clear();
-      // Đặt lại toàn bộ dữ liệu mô phỏng để UI bắt đầu ở trạng thái trống —
-      // hub offline, không có sự kiện, không có cảnh báo.
-      // Người dùng sẽ trigger sự kiện qua chatbot Telegram.
-      demo.reset();
-      const session = await demo.enterDemo(personaId);
       setState({ status: "signed_in", session });
       return session;
     },
-    [demo, queryClient],
+    [adapter, queryClient],
   );
 
-  const login = useCallback(
-    async (email: string, password: string) => {
-      const session = await adapter.login({ email, password });
+  const completeGoogleSignIn = useCallback(
+    async (code: string) => {
+      const session = await adapter.completeGoogleSignIn(code);
       queryClient.clear();
       setState({ status: "signed_in", session });
       return session;
@@ -79,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState((prev) => (prev.status === "signed_in" ? { status: "signed_out", session: null, reason: "expired" } : prev));
   }, [queryClient]);
 
-  const value = useMemo(() => ({ state, enterDemo, login, logout, markExpired }), [state, enterDemo, login, logout, markExpired]);
+  const value = useMemo(() => ({ state, login, completeGoogleSignIn, logout, markExpired }), [state, login, completeGoogleSignIn, logout, markExpired]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
@@ -95,15 +89,9 @@ export function useSession(): Session {
   return state.session;
 }
 
-/** true khi người dùng đang ở phiên liveshowcase (r_liveshowcase, dữ liệu trống chờ trigger chatbot). */
-export function isLiveshowcaseSession(session: Session | null): boolean {
-  return session?.user.id === "u_liveshowcase";
-}
-
-/** "Liveshowcase" khi đang ở phiên liveshowcase, "Dữ liệu mô phỏng" khi bình thường. */
+/** Nhãn cạnh các mục hiển thị trong bản Demo trực tiếp (hồ sơ duy nhất của tài khoản dùng chung). */
 export function useDemoBadgeLabel(): string {
-  const { state } = useAuth();
-  return state.status === "signed_in" && isLiveshowcaseSession(state.session) ? "Liveshowcase" : "Dữ liệu mô phỏng";
+  return "Demo trực tiếp";
 }
 
 export { isAuthError };

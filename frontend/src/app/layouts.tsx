@@ -77,7 +77,7 @@ export function RecipientLayout() {
           <ForbiddenState>
             <p>{errorMessage(context.error)}</p>
             <Link to="/people" className={buttonClasses({ className: "mt-4" })}>
-              Về danh sách hồ sơ
+              Về bảng theo dõi
             </Link>
           </ForbiddenState>
         ) : (

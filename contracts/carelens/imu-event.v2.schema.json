@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://carelens.invalid/contracts/carelens/imu-event.v2.schema.json",
+  "title": "imu-event.v2",
+  "x-generated-from": "backend/care-monitoring/worker/src/contracts.ts (do not edit by hand)",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "imu-event.v2"
+    },
+    "source_mode": {
+      "type": "string",
+      "enum": [
+        "device",
+        "simulated"
+      ]
+    },
+    "device_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "clock": {
+      "type": "object",
+      "properties": {
+        "boot_id": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9._:-]+$",
+          "description": "Random identifier the firmware generates at every boot. All uptime_ms values are relative to this boot."
+        },
+        "uptime_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000,
+          "description": "Device monotonic clock when this request body was built."
+        },
+        "wall_clock_synced": {
+          "type": "boolean",
+          "description": "true only after SNTP synchronisation succeeded in this boot."
+        },
+        "wall_time": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Device wall clock at uptime_ms when synced; diagnostics only, never used to order evidence."
+        }
+      },
+      "required": [
+        "boot_id",
+        "uptime_ms",
+        "wall_clock_synced",
+        "wall_time"
+      ],
+      "additionalProperties": false,
+      "description": "Clock block of every device request. The backend maps uptime to server time per boot (received_at − uptime_ms, minimum over the boot); evidence from the same boot is aligned on uptime_ms directly."
+    },
+    "trigger": {
+      "type": "object",
+      "properties": {
+        "trigger_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9._:-]+$"
+        },
+        "trigger_type": {
+          "type": "string",
+          "enum": [
+            "impact",
+            "free_fall",
+            "orientation_change",
+            "other"
+          ]
+        },
+        "triggered_uptime_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000
+        },
+        "firmware_rule_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capture_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Burst the firmware started for this trigger, if any."
+        },
+        "device_metrics": {
+          "anyOf": [
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[a-z0-9_]{1,40}$"
+              },
+              "additionalProperties": {
+                "type": "number"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Values the firmware computed (e.g. peak magnitude). Device-derived, unvalidated; never used for decisions."
+        }
+      },
+      "required": [
+        "trigger_id",
+        "trigger_type",
+        "triggered_uptime_ms",
+        "firmware_rule_version",
+        "capture_id",
+        "device_metrics"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "source_mode",
+    "device_id",
+    "clock",
+    "trigger"
+  ],
+  "additionalProperties": false,
+  "description": "Firmware report that its own MPU6050 rule fired. It may start a burst and a fusion decision, but it is never fall evidence by itself: the raw samples arrive as imu-batch.v1. Adapter proposal; not yet verified against ESP32 firmware."
+}

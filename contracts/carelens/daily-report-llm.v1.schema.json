@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://carelens.invalid/contracts/carelens/daily-report-llm.v1.schema.json",
+  "title": "daily-report-llm.v1",
+  "x-generated-from": "backend/care-monitoring/worker/src/contracts.ts (do not edit by hand)",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "daily-report-llm.v1"
+    },
+    "summary_vi": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "notable_events": {
+      "maxItems": 40,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "note_vi": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "event_id",
+          "note_vi"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "unverified_items": {
+      "maxItems": 40,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "note_vi": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "event_id",
+          "note_vi"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "data_gaps": {
+      "maxItems": 24,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "gap_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "note_vi": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "gap_id",
+          "note_vi"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "source_event_ids": {
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "summary_vi",
+    "notable_events",
+    "unverified_items",
+    "data_gaps",
+    "source_event_ids"
+  ],
+  "additionalProperties": false,
+  "description": "Structured output the local LLM must return for a daily report. Validated before it is stored."
+}

@@ -197,7 +197,7 @@ function ExportPanel({ from, to, products, disabled }: { from: string; to: strin
       ) : null}
       {current ? (
         <div role="status" aria-live="polite" className="flex flex-col gap-3 rounded-control p-4 shadow-inset-sm sm:flex-row sm:items-center">
-          <IconWell size="sm" depth="inset">
+          <IconWell size="sm">
             <FileSpreadsheet />
           </IconWell>
           <div className="min-w-0 flex-1">

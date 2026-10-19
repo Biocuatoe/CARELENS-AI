@@ -1,0 +1,167 @@
+{
+  "schema_version": "capture-session.v2",
+  "source_mode": "device",
+  "device_id": "esp32-cam-example",
+  "capture_id": "cap-000123",
+  "mode": "normal",
+  "clock": {
+    "boot_id": "boot-7f3a91c2",
+    "uptime_ms": 3603775,
+    "wall_clock_synced": true,
+    "wall_time": "2026-10-19T01:00:06.100Z"
+  },
+  "frame_count": 24,
+  "nominal_fps": 8,
+  "content_type": "image/png",
+  "frame_width": 320,
+  "frame_height": 240,
+  "frames": [
+    {
+      "seq": 0,
+      "uptime_ms": 3600000,
+      "size_bytes": 12000,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 1,
+      "uptime_ms": 3600125,
+      "size_bytes": 12001,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 2,
+      "uptime_ms": 3600250,
+      "size_bytes": 12002,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 3,
+      "uptime_ms": 3600375,
+      "size_bytes": 12003,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 4,
+      "uptime_ms": 3600500,
+      "size_bytes": 12004,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 5,
+      "uptime_ms": 3600625,
+      "size_bytes": 12005,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 6,
+      "uptime_ms": 3600750,
+      "size_bytes": 12006,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 7,
+      "uptime_ms": 3600875,
+      "size_bytes": 12007,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 8,
+      "uptime_ms": 3601000,
+      "size_bytes": 12008,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 9,
+      "uptime_ms": 3601125,
+      "size_bytes": 12009,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 10,
+      "uptime_ms": 3601250,
+      "size_bytes": 12010,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 11,
+      "uptime_ms": 3601375,
+      "size_bytes": 12011,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 12,
+      "uptime_ms": 3601500,
+      "size_bytes": 12012,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 13,
+      "uptime_ms": 3601625,
+      "size_bytes": 12013,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 14,
+      "uptime_ms": 3601750,
+      "size_bytes": 12014,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 15,
+      "uptime_ms": 3601875,
+      "size_bytes": 12015,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 16,
+      "uptime_ms": 3602000,
+      "size_bytes": 12016,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 17,
+      "uptime_ms": 3602125,
+      "size_bytes": 12017,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 18,
+      "uptime_ms": 3602250,
+      "size_bytes": 12018,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 19,
+      "uptime_ms": 3602375,
+      "size_bytes": 12019,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 20,
+      "uptime_ms": 3602500,
+      "size_bytes": 12020,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 21,
+      "uptime_ms": 3602625,
+      "size_bytes": 12021,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 22,
+      "uptime_ms": 3602750,
+      "size_bytes": 12022,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "seq": 23,
+      "uptime_ms": 3602875,
+      "size_bytes": 12023,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    }
+  ],
+  "trigger_id": null,
+  "trigger_frame_index": null,
+  "firmware_version": "fw-example-0.1"
+}

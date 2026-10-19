@@ -1,0 +1,247 @@
+# Runbook triển khai — Cloudflare (backend) + PC tại nhà (agent) + Vercel (frontend)
+
+Phiên bản 2026-10-19 (đợt 2). Trạng thái: **chưa triển khai**. Mọi bước do owner chạy sau khi xem xét; coding agent không deploy, không tạo tài nguyên, không commit hay push. Ô `[ ]` là việc chưa làm. Lệnh chạy trong PowerShell trên Windows trừ khi ghi khác. `<…>` là chỗ điền giá trị thật; không dán giá trị bí mật vào tài liệu, chat hay commit.
+
+## 0. Xem xét trước (không cần tài khoản)
+
+- [ ] Đọc các quyết định chưa chốt trong `docs/DECISIONS.md`. Deploy cho buổi trình diễn **không** đòi chốt chúng, nhưng đưa dữ liệu người thật lên thì phải chốt:
+
+  | Mục | Trạng thái | Khi nào chốt |
+  | --- | --- | --- |
+  | ADR-016 (Cloudflare), ADR-018 (đăng nhập web, vé stream), D12 (tài khoản giám khảo), A34 | Proposed | Trước khi deploy |
+  | D13 (workspace npm gốc, đã sửa trong mã, chờ owner xem) | Proposed | Khi duyệt thay đổi |
+  | ADR-017 (hợp nhất), ADR-019 (hợp đồng thiết bị v2), D10 (frame qua cloud), D11 (hiệu chỉnh), A30, A33 (lưu IMU) | Proposed / Open | **Giai đoạn firmware**, sau khi có dữ liệu ESP32 thật (mục 15) |
+  | D08 (thời hạn lưu) | Open | Trước khi có dữ liệu người thật |
+
+- [ ] Xem chặn còn lại: `docs/TEST_REPORT_2026-10-19.md` §5.
+- [ ] Chạy kiểm tra cục bộ:
+
+```powershell
+npm install                                   # gốc: cài workspace frontend (D13)
+npm run typecheck; npm run lint; npm test; npm run build
+cd backend/care-monitoring/worker
+npm ci
+npm run typecheck; npm test; npm run contracts:check; npm run deploy:dry-run
+```
+
+## 1. Bí mật đã lộ và tệp cục bộ
+
+- [ ] **Thu hồi token Telegram cũ** ở BotFather (`/revoke`, chọn bot) nếu chưa làm. Hai nơi chứa token dạng Telegram:
+  - `backend/care-monitoring/.env` của service cũ: bị git bỏ qua, không mã nào còn đọc.
+  - Commit `e9d9b67` (`backend/demo-control/src/demo_control/tests/test_telegram_bot.py`), **đã có trên `origin/main`** (GitHub) và nhánh `origin/claude/quirky-hamilton-f25ob3`. Chuỗi khớp dạng mask `8291****15A` ngay cạnh nó nên coi như token thật.
+
+  Thu hồi làm cả hai bản sao vô hiệu. Viết lại lịch sử git (`git filter-repo` + force push) là quyết định riêng của owner, không cần để vận hành và không làm trong runbook này.
+- [ ] Sau khi thu hồi: `Remove-Item backend\care-monitoring\.env`.
+- [ ] Trước mỗi commit, kiểm tra không có tệp bí mật trong vùng staged:
+
+```powershell
+git diff --cached --name-only        # không được có: .env*, .dev.vars, agent.env, *token*.txt,
+                                     # device-credentials*.json, *.pem, *.key, frontend/dist, .wrangler/
+git status --porcelain --ignored     # .env, .dev.vars, agent.env phải hiện là "!!" (bị bỏ qua)
+```
+
+- [ ] Không đặt bí mật vào biến `VITE_*`: mọi `VITE_*` bị nhúng vào bundle công khai. `VITE_API_BASE_URL` chỉ là URL công khai của Worker.
+
+## 2. Đăng nhập Cloudflare
+
+```powershell
+cd backend/care-monitoring/worker
+npx wrangler login
+npx wrangler whoami                  # đúng tài khoản dự định dùng
+```
+
+## 3. Tạo D1 và R2 riêng tư (chỉ khi bắt đầu triển khai)
+
+- [ ] Bật R2 trong dashboard. Có thể phải thêm phương thức thanh toán dù dùng trong hạn miễn phí (nguồn bên thứ ba, chưa kiểm trên tài khoản thật).
+
+```powershell
+npx wrangler d1 create care_monitoring
+npx wrangler r2 bucket create carelens-capture-media
+npx wrangler r2 bucket create carelens-voice-audio
+# Lưới an toàn: Worker xóa frame trong ≤ 15 phút; quy tắc này xóa mọi thứ còn sót sau 1 ngày.
+npx wrangler r2 bucket lifecycle add carelens-capture-media expire-media --expire-days 1
+```
+
+- [ ] Hai bucket **riêng tư**: `npx wrangler r2 bucket dev-url get carelens-capture-media` (và `carelens-voice-audio`) báo r2.dev đang tắt; dashboard R2 → bucket → Settings: không có custom domain. Không bật public access.
+
+## 4. Điền binding và cấu hình (`wrangler.jsonc`)
+
+- [ ] `d1_databases[0].database_id` = id in ra ở bước 3 (thay `00000000-0000-0000-0000-000000000000`). Tên bucket giữ nguyên.
+- [ ] `vars`:
+
+  | Biến | Giá trị production |
+  | --- | --- |
+  | `ENVIRONMENT` | `production` |
+  | `ALLOWED_ORIGINS` | Origin Vercel chính xác, ví dụ `https://<dự-án>.vercel.app` (thêm domain riêng nếu có). Không dùng `*`. Chọn tên dự án Vercel trước để biết origin |
+  | `ACCEPT_SIMULATED_SOURCES` | `false` (dữ liệu `simulated` bị từ chối) |
+  | `FUSION_POLICY_JSON` | Để trống: không cảnh báo nghi ngã cho tới khi D11 có quy tắc đã duyệt. Không dùng chính sách thử của test |
+  | `LEGACY_STREAM_RECIPIENT_ID`, `LEGACY_STREAM_DEVICE_ID`, `LEGACY_STREAM_ALLOWED_IPS` | Để trống (Live Demo dùng đăng nhập + vé) |
+  | `DEVICE_AUDIO_SAMPLE_RATES` | `16000` cho tới khi firmware hỗ trợ thêm |
+  | `IMU_RAW_RETENTION_HOURS`, `IMU_STORAGE_SOFT_LIMIT_MB` | `72`, `400` (mặc định; xem mục 13 trước khi bật IMU liên tục) |
+  | `SESSION_TTL_HOURS` | `12` (đủ một buổi chấm) |
+  | Còn lại | Giữ mặc định (bảng đầy đủ: `backend/care-monitoring/README.md`) |
+
+- [ ] `npm run deploy:dry-run` liệt kê đủ binding, không có cảnh báo cấu hình.
+
+## 5. Migration D1 remote (không hoàn tác được)
+
+```powershell
+npx wrangler d1 migrations list care_monitoring --remote   # chỉ 0001_initial.sql đang chờ
+npm run db:migrate:remote
+```
+
+- [ ] Từ đây không sửa `migrations/0001_initial.sql`; mọi thay đổi schema là file `0002_*.sql` mới.
+
+## 6. Secret và origin
+
+```powershell
+python ..\scripts\make_admin_token.py          # ghi token admin vào ~/carelens-admin-token.txt, in SHA-256
+npx wrangler secret put ADMIN_TOKEN_SHA256     # dán digest (64 hex), không dán token
+```
+
+- [ ] Lưu token admin trong trình quản lý mật khẩu, rồi xóa tệp `~/carelens-admin-token.txt`.
+- [ ] `ALLOWED_ORIGINS` đã đặt ở mục 4. Không có secret nào khác.
+
+## 7. Deploy Worker, kiểm `/ready` và CORS
+
+```powershell
+npm run deploy
+$api = "https://care-monitoring.<subdomain>.workers.dev"
+curl.exe -s "$api/health"
+curl.exe -s "$api/ready"
+curl.exe -s -i -X OPTIONS "$api/api/app/v1/session" -H "Origin: https://<dự-án>.vercel.app" -H "Access-Control-Request-Method: POST"
+curl.exe -s -i -X OPTIONS "$api/api/app/v1/session" -H "Origin: https://evil.example" -H "Access-Control-Request-Method: POST"
+```
+
+- [ ] `/ready`: `"status":"ready"`, `checks.d1: ok`, `admin_api: configured`, `simulated_sources: rejected`, `alerts: none_until_both_rules_are_approved`.
+- [ ] CORS: origin Vercel → 204 + `access-control-allow-origin` đúng origin đó; origin lạ → 403, không có header CORS.
+
+## 8. Cấp phát (admin API)
+
+```powershell
+$env:CARELENS_ADMIN_TOKEN = '<token admin>'
+cd ..   # backend/care-monitoring
+python scripts/admin.py --api $api recipient --label "Hồ sơ trình diễn" --id rcp-showcase
+python scripts/admin.py --api $api agent --label "PC tại nhà"                 # → token cla_… cho agent.env
+python scripts/admin.py --api $api caregiver --name "Người thân"               # → user_id, token_id
+python scripts/admin.py --api $api grant --user <user_id người thân> --recipient rcp-showcase --role caregiver
+python scripts/admin.py --api $api login --user <user_id người thân> --login-id <email hoặc tên đăng nhập>
+# Khi có firmware (giai đoạn sau):
+# python scripts/admin.py --api $api device --id esp32-cam-01 --recipient rcp-showcase --label "Camera phòng khách"
+```
+
+Mật khẩu web và token chỉ hiện một lần. Lệnh `caregiver` in thêm một token API `clc_…` dài hạn mà web không cần: nếu không dùng thì thu hồi bằng `revoke-token --id <token_id>`.
+
+### 8.1 Một tài khoản giám khảo dùng chung (chỉ xem)
+
+Một tài khoản riêng cho cả ban giám khảo. Mỗi lần đăng nhập là một phiên riêng nên nhiều giám khảo dùng cùng lúc được (đã kiểm cục bộ: 5 phiên và 5 stream đồng thời). Không dùng tài khoản owner, admin hay người thân cho việc này. Không có đăng ký, khôi phục mật khẩu hay tài khoản riêng từng giám khảo.
+
+- [ ] Tạo bản ghi riêng: `python scripts/admin.py --api $api caregiver --name "Ban giám khảo"` → ghi `user_id`, `token_id`.
+- [ ] Thu hồi token API vừa in (giám khảo chỉ dùng đăng nhập web): `python scripts/admin.py --api $api revoke-token --id <token_id>`.
+- [ ] Cấp quyền tối thiểu, chỉ trên hồ sơ trình diễn: `python scripts/admin.py --api $api grant --user <user_id> --recipient rcp-showcase --role viewer` → ghi `grant_id`.
+- [ ] Cấp đăng nhập. Có hai cách:
+  - **Mật khẩu do máy chủ sinh (khuyến nghị):** `python scripts/admin.py --api $api login --user <user_id> --login-id <email hoặc tên đăng nhập>`. Mật khẩu 100 bit dạng `xxxxx-xxxxx-xxxxx-xxxxx`, chỉ hiện một lần.
+  - **Tài khoản trình diễn cố định `DAYONE` / `DAYONE` (chỉ dùng cho cuộc thi, mật khẩu yếu):** `python scripts/admin.py --api $api login --user <user_id> --login-id DAYONE --choose-password`, rồi gõ mật khẩu ở dòng nhắc ẩn (hoặc đặt biến môi trường `CARELENS_LOGIN_PASSWORD` trong phiên hiện tại và xóa ngay sau đó). Mật khẩu không bao giờ là tham số dòng lệnh, không có trong repo hay biến `VITE_*`. Máy chủ chỉ lưu băm PBKDF2-SHA256 có salt (`pbkdf2-sha256$<vòng lặp>$<salt>$<băm>`) và không trả mật khẩu về. Tên đăng nhập không phân biệt hoa thường; mật khẩu thì phân biệt.
+  - Mật khẩu yếu chỉ được chấp nhận vì tài khoản là `viewer` trên đúng một hồ sơ trình diễn, đăng nhập bị giới hạn 20 lần/60 s mỗi IP, và phải **xoay ngay sau buổi trình diễn** (bước dưới). Không dùng cho dữ liệu thật hay tài khoản có quyền xử lý cảnh báo.
+  - **Chưa thực hiện trên bản deploy.** Hiện chỉ đã kiểm trên backend cục bộ (`wrangler dev`, D1 tạm); tài khoản trên Cloudflare chỉ tồn tại sau khi chạy lệnh trên với backend đã deploy.
+- [ ] Chuyển tên đăng nhập và mật khẩu cho ban tổ chức qua kênh riêng (trực tiếp hoặc tin nhắn riêng), không qua nhóm chat chung. Không ghi vào repo, slide hay ảnh chụp màn hình.
+- [ ] Kiểm sau khi deploy frontend (mục 11): đăng nhập trên hai trình duyệt hoặc thiết bị cùng lúc; cả hai thấy Live Demo; đăng xuất một bên không ảnh hưởng bên kia; xử lý cảnh báo bị từ chối ("chỉ có quyền xem").
+- [ ] **Sau buổi trình diễn**:
+  1. `python scripts/admin.py --api $api revoke-grant --id <grant_id>`: hết quyền xem, stream đang mở bị đóng.
+  2. `python scripts/admin.py --api $api login --user <user_id> --login-id <tên đăng nhập>` (không `--choose-password`): máy chủ sinh mật khẩu ngẫu nhiên mới, kết thúc mọi phiên và vô hiệu `DAYONE`. Không chia sẻ mật khẩu mới.
+- [ ] Xong cấp phát: `Remove-Item Env:CARELENS_ADMIN_TOKEN`.
+
+Giới hạn: đăng nhập tính 20 lần/60 s cho mỗi địa chỉ IP, kể cả lần đúng. Cả ban giám khảo sau một NAT vẫn đủ. Phiên sống `SESSION_TTL_HOURS` (12 h). Tải lại trang thì phải đăng nhập lại, vì token chỉ nằm trong bộ nhớ.
+
+### 8.2 Đăng nhập bằng Google (tùy chọn)
+
+Mặc định tắt: nút "Đăng nhập bằng Google" báo "chưa được cấu hình trên máy chủ này". **Chưa cấu hình trên bản deploy.** Cần tài khoản Google Cloud của chủ sở hữu; không có giá trị nào được điền sẵn trong repo.
+
+1. Google Cloud Console → chọn (hoặc tạo) project → **APIs & Services → OAuth consent screen**: loại External; tên ứng dụng, email hỗ trợ; chỉ scope `openid` và `email` (không thêm scope khác). Khi còn ở trạng thái Testing, thêm email của giám khảo vào **Test users** (tối đa 100); muốn bỏ bước này phải gửi xét duyệt ứng dụng.
+2. **Credentials → Create credentials → OAuth client ID → Web application.** *Authorized redirect URIs*: đúng một dòng `https://care-monitoring.<subdomain>.workers.dev/api/app/v1/auth/google/callback` (đúng từng ký tự với `GOOGLE_REDIRECT_URI`). Không cần *Authorized JavaScript origins* vì trình duyệt không gọi Google trực tiếp. Ghi Client ID và Client secret.
+3. Đặt cấu hình ở Worker (xem `docs/DECISIONS.md` A37):
+   - biến trong `wrangler.jsonc` hoặc dashboard: `GOOGLE_CLIENT_ID`, `GOOGLE_REDIRECT_URI` (URI ở bước 2), `GOOGLE_POST_LOGIN_URL` (`https://<miền frontend>/login`);
+   - bí mật: `wrangler secret put GOOGLE_CLIENT_SECRET` (không bao giờ là biến thường hay `VITE_*`);
+   - `ALLOWED_ORIGINS` phải gồm miền frontend (vì web gọi `POST /session/exchange` từ đó).
+4. Áp migration `0002_google_signin.sql` lên D1 production (`wrangler d1 migrations apply care_monitoring --remote`).
+5. **Cho phép từng tài khoản Google** (không có tự động tạo tài khoản hay cho cả miền): `python scripts/admin.py --api $api google-allow --user <user_id tài khoản chỉ xem> --email <email Google>`. Gỡ: `google-revoke --email …` (các phiên đang có không bị đóng). Email phải là email Google đã xác minh; lần đăng nhập đầu gắn `sub` của Google, sau đó cùng email với `sub` khác bị từ chối.
+6. Kiểm: `GET $api/api/app/v1/auth/google/config` trả `{"enabled": true}`; `GET /ready` có `google_signin: configured`; đăng nhập bằng email đã cho phép vào Live Demo; email khác bị từ chối; đăng nhập hai trình duyệt cùng lúc.
+
+Sau buổi trình diễn: `google-revoke` cho từng email, và xóa OAuth client hoặc xoay secret nếu không dùng nữa.
+
+## 9. Agent cục bộ trên PC Windows
+
+Xem `integrations/carelens/local-agent/README.md`. Tóm tắt:
+
+```powershell
+cd integrations/carelens/local-agent
+copy agent.env.example agent.env       # CARELENS_BACKEND_URL=$api, CARELENS_AGENT_TOKEN=cla_…
+powershell -ExecutionPolicy Bypass -File scripts\start_vision_server.ps1 -Device cuda -Background
+powershell -ExecutionPolicy Bypass -File scripts\check_agent.ps1
+powershell -ExecutionPolicy Bypass -File scripts\start_agent.ps1
+```
+
+- [ ] `python ..\..\..\backend\care-monitoring\scripts\admin.py --api $api status` → `agents[0].connected: true`, `reported.vision.fall_heads: 3`.
+- [ ] Agent chỉ gọi ra ngoài: không mở cổng, không đăng ký Windows service, Vision và Ollama chỉ nghe `127.0.0.1`.
+
+## 10. Vercel (frontend)
+
+| Thiết lập | Giá trị |
+| --- | --- |
+| Root Directory | `frontend` |
+| Include files outside the Root Directory | Bật (mặc định). Từ D13, `npm install` trong `frontend/` cài theo workspace gốc và `package-lock.json` gốc |
+| Framework Preset | Vite (đã có trong `frontend/vercel.json`, kèm rewrite SPA về `index.html`) |
+| Environment Variables | `VITE_API_BASE_URL = https://care-monitoring.<subdomain>.workers.dev` cho **Production** (Preview chỉ khi đã thêm origin Preview vào `ALLOWED_ORIGINS`). Không đặt `VITE_DATA_MODE`. Không biến bí mật nào |
+| Build | `npm run build` (mặc định của `vercel.json`) |
+
+Biến `VITE_*` được nhúng lúc build: đổi URL thì phải deploy lại. Bản build không có `VITE_API_BASE_URL` không gọi localhost. Đăng nhập khi đó báo "chưa kết nối máy chủ xác thực (thiếu VITE_API_BASE_URL…)" và Live Demo báo mất luồng cập nhật.
+
+## 11. Deploy frontend, đăng nhập và kiểm Live Demo
+
+- [ ] Deploy trên Vercel. Mở `/login` trực tiếp để kiểm rewrite SPA.
+- [ ] Trình duyệt riêng tư: đăng nhập bằng tài khoản giám khảo → `/people` → "Demo trực tiếp" → CareLens. Phải thấy dòng "Trạng thái hệ thống…" (agent kết nối, trạng thái hiệu chỉnh).
+- [ ] DevTools → Network: `POST …/api/app/v1/session` 201, `POST …/stream-tickets` 201, `GET …/api/demo/stream?ticket=cls_…` 200 `text/event-stream`. Application → Storage: không có `clc_`/`cls_`.
+- [ ] Thử xử lý cảnh báo bằng tài khoản giám khảo: bị từ chối (403).
+- [ ] Mục kiểm hai trình duyệt cùng lúc ở 8.1.
+
+## 12. Kiểm suy luận thật và luồng sự kiện
+
+- [ ] `admin.py status`: `last_successful_inference`, `queue`, `failures_24h`, `storage`.
+- [ ] Chưa có firmware thì không có dữ liệu thiết bị. Live Demo chỉ hiện dòng trạng thái hệ thống; như vậy là đúng, không phải lỗi. Đường thiết bị → suy luận → Live Demo đã kiểm cục bộ với harness (`docs/TEST_REPORT_2026-10-19.md`) và được kiểm lại với ESP32 ở mục 15.
+- [ ] Không trỏ harness `tools/sample_device.py` vào production. Harness chỉ chấp nhận backend cục bộ, và production từ chối `simulated`.
+
+## 13. Dung lượng và giám sát
+
+Ước lượng theo cách tính của Cloudflare, **chưa đo trên firmware**. Chi tiết ở `backend/care-monitoring/README.md`, "Giới hạn free plan và sizing".
+
+| Điều kiện | Hệ quả trên Workers/D1 Free |
+| --- | --- |
+| IMU 100 Hz **liên tục**, JSON | ≈ 360–1 100 MB/ngày/thiết bị (tùy cách firmware ghi số thực). D1 Free 500 MB đầy trong khoảng một ngày. Lô 10 s ≈ 8 640 lô/ngày ≈ 95 000 dòng ghi/ngày (ghi + chỉ mục + xóa theo hạn), sát hạn 100 000 dòng/ngày chỉ với một thiết bị |
+| D1 đầy hoặc hết dòng ghi trong ngày | Mọi lệnh ghi thất bại, **kể cả cảnh báo**, tới khi có chỗ hoặc qua 00:00 UTC |
+| Bảo vệ đã có | IMU thô bị từ chối rõ ràng (507 `imu_storage_budget_exceeded`) khi DB vượt `IMU_STORAGE_SOFT_LIMIT_MB` (400). Burst, kích hoạt, quyết định, cảnh báo, lệnh vẫn chạy. `admin.py status` → `storage.d1_size_bytes`, `storage.imu_ingest` |
+| Chưa có bảo vệ | Hạn dòng ghi mỗi ngày: theo dõi trong dashboard D1 (Metrics → Rows written) |
+
+- [ ] Trên Free: firmware chỉ gửi IMU quanh burst và kích hoạt, không gửi liên tục.
+- [ ] Muốn IMU liên tục: chuyển Workers Paid (D1 10 GB/DB) hoặc giảm `IMU_RAW_RETENTION_HOURS`, sau khi đo lưu lượng thật (A33, D08).
+
+## 14. Rollback
+
+| Thành phần | Cách quay lại |
+| --- | --- |
+| Worker | `npx wrangler deployments list` → `npx wrangler rollback <version-id>` (chỉ code và config; không đổi dữ liệu D1/R2) |
+| Dữ liệu D1 | D1 Time Travel: `npx wrangler d1 time-travel info care_monitoring`, `npx wrangler d1 time-travel restore care_monitoring --timestamp <RFC3339>` (ghi đè DB hiện tại; kiểm thời hạn lưu của gói) |
+| Schema | Migration không có bản đảo; sửa bằng migration mới. Thử trước bằng `npm run db:migrate:local` |
+| Frontend | Vercel → Deployments → bản trước → "Promote to Production" (Instant Rollback) |
+| Tạm dừng nhanh | Xóa origin khỏi `ALLOWED_ORIGINS` rồi `npm run deploy` (web ngừng gọi được); `revoke-grant` / `login` cho tài khoản giám khảo; thu hồi token thiết bị và agent; `scripts\stop_agent.ps1` trên PC |
+| Gỡ hẳn | `npx wrangler delete` (Worker), xóa bucket R2 và D1 trong dashboard — **không hoàn tác được** |
+
+## 15. Hoãn tới giai đoạn firmware ESP32-S3
+
+Không làm, không tuyên bố đã đạt trong đợt này:
+
+- Firmware khớp `docs/DEVICE_API.md`; nhận ảnh thật và thứ tự thời gian.
+- Lô MPU6050 thật: nhịp, đồng hồ boot/uptime, cách ghi số thực (quyết định dung lượng ở mục 13).
+- Căn IMU–hình ảnh thật, hiệu chỉnh và quy tắc đã duyệt (D11). Trước đó không có cảnh báo nghi ngã.
+- Loa I2S: phát và xác nhận âm thanh, còi.
+- Độ trễ đầu-cuối thật, mất mạng, khởi động lại.
+- Chốt hoặc sửa ADR-017, ADR-019, D10, D11, A30, A33 theo bằng chứng thiết bị.

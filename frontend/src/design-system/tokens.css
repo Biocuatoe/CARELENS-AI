@@ -1,25 +1,15 @@
 /*
- * Nguồn token duy nhất cho landing và app (ADR-001, ADR-004).
- * Giá trị chép nguyên văn từ khối <design-system> trong docs/CARELENS_ECOPATCH_*_PROMPT.md.
+ * Nguồn token duy nhất cho landing, đăng nhập và ứng dụng (A19, A35).
+ * Bảng màu gốc là bảng màu landing (midnight, graphite, ivory, paper, ink, teal-deep, signal, mint).
+ * Các token ngữ nghĩa của ứng dụng (surface, fg, accent, shadow-*) chỉ là bí danh của bảng màu đó,
+ * nên mọi component dùng `bg-surface`, `text-fg`, `shadow-extruded`… tự theo landing mà không chép hex.
  * Không thêm hex hoặc shadow tùy ý ở src/features.
  */
 @import "tailwindcss";
 
 @theme {
-  --color-surface: #e0e5ec;
-  --color-fg: #3d4852;
-  --color-muted: #6b7280;
-  --color-placeholder: #a0aec0;
-  --color-accent: #6c63ff;
-  --color-accent-light: #8b84ff;
-  /* Giữ sắc tím thương hiệu, nhưng đủ tối để chữ trắng trên CTA đạt AA. */
-  --color-accent-strong: #5148d7;
-  --color-accent-secondary: #38b2ac;
-
-  /*
-   * Bảng màu của landing CareLens AI (A19). App vẫn dùng token Neumorphism ở trên.
-   * Teal chỉ dành cho tương tác và nhấn có nghĩa. Signal teal và mint không dùng làm chữ trên nền sáng (không đủ tương phản).
-   */
+  /* Bảng màu landing CareLens AI (A19). Teal chỉ dành cho tương tác và nhấn có nghĩa.
+     Signal teal và mint không dùng làm chữ trên nền sáng (không đủ tương phản). */
   --color-midnight: #14232d;
   --color-graphite: #233642;
   --color-teal-deep: #245f5a;
@@ -29,26 +19,35 @@
   --color-paper: #fafbf8;
   --color-ink: #26363e;
 
+  /* Bí danh ngữ nghĩa của ứng dụng: nền trang là ivory, chữ là ink, nhấn là teal-deep (tông sáng của landing). */
+  --color-surface: var(--color-ivory);
+  --color-fg: var(--color-ink);
+  --color-muted: color-mix(in srgb, var(--color-ink) 75%, transparent);
+  --color-placeholder: color-mix(in srgb, var(--color-ink) 60%, transparent);
+  --color-accent: var(--color-teal-deep);
+  --color-accent-light: var(--color-signal);
+  --color-accent-strong: var(--color-teal-deep);
+  --color-accent-secondary: var(--color-teal-deep);
+
   --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
 
-  --radius-container: 32px;
+  --radius-container: 24px;
   --radius-control: 16px;
   --radius-inner: 12px;
 
-  --shadow-extruded: 9px 9px 16px rgb(163, 177, 198, 0.6), -9px -9px 16px rgba(255, 255, 255, 0.5);
-  --shadow-extruded-hover:
-    12px 12px 20px rgb(163, 177, 198, 0.7), -12px -12px 20px rgba(255, 255, 255, 0.6);
-  --shadow-extruded-sm: 5px 5px 10px rgb(163, 177, 198, 0.6), -5px -5px 10px rgba(255, 255, 255, 0.5);
-  --shadow-inset:
-    inset 6px 6px 10px rgb(163, 177, 198, 0.6), inset -6px -6px 10px rgba(255, 255, 255, 0.5);
-  --shadow-inset-deep:
-    inset 10px 10px 20px rgb(163, 177, 198, 0.7), inset -10px -10px 20px rgba(255, 255, 255, 0.6);
-  --shadow-inset-sm:
-    inset 3px 3px 6px rgb(163, 177, 198, 0.6), inset -3px -3px 6px rgba(255, 255, 255, 0.5);
-  /* Source chỉ ghi "specific rgba inset shadows" cho primary pressed, không có giá trị. Diễn giải: A03. */
-  --shadow-accent-pressed:
-    inset 4px 4px 8px rgba(43, 38, 145, 0.45), inset -4px -4px 8px rgba(108, 99, 255, 0.45);
+  /*
+   * Độ nổi theo landing: viền mảnh (vòng 1px bằng shadow nên không đổi kích thước hộp) + bóng giấy mềm.
+   * Tên token giữ nguyên để component không phải đổi: extruded = thẻ, extruded-sm = viền nút/nhãn,
+   * inset = viền ô nhập, inset-deep = trạng thái focus, inset-sm = ô lồng trong thẻ và nhãn nhỏ.
+   */
+  --shadow-extruded: 0 0 0 1px color-mix(in srgb, var(--color-ink) 15%, transparent), 0 24px 50px -32px rgb(20, 35, 45, 0.35);
+  --shadow-extruded-hover: 0 0 0 1px var(--color-teal-deep), 0 24px 50px -28px rgb(20, 35, 45, 0.45);
+  --shadow-extruded-sm: 0 0 0 1px color-mix(in srgb, var(--color-ink) 30%, transparent);
+  --shadow-inset: inset 0 0 0 1px color-mix(in srgb, var(--color-ink) 55%, transparent);
+  --shadow-inset-deep: inset 0 0 0 2px var(--color-teal-deep);
+  --shadow-inset-sm: inset 0 0 0 1px color-mix(in srgb, var(--color-ink) 20%, transparent);
+  --shadow-accent-pressed: inset 0 0 0 1px var(--color-midnight);
 
   --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
 

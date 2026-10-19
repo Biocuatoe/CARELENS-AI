@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { Wordmark } from "./Brand";
+import { Wordmark } from "../../design-system/Brand";
 import { CTA, FOOTER, NAV_ITEMS, TAGLINE } from "./content";
 
 const link =

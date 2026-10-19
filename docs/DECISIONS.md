@@ -29,6 +29,10 @@ Không sửa nội dung mục đã Accepted. Tạo mục mới ghi `Supersedes`.
 | D07 | Đội ngũ, deadline, code hiện có | Open | 2026-09-14 |
 | D08 | Thời hạn lưu và xóa dữ liệu thật | Open | 2026-09-14 |
 | D09 | Nhà cung cấp thông báo | Open | 2026-09-14 |
+| D10 | Đường đi của frame ESP32 (qua cloud backend hay chỉ tới Module 1) | Proposed (hướng người dùng chọn 2026-10-19, chờ owner xác nhận) | 2026-10-19 |
+| D11 | Quy tắc ứng viên hình ảnh và IMU thô cho nghi ngã (cần hiệu chỉnh trên thiết bị) | Open | 2026-10-19 |
+| D12 | Truy cập Live Demo `/api/demo/stream` của frontend | Proposed (đăng nhập + vé stream, ADR-018; một tài khoản giám khảo dùng chung) | 2026-10-19 |
+| D13 | Lệnh npm ở gốc (`-w @istartup/web`) không chạy vì glob workspace `frontend/*` | Proposed (đã sửa glob thành `frontend`, chờ owner duyệt) | 2026-10-19 |
 | ADR-001 | Neumorphism cho landing và app | Accepted | 2026-09-14 |
 | ADR-002 | Modular monolith: React SPA + FastAPI + PostgreSQL | Accepted | 2026-09-14 |
 | ADR-003 | Monorepo với npm workspaces và uv workspace | Accepted | 2026-09-14 |
@@ -41,7 +45,13 @@ Không sửa nội dung mục đã Accepted. Tạo mục mới ghi `Supersedes`.
 | ADR-010 | SSE chỉ mang gợi ý thay đổi | Accepted | 2026-09-14 |
 | ADR-011 | Demo trên Cloud Run với banner mô phỏng | Proposed | 2026-09-15 |
 | ADR-012 | Cấu trúc repo: frontend/ + backend/ thay cho apps/ | Proposed | 2026-09-21 |
-| ADR-013 | Telegram-driven Demo Control (LIVESHOWCASE) | Accepted | 2026-09-22 |
+| ADR-013 | Telegram-driven Demo Control (LIVESHOWCASE) | Accepted (ADR-014, ADR-015 đề xuất thay thế) | 2026-10-19 |
+| ADR-014 | Gỡ tích hợp Telegram và service demo-bridge | Proposed | 2026-10-19 |
+| ADR-015 | Backend care-monitoring: bỏ mô phỏng, ngừng backend EcoPatch và Firebase | Proposed (phần store bộ nhớ được ADR-016 đề xuất thay) | 2026-10-19 |
+| ADR-016 | Cloud backend trên Cloudflare Workers + D1 + R2, agent cục bộ kéo việc | Proposed | 2026-10-19 |
+| ADR-017 | Hợp nhất IMU thô và hình ảnh bằng luật minh bạch `fusion-rules.v2`, không ngưỡng mặc định, không cảnh báo đơn nguồn | Proposed (sửa lần 2 cùng ngày) | 2026-10-19 |
+| ADR-018 | Đăng nhập web bằng thông tin do owner cấp và vé stream dùng một lần cho Live Demo | Proposed | 2026-10-19 |
+| ADR-019 | Hợp đồng thiết bị v2: đồng hồ boot/uptime, lô IMU thô, xác nhận lệnh đủ vòng đời | Proposed | 2026-10-19 |
 | A01 | Múi giờ hiển thị mặc định Asia/Ho_Chi_Minh | Proposed | 2026-09-14 |
 | A02 | Type contract viết tay ở web cho tới khi có OpenAPI | Proposed | 2026-09-14 |
 | A03 | Diễn giải trạng thái hover và pressed của nút primary | Proposed | 2026-09-14 |
@@ -53,6 +63,14 @@ Không sửa nội dung mục đã Accepted. Tạo mục mới ghi `Supersedes`.
 | A09 | Biểu đồ SVG tự viết thay cho thư viện biểu đồ | Proposed | 2026-09-14 |
 | A10 | Cách triển khai landing: CTA, dữ liệu xem thử, điểm gập menu | Proposed | 2026-09-15 |
 | A11 | Accent đậm hơn cho CTA để tăng khả năng đọc | Proposed | 2026-09-15 |
+| A30 | Nhịp chụp, hạn mức và thời gian sống của media theo giới hạn free plan | Proposed | 2026-10-19 |
+| A31 | Định dạng lời nhắn thoại gia đình: WAV PCM mono 16-bit | Proposed | 2026-10-19 |
+| A32 | Ưu tiên GPU giữa Vision và LLM trên RTX 2060 6 GB | Proposed | 2026-10-19 |
+| A33 | Lưu IMU thô 72 giờ và các tham số chất lượng dữ liệu của hợp nhất | Proposed | 2026-10-19 |
+| A34 | Live Demo trong frontend: dữ liệu máy chủ là nguồn sự thật, từ chối ghi chỉ-cục-bộ khi có phiên máy chủ | Proposed | 2026-10-19 |
+| A35 | Một hệ thiết kế (bảng màu landing) cho landing, đăng nhập và ứng dụng; một tài khoản Live Demo (thay A29) | Proposed | 2026-10-19 |
+| A36 | Đăng nhập web bằng tên đăng nhập, mật khẩu do owner chọn lưu bằng PBKDF2 (tài khoản trình diễn DAYONE) | Proposed | 2026-10-19 |
+| A37 | Đăng nhập bằng Google (OIDC code + PKCE) chỉ cho danh tính do owner cho phép; sửa lỗi "không kết nối" khi chạy cục bộ | Proposed | 2026-10-19 |
 
 ## Vấn đề sản phẩm chưa chốt (từ plan §3)
 
@@ -69,6 +87,10 @@ Owner của D01–D09 chưa được gán. Không dùng D02–D06 để chặn p
 | D07 | Chưa biết đội ngũ, deadline, code hiện có | Ưu tiên luồng demo xuyên suốt | Cập nhật ước lượng sau khảo sát M0 | Chưa gán |
 | D08 | Chưa chốt thời hạn lưu và xóa dữ liệu thật | Chỉ dữ liệu tổng hợp, có tác vụ reset demo | Chốt thời hạn theo từng loại dữ liệu, kể cả bản sao lưu | Chưa gán |
 | D09 | Chưa có nhà cung cấp thông báo | Lưu notification vào sink nội bộ, không gửi ra ngoài | Cấu hình kênh, quyền người nhận, kiểm tra thiết bị, phương án dự phòng | Chưa gán |
+| D10 | Kiến trúc người dùng nêu ngày 2026-10-19 cho ESP32-S3 CAM gửi dữ liệu qua Internet tới cloud backend, trong khi AGENTS.md §6 cũ cấm frame CareLens đi vào API nghiệp vụ, DB, log (và D01: CareLens không cloud) | **Proposed theo yêu cầu người dùng 2026-10-19:** frame JPEG đi qua API upload riêng (`/api/device/v1/captures`) vào bucket R2 riêng tư, chỉ để Local AI Agent tải về suy luận; xóa ngay khi suy luận xong, khi job thất bại hẳn, hoặc tối đa `MEDIA_MAX_AGE_SECONDS` (mặc định 900 s). Frame không bao giờ vào D1, log, export, analytics hay API caregiver. AGENTS.md §6 đã sửa theo đó | Owner xác nhận Accepted. Chốt thời hạn lưu (D08), có cần mã hóa phía thiết bị, và kiểm thử trên ESP32 thật | Chưa gán |
+| D11 | Gói mô hình trả `NOT_CALIBRATED`, không có ngưỡng ngã đã hiệu chỉnh trên thiết bị. Ngưỡng demo −0,3296 thuộc điểm video của demo, không áp cho API. Chưa có ngưỡng gia tốc/con quay nào được kiểm chứng cho cách gắn MPU6050 và người đeo | `fusion-rules.v2` mặc định: `vision_candidate_rule: null`, `imu_candidate_rule: null`, không có công tắc cảnh báo đơn nguồn (đã bỏ). Kích hoạt firmware chỉ mở quyết định `needs_review` / `not_enough_data` / `processing_failed`, không tạo cảnh báo. Backend lưu điểm thô và IMU thô (72 h) để hiệu chỉnh | Owner cung cấp **cả hai** quy tắc đã hiệu chỉnh trên dữ liệu ESP32 thật (24 khung và cách gộp 40 khung; ngưỡng IMU theo đúng vị trí gắn) kèm `approved_by`, `evidence_ref`; kiểm lại `alignment_tolerance_ms`, `imu_min_coverage_ratio`, `imu_max_gap_ms` trên bản ghi thật | Chưa gán |
+| D12 | `EventSource` không gửi được header nên `/api/demo/stream` cũ không kiểm được quyền theo hồ sơ; giám khảo cần xem Live Demo sau khi đăng nhập | **Proposed (ADR-018):** biểu mẫu đăng nhập hiện có gọi `POST /api/app/v1/session` bằng thông tin owner cấp; frontend lấy vé `cls_` dùng một lần (60 s) cho mỗi lần mở stream; giám khảo nhận grant `viewer` (chỉ đọc). Không vé → không có dữ liệu, trừ danh sách IP chỉ dùng cho phát triển cục bộ | Owner xác nhận cách cấp tài khoản cho giám khảo. **Mặc định (owner nêu 2026-10-19):** một tài khoản giám khảo dùng chung, grant `viewer` chỉ trên hồ sơ trình diễn, mật khẩu do máy chủ sinh, chia sẻ ngoài kênh; nhiều giám khảo đăng nhập cùng lúc (mỗi lần đăng nhập là một phiên); không đăng ký, không khôi phục mật khẩu; sau buổi trình diễn thu hồi grant và đổi mật khẩu (`docs/DEPLOYMENT_RUNBOOK.md` §8.1). Câu "Bản demo chưa có máy chủ xác thực…" trong `LoginPage.tsx` đã sửa 2026-10-19 theo yêu cầu owner (chỉ đổi hai câu chữ, giữ bố cục) | Chưa gán |
+| D13 | `package.json` gốc khai báo `"workspaces": ["frontend/*", "backend/*"]` (có từ commit `e9d9b67`), nên `npm run build|test|lint|typecheck` ở gốc báo "No workspaces found: --workspace=@istartup/web". `package-lock.json` gốc còn từ thời `apps/web` (45 phiên bản khác, thiếu `three`) | **Proposed, đã sửa 2026-10-19 theo yêu cầu owner:** chỉ đổi `"frontend/*"` thành `"frontend"` (giữ các thay đổi chưa commit khác của owner trong `package.json`); `package-lock.json` gốc dựng lại từ `frontend/package-lock.json` rồi chuẩn hóa bằng `npm install --package-lock-only` — 0 khác biệt `version`/`resolved`/`integrity` so với bản frontend đã kiểm, không nâng cấp gói. Lệnh gốc chạy được; `cd frontend && npm ci` trong bản sao sạch cài theo workspace gốc (đường của Vercel) và build thành công. Từ đây `npm install` (gốc hoặc trong `frontend/`) dùng lockfile gốc; `frontend/package-lock.json` chỉ còn cho `frontend/Dockerfile` cũ (đang hỏng vì trỏ `apps/web`) | Owner duyệt thay đổi; quyết định giữ hay bỏ `frontend/package-lock.json`, `frontend/Dockerfile`, `cloudbuild-web.yaml` | Chưa gán |
 
 ## Quyết định kỹ thuật
 
@@ -277,6 +299,103 @@ Owner của D01–D09 chưa được gán. Không dùng D02–D06 để chặn p
   - `feedback.tsx` thêm `TelegramBadge` dùng cùng style với `DemoBadge`.
   - Frontend hiển thị `TelegramBadge` cho events/alerts có `sourceMode === "telegram"`.
 - **Xem lại khi:** M5 (tích hợp ESP32-C3 + MAX30102) cần thêm nguồn BPM thật.
+
+### ADR-014 — Gỡ tích hợp Telegram và service demo-bridge
+
+- **Trạng thái:** Proposed · 2026-10-19 · Đề xuất bởi coding agent theo yêu cầu dọn repo của người dùng (phiên Claude Code 2026-10-19). Đã thực hiện trong working tree, **chưa được người dùng duyệt**. Bản trước ghi nhầm Accepted; người dùng xác nhận chưa duyệt nên sửa về Proposed.
+- **Đề xuất thay thế:** ADR-013 (chuyển Superseded khi mục này được Accepted). Rút phần "bridge (Telegram ↔ WebSocket hub)" khỏi ADR-011 (ADR-011 vẫn Proposed cho phần web). Phần `demo-control` còn lại (lệnh demo, cầu Firebase) được ADR-015 đề xuất gỡ tiếp.
+- **Bối cảnh:** Có hai đường điều khiển demo qua Telegram: bot long-polling trong `backend/demo-control` (ADR-013) và service Node `backend/services/demo-bridge` (grammY ↔ WebSocket, deploy bằng `cloudbuild-bridge.yaml`). Kiểm tra ngày 2026-10-19: frontend chỉ dùng SSE `GET /api/demo/stream` của `demo-control` (`frontend/src/data/demo/demoAdapter.ts`), không gọi `/api/demo/telegram/webhook`, không đọc `window.__BRIDGE_URL__`. `demo-bridge` không khớp glob workspace `backend/*` nên `npm run bridge` không chạy được. Event Telegram mang `source_mode="telegram"`, trái AGENTS.md §6 (dữ liệu tổng hợp phải là `simulated`).
+- **Phương án:**
+  1. Gỡ bot, route webhook, `demo-bridge`, cấu hình và tài liệu Telegram; giữ `POST /api/demo/command` và SSE làm đường điều khiển demo duy nhất.
+  2. Giữ Telegram nhưng tắt mặc định.
+- **Lựa chọn:** Phương án 1.
+- **Lý do:** Người dùng yêu cầu gỡ. Hợp đồng SSE/state/command mà frontend dùng không đổi. Event tạo qua lệnh HTTP mặc định `source_mode="simulated"`.
+- **Hệ quả:**
+  - Xóa `telegram_bot.py`, `commands.py`, test tương ứng, `check_env.py`, `test_telegram.py`, route `/api/demo/telegram/webhook`, `python-telegram-bot` trong `requirements.txt`, khối Telegram trong `.env.example`, chốt chặn `TELEGRAM_BOT_TOKEN` trong `start_backend.py`.
+  - `state.py`: `source_record_id` đổi tiền tố `telegram-` → `demo-`; note luôn có `author_name="Demo Bot"`; bỏ hàm `add_note()` không còn nơi gọi.
+  - Xóa `backend/services/demo-bridge/`, `cloudbuild-bridge.yaml`, `deploy/grant.sh`, `docs/DEMO_INDEX.md`, `docs/DEMO_CARELENS.md|.yaml`, `docs/DEMO_ECOPATCH.md|.yaml`; rút gọn `deploy/README.md` còn phần web.
+  - Frontend **không sửa** (ràng buộc của yêu cầu): `TelegramBadge`, `SourceMode "telegram"`, `frontend/scripts/devBridge.ts`, `inject-bridge-url.ts` và biến `VITE_BRIDGE_PUBLIC_URL` (cả trong `cloudbuild-web.yaml`) vẫn còn nhưng không còn nguồn phát. Cần một thay đổi frontend riêng nếu muốn dọn.
+  - `package-lock.json` gốc còn mục `demo-bridge`/`grammy` cũ, chưa sinh lại.
+  - `backend/demo-control/.env` cục bộ chưa sửa (bị chặn đọc); người dùng tự xóa các khóa `TELEGRAM_*`, `ALLOWED_CHAT_IDS`, `ALLOWED_USER_IDS`.
+- **Xem lại khi:** Cần lại kênh điều khiển demo từ xa, hoặc dọn phần Telegram còn lại ở frontend.
+
+### ADR-015 — Backend care-monitoring: bỏ mô phỏng, ngừng backend EcoPatch và Firebase
+
+- **Trạng thái:** Proposed · 2026-10-19 · Đề xuất bởi coding agent theo yêu cầu của người dùng (phiên Claude Code 2026-10-19). Đã thực hiện trong working tree, chờ người dùng duyệt.
+- **Đề xuất thay thế:** phần backend còn lại của ADR-013 (lệnh demo, trạng thái giả). Đổi quy tắc "dữ liệu tổng hợp luôn `simulated`" ở AGENTS.md §6 thành quy tắc provenance.
+- **Bối cảnh:** Người dùng xác định CareLens AI là hệ thống giám sát thật, không phải demo. Luồng đích: ESP32-S3 CAM → cloud backend → Module 1 (gói nhận diện cục bộ `carelens_models_v1_20261018`: kiểm tra ngã R3D-18, nhận diện uống nước/thuốc YOLO11n) → backend lưu sự kiện và phát cảnh báo ngay. Độc lập với đó, scheduler gọi Module 2 (LLM cục bộ `qwen3:4b-instruct-2507-q4_K_M` trên Ollama) tóm tắt sự kiện theo ngày; tóm tắt không bao giờ làm chậm cảnh báo. Khảo sát 2026-10-19: `backend/demo-control` chỉ gồm trạng thái giả (bật/tắt thiết bị kèm mô tả AI và nhịp tim tổng hợp, sự kiện ngã/uống thuốc theo lệnh, reset) và cầu Firebase cho telemetry EcoPatch. Frontend được giữ nguyên chỉ đọc `GET /api/demo/stream`, bỏ qua mọi khung không phải JSON `{"type":"state_update","state":…}` (khung đầu cũ là `repr` Python nên luôn bị bỏ). Không có DB, phiên đăng nhập, nhận frame ESP32 hay giao việc cho Module 1.
+- **Phương án:**
+  1. Đổi tên thành `backend/care-monitoring`, bỏ toàn bộ trạng thái giả, nhận kết quả Module 1 qua ingest có xác thực, phát cảnh báo trong lúc ingest, giữ `/api/demo/*` làm adapter tương thích chỉ trả dữ liệu thật.
+  2. Giữ `demo-control` và thêm đường thật song song.
+  3. Dựng ngay `backend/api` đầy đủ (PostgreSQL, phiên, quyền) theo ADR-002.
+- **Lựa chọn:** Phương án 1. Phương án 3 vẫn là đích M1; store trong bộ nhớ của care-monitoring là chỗ cắm PostgreSQL.
+- **Lý do:** Phương án 2 giữ dữ liệu giả trên đường production. Phương án 3 vượt phạm vi yêu cầu (chuẩn bị backend, không dựng hạ tầng mới).
+- **Hệ quả:**
+  - `POST /api/app/v1/ingest/recognition-results` (bearer token theo thiết bị). Thiết bị và hồ sơ lấy từ registry credential lưu SHA-256, không lấy từ payload. Chỉ lưu số và nhãn, không lưu ảnh, timing hay hộp phát hiện.
+  - Cảnh báo chỉ khi kết quả mô hình mang quyết định đã hiệu chỉnh (`alert=true`, có `threshold`, `status` khác `NOT_CALIBRATED`), rule `model-decision-passthrough.v1`. Backend không tự đặt ngưỡng. Gói hiện tại chưa hiệu chỉnh nên **hiện không tạo cảnh báo nào**. Mọi kết luận giữ `verification: "unverified"`.
+  - Nhận diện uống thuốc là quan sát AI chưa xác nhận, không phải xác nhận uống thuốc (`.claude/rules/data-contracts.md`), không tạo cảnh báo.
+  - `/api/demo/command` trả `410`. `/api/demo/stream` gửi JSON `state_update` từ khung đầu. Event legacy mang `source_mode: "device"` (giá trị gần nhất trong union frontend cho nguồn thiết bị đã xác thực).
+  - **Mâu thuẫn ghi nhận:** frontend mở stream không có credential, nên không thể kiểm quyền theo hồ sơ như AGENTS.md §6. Mặc định adapter không lộ dữ liệu; bật `CARE_MONITORING_LEGACY_STREAM_RECIPIENT_ID` thì chỉ client loopback thấy một hồ sơ. Đây là biện pháp tạm cho máy đơn, không phải phân quyền; cần phiên (ADR-006) và grant trước khi dùng thật.
+  - Store không bền. Chưa có: nhận frame ESP32 (D10), giao việc cho Module 1, scheduler và worker Module 2 cùng nơi lưu báo cáo ngày, trạng thái kết nối thiết bị, phiên và quyền.
+  - Gỡ EcoPatch và Firebase khỏi backend: cầu Firebase, `firebase-admin`, biến `FIREBASE_*` và `GOOGLE_APPLICATION_CREDENTIALS` trong `.env.example`, file service account (chuyển ra ngoài repo). Frontend vẫn có trang EcoPatch, Telegram badge (ngoài phạm vi).
+- **Xem lại khi:** Có PostgreSQL và phiên đăng nhập (M1), khi Module 1 được hiệu chỉnh trên thiết bị, hoặc khi D10 được chốt.
+- **Cập nhật 2026-10-19 (phiên sau):** service Python bộ nhớ đã được thay bằng Cloudflare Worker cùng tên (ADR-016, Proposed); logic phân loại, credential băm SHA-256 và adapter `/api/demo/*` được chuyển sang. Code Python cũ không còn trong repo (chưa từng được commit).
+
+### ADR-016 — Cloud backend trên Cloudflare Workers + D1 + R2, agent cục bộ kéo việc
+
+- **Trạng thái:** Proposed · 2026-10-19 · Đề xuất bởi coding agent theo hướng công nghệ người dùng chọn trong yêu cầu phiên Claude Code 2026-10-19. Chờ owner xác nhận Accepted.
+- **Đề xuất thay thế (khi Accepted):** phần API, DB, worker và xác thực của ADR-002 (FastAPI + PostgreSQL), ADR-005 (outbox trên PostgreSQL), ADR-006 (session cookie) cho phạm vi CareLens; store bộ nhớ của ADR-015. ADR-002 vẫn Accepted cho tới khi owner quyết định; mâu thuẫn được ghi ở đây.
+- **Bối cảnh:** Người dùng yêu cầu backend dùng thật, sẵn sàng triển khai: Cloudflare Workers, D1, R2, Cron Triggers, Durable Objects khi cần realtime; mô hình Vision và Qwen chạy trên PC Windows (RTX 2060 6 GB) qua một agent chỉ gọi ra ngoài. Không có tài khoản Cloudflare trong phiên; không deploy.
+- **Phương án:**
+  1. Worker TypeScript + D1 + R2 + một lớp Durable Object (SQLite) cho realtime; agent Python thư viện chuẩn trên PC.
+  2. Python Workers (beta) chạy lại FastAPI.
+  3. Giữ FastAPI + PostgreSQL (ADR-002) và host ở nơi khác.
+- **Lựa chọn:** Phương án 1. Mã ở `backend/care-monitoring/worker` (ngoài glob workspace `backend/*` để không đổi `package-lock.json` gốc); agent ở `integrations/carelens/local-agent`.
+- **Lý do:** Khớp hướng người dùng chọn. Bindings D1/R2/DO, Cron và công cụ test (`@cloudflare/vitest-plugin`, Miniflare) ổn định cho TypeScript. Store bộ nhớ của FastAPI không chạy được trên Workers và không bền.
+- **Hệ quả:**
+  - D1 thay PostgreSQL: không có `SKIP LOCKED`; claim dùng một câu `UPDATE … WHERE job_id = (SELECT … LIMIT 1) RETURNING` (D1 ghi tuần tự); giao dịch dùng `db.batch()` kèm bảng `tx_guard` để hủy batch khi điều kiện lease hoặc trạng thái sai.
+  - Xác thực bằng bearer token ngẫu nhiên lưu SHA-256 (thiết bị `cld_`, agent `cla_`, người chăm sóc `clc_`, admin qua secret `ADMIN_TOKEN_SHA256`). Đăng nhập web bằng thông tin do owner cấp và vé stream: ADR-018. Chưa có cookie, CSRF (ADR-006 chưa được thay trên web).
+  - Realtime: Durable Object `RealtimeHub` dùng WebSocket hibernation; Worker giữ SSE cho client, giới hạn đời stream `SSE_MAX_LIFETIME_SECONDS`; không có vòng polling.
+  - Free plan (tài liệu Cloudflare đọc ngày 2026-10-19): Workers 100.000 request/ngày, 10 ms CPU/lần gọi, 50 subrequest; D1 5 triệu dòng đọc, 100.000 dòng ghi/ngày, 50 truy vấn/lần gọi, 500 MB/DB; R2 10 GB-tháng, 1 triệu thao tác loại A, 10 triệu loại B/tháng; DO chỉ loại SQLite, 100.000 request và 13.000 GB-s/ngày; 5 Cron Trigger/tài khoản. Bật R2 theo nguồn bên thứ ba cần thêm phương thức thanh toán (chưa xác minh trên tài khoản thật). Xem A30.
+  - Lệnh chạy và test mới ở AGENTS.md §4.
+- **Xem lại khi:** Owner duyệt hoặc bác hướng Cloudflare; số thiết bị hoặc nhịp chụp vượt free plan; cần đăng nhập người dùng trên web.
+
+### ADR-017 — Hợp nhất IMU thô và hình ảnh bằng luật minh bạch `fusion-rules.v2`, không ngưỡng mặc định, không cảnh báo đơn nguồn
+
+- **Trạng thái:** Proposed · 2026-10-19 (sửa lần 2 cùng ngày; bản `fusion-rules.v1` chưa từng deploy) · Đề xuất bởi coding agent theo yêu cầu người dùng: "quyết định ngã cuối cùng phải dùng bằng chứng tương quan thời gian từ cả hình ảnh và gia tốc/con quay; kích hoạt IMU không tự thành cảnh báo; điểm hình ảnh không được vượt qua chính sách hợp nhất".
+- **Bối cảnh:** Bản v1 coi báo cáo kích hoạt của firmware là bằng chứng IMU và có hai công tắc cảnh báo đơn nguồn. Gói Vision trả logit chưa hiệu chỉnh.
+- **Lựa chọn:** Backend tự đánh giá mẫu gia tốc/con quay **thô** trên cửa sổ của burst, trên đồng hồ đơn điệu của cùng một `boot_id` (`src/fusion.ts` `evaluateImu`, `decide`; `src/decisions.ts` điều phối):
+  - Bằng chứng IMU: `missing`, `insufficient_coverage` (tỉ lệ mẫu < `imu_min_coverage_ratio` hoặc khoảng hở > `imu_max_gap_ms`), `sensor_fault` (cả sáu trục đứng yên tuyệt đối), `rule_not_configured`, `below_rule`, `candidate` (kèm `aligned` khi khớp trong burst ± `alignment_tolerance_ms`).
+  - Bằng chứng hình ảnh: `candidate`, `below_rule`, `uncalibrated`, `missing`, `failed`.
+  - Kết quả: `suspected_fall` (chỉ khi cả hai là `candidate` và khớp thời gian → cảnh báo tạm thời + còi), `needs_review` (lệch thời gian, mâu thuẫn, thiếu quy tắc), `not_enough_data` (thiếu hình ảnh hoặc IMU thô), `no_fall_detected` (cả hai dưới quy tắc đã duyệt; không bao giờ hiện là "an toàn"), `processing_failed` (job hình ảnh thất bại, upload dở, cảm biến đứng yên). Chỉ người chăm sóc đặt `verified`/`dismissed`.
+  - Một quyết định chỉ mở khi có kích hoạt firmware, ứng viên hình ảnh hoặc ứng viên IMU; burst thường không có tín hiệu chỉ là sự kiện bằng chứng.
+  - Chờ bằng chứng: kích hoạt chờ burst được liên kết (`imu_decision_grace_seconds`); quyết định chờ IMU thô phủ burst (`imu_wait_seconds`) và được đánh giá lại khi lô IMU tới hoặc theo cron.
+  - Không bao giờ hợp nhất bằng chứng khác `boot_id`; đồng hồ tường của thiết bị không dùng để sắp thứ tự.
+- **Lý do:** Đúng yêu cầu người dùng, minh bạch, kiểm thử được (ma trận 13 ca trong `test/unit.test.ts`, 23 test qua API trong `test/fusion-alerts.test.ts`), không tự đặt ngưỡng y khoa.
+- **Hệ quả:** Với cấu hình mặc định hệ thống **không tạo cảnh báo nghi ngã nào**. Muốn có cảnh báo, owner phải duyệt cả quy tắc hình ảnh và quy tắc IMU (D11). Các tham số thời gian/độ phủ là mặc định kỹ thuật chưa kiểm chứng trên thiết bị (A33). `FUSION_POLICY_JSON` kiểu v1 (có `alert_on_*`) bị từ chối (503 `misconfigured`).
+- **Xem lại khi:** Có dữ liệu hiệu chỉnh trên thiết bị (D11) hoặc biết vị trí gắn MPU6050 (người đeo hay đặt cố định).
+
+### ADR-018 — Đăng nhập web bằng thông tin do owner cấp và vé stream dùng một lần cho Live Demo
+
+- **Trạng thái:** Proposed · 2026-10-19 · Đề xuất bởi coding agent theo yêu cầu "giữ quy trình của giám khảo, vào Live Demo sau khi đăng nhập, không làm API được bảo vệ thành công khai".
+- **Bối cảnh:** Frontend mở `EventSource(${VITE_API_BASE_URL}/api/demo/stream)`; EventSource không gửi được `Authorization`. Danh sách IP (D12 cũ) không dùng được cho giám khảo ở mạng bất kỳ.
+- **Phương án:**
+  1. Stream công khai cho một hồ sơ trình diễn (bị loại: lộ dữ liệu sức khỏe).
+  2. Cookie phiên `SameSite=None` khác miền Vercel/workers.dev (bị loại: cookie bên thứ ba bị chặn ở Safari/Firefox).
+  3. Đăng nhập bằng biểu mẫu hiện có → token phiên trong bộ nhớ; mỗi lần mở stream đổi lấy vé `cls_` dùng một lần, 60 s, đặt trong query.
+- **Lựa chọn:** Phương án 3 (`src/session.ts`, `src/legacy.ts`; frontend `demoAdapter.ts`).
+- **Lý do:** Không đổi giao diện; quyền vẫn theo grant ở máy chủ; vé trong URL hết hạn sau một lần dùng, không mang quyền ghi.
+- **Hệ quả:** Mật khẩu là chuỗi 100 bit do máy chủ sinh (SHA-256 đủ vì không phải mật khẩu người tự đặt; phù hợp giới hạn 10 ms CPU của Workers Free). Giám khảo nhận grant `viewer`; người thân nhận `caregiver` (được xử lý cảnh báo từ web). Đổi mật khẩu thu hồi mọi phiên. Mỗi lần đăng nhập là một phiên riêng, nên một tài khoản giám khảo dùng chung được nhiều trình duyệt cùng lúc; đăng xuất chỉ kết thúc phiên đó. Mọi lần thử đăng nhập (đúng hoặc sai) tính vào ngân sách 20 lần/60 s theo IP **trước** khi kiểm mật khẩu (429 `too_many_attempts`). Mỗi lần mở stream ghi một vé vào D1, nên frontend lùi dần khi stream hỏng liên tiếp (không mở được, hoặc đóng trong 30 s: chờ 5, 10, 20, 40, rồi 60 s) và báo "Mất luồng cập nhật" trong lúc chờ. Tải lại trang thì phải đăng nhập lại (không lưu token vào web storage, AGENTS.md §6). Chưa có tự đăng ký, quên mật khẩu, 2FA, cookie/CSRF (ADR-006 vẫn là đích dài hạn).
+- **Xem lại khi:** Có `backend/api` với phiên cookie (ADR-006) hoặc cần tài khoản tự phục vụ.
+
+### ADR-019 — Hợp đồng thiết bị v2: đồng hồ boot/uptime, lô IMU thô, xác nhận lệnh đủ vòng đời
+
+- **Trạng thái:** Proposed · 2026-10-19 · Đề xuất bởi coding agent. **Thay đổi không tương thích** với `capture-session.v1`, `imu-event.v1`, `device-heartbeat.v1`, `command-status.v1`; các bản v1 chưa từng có firmware dùng (chỉ có harness kiểm thử, đã chuyển sang v2 trong cùng thay đổi) nên được gỡ thay vì giữ song song.
+- **Bối cảnh:** Yêu cầu: định danh phiên khởi động, số thứ tự lô IMU tăng dần, mốc thời gian từng mẫu, đơn vị rõ ràng, phát hiện trùng/thiếu/lỗi thời, liên kết IMU với burst theo thời gian, không giả định đồng hồ thiết bị đồng bộ; xác nhận `accepted/started/completed/expired/failed`.
+- **Lựa chọn:** Mọi yêu cầu thiết bị có khối `clock{boot_id, uptime_ms, wall_clock_synced, wall_time}`; khung ảnh và mẫu IMU mang `uptime_ms` (64-bit, mili giây từ lúc khởi động). Máy chủ ước lượng mốc 0 của mỗi boot = min(thời điểm nhận − uptime). Lô IMU `imu-batch.v1` (≤ 1000 mẫu, đơn vị cố định g, °/s, ms). Báo cáo kích hoạt `imu-event.v2` không mang mẫu. Lệnh: `accepted`, `started`, `completed`, `failed`/`rejected` (mã lý do bắt buộc), `cancelled` (chỉ sau yêu cầu hủy). Chi tiết: `docs/DEVICE_API.md`.
+- **Lý do:** Căn chỉnh trong một boot chính xác tuyệt đối, chịu được đồng hồ tường sai hoặc chưa đồng bộ; lệnh và âm thanh có ngữ nghĩa xác nhận trung thực.
+- **Hệ quả:** Firmware phải dùng `esp_timer_get_time()`, sinh `boot_id` ngẫu nhiên mỗi lần khởi động, gửi IMU thô theo lô bao phủ mỗi burst. Chưa xác minh trên ESP32 thật.
+- **Xem lại khi:** Bắt đầu viết firmware (M5).
 
 ## Giả định tạm
 
@@ -507,6 +626,99 @@ Owner của D01–D09 chưa được gán. Không dùng D02–D06 để chặn p
 - **Bộ vẽ:** tỉ lệ điểm ảnh ở chế độ đầy đủ không dưới 1,5 và không quá 2 (màn 1080p tỉ lệ 1 trước đây vẽ đúng 1 lần nên cạnh người răng cưa); chế độ nhẹ không quá 1,5; khung nào quá 30 ms liên tiếp 14 lần thì tự hạ 0,25 (không dưới tỉ lệ của màn hình, không nâng lại). Bản đồ bóng 2048 px (chế độ nhẹ 1024), bán kính lọc 3 thay vì 4–5 để bớt nhiễu hạt; bóng vẫn chỉ vẽ lại khi tư thế đổi. Thêm ánh bù mềm không đổ bóng từ phía người xem để gương mặt đọc được mà không làm phẳng phòng. Không hậu kỳ, không làm nét giả.
 - **Hạn chế trung thực:** đây vẫn là nhân vật cách điệu dựng bằng code, không phải ảnh hay quét người thật; mặt giống một người lớn tuổi nói chung, không giống ai. Hình ảnh chỉ minh hoạ, không ngụ ý nhận diện tư thế, nhận diện thuốc hay xử lý máy chủ đã được kiểm chứng. Chi phí: khoảng 117 nghìn tam giác cho người (trước đây khoảng 41 nghìn; chế độ nhẹ thấp hơn khoảng 15 nghìn), bộ nhớ GPU thêm (ước tính từ kích thước, chưa đo) khoảng 8 MB cho hoa văn cộng khoảng 24 MB cho hai bản đồ bóng lớn hơn; đo độ mượt khi cuộn cả hai cảnh ở 1440 × 900 trên GPU thật cho cùng kết quả trước và sau (p95 khoảng 16,8 ms). Gói `careScene` tăng khoảng 22 kB (8 kB nén).
 - **Điều kiện giải quyết:** Người dùng duyệt hình ảnh nhân vật. Nếu cần chân dung giống thật hơn, phương án sau là một nhân vật có bản quyền rõ ràng đã gắn xương, kèm bước ánh xạ kênh tư thế và kiểm thử lại điểm nắm ly.
+- **Owner:** Chưa gán
+
+### A29 — Trang đăng nhập dùng hai tông của landing (sáng/tối), không dùng Neumorphism (cập nhật A19; mâu thuẫn có chủ ý với `.claude/rules/frontend.md` và ARCHITECTURE §"ngoài phạm vi")
+
+- **Trạng thái:** Proposed · 2026-10-18
+- **Nội dung:** Theo yêu cầu mới nhất của người dùng (nguồn số 1), `/login` được dựng lại để khớp landing: cùng token A19 (`midnight`, `graphite`, `ivory`, `paper`, `ink`, `teal-deep`, `signal`, `mint`), nút pill `landingButtonClasses`, nhãn `Eyebrow`, logo Day1Care hiện có (`BrandIdentity`, theo yêu cầu rõ của người dùng; landing dùng wordmark "CareLens AI" nên hai nơi đang hiển thị hai tên thương hiệu khác nhau, cần người dùng chốt). Bố cục: dưới `lg` một cột (hàng logo, tiêu đề, thẻ đăng nhập, thẻ demo); từ `lg` hai khu, cột thương hiệu cố định bên trái (logo, một câu giới thiệu, ba việc người chăm sóc làm được) và cột đăng nhập bên phải. Hai chế độ là hai tông có sẵn của landing: `dark` (midnight/graphite/signal) và `light` (ivory/paper/teal-deep). Mặc định theo `prefers-color-scheme`; nút ở đầu trang đổi tông và lưu lựa chọn vào `localStorage` (khóa `login-tone`, chỉ là sở thích giao diện, không phải token hay dữ liệu sức khỏe). Không thêm màu mới; lỗi vẫn diễn đạt bằng icon, chữ đậm và viền đậm, không dùng đỏ/hổ phách (ADR-009). Style riêng nằm trong `features/auth/loginParts.tsx`, `loginTone.ts`; `BrandIdentity` chỉ thêm prop `large` (phóng to từ `lg`, mặc định không đổi). Landing không bị sửa. Logic xác thực, schema, `safeReturnTo`, route, nhãn nút và nhãn `Dữ liệu mô phỏng` không đổi.
+- **Mâu thuẫn ghi nhận:** `.claude/rules/frontend.md` và ARCHITECTURE liệt dark mode vào danh sách cấm/ngoài phạm vi. Yêu cầu mới nhất được ưu tiên (AGENTS.md §2), nhưng các tài liệu đó **chưa được sửa**. Dark mode chỉ có ở `/login`; ứng dụng S01–S14 vẫn Neumorphism sáng, nên sau khi đăng nhập giao diện đổi phong cách.
+- **Mặc định đang dùng:** Như trên.
+- **Điều kiện giải quyết:** Người dùng xác nhận (a) cho phép dark mode ở login và cập nhật rules/ARCHITECTURE, (b) có mở rộng hai tông sang app không, (c) tên thương hiệu hiển thị (Day1Care ở login/app, CareLens AI ở landing). Đã đo bằng script canvas trên trang login: mọi chữ ≥ 4.5:1 (tối thiểu 5.64 sáng, 6.80 tối), viền ô nhập 3.18:1 (sáng) và 4.47:1 (tối) so với nền thẻ; chưa chạy công cụ kiểm tra a11y độc lập.
+- **Owner:** Chưa gán
+
+### A30 — Nhịp chụp, hạn mức và thời gian sống của media theo giới hạn free plan
+
+- **Trạng thái:** Proposed · 2026-10-19
+- **Nội dung:** Mỗi lần chụp thường (24 khung) tốn khoảng 3 PUT R2, 6–8 request Worker và 20–30 dòng ghi D1 kể cả chỉ mục. Chụp liên tục mỗi ~4 s (24 khung ở 8 fps + nghỉ 1 s) là khoảng 21.600 lần/ngày, vượt free plan nhiều lần.
+- **Mặc định đang dùng:** `MAX_NORMAL_CAPTURES_PER_HOUR=60`, `MAX_TRIGGERED_CAPTURES_PER_HOUR=20` (vượt thì 429 + `Retry-After`), `FRAMES_PER_CHUNK=8`, `UPLOAD_SESSION_TTL_SECONDS=120`, `MEDIA_MAX_AGE_SECONDS=900`, `MAX_CAPTURE_AGE_SECONDS=600`, nhịp 125 ms ± `CADENCE_TOLERANCE_MS=40`; khoảng > 187 ms là mất khung và bỏ qua suy luận của lần chụp đó. Với 60 lần/giờ, một thiết bị dùng khoảng 1.440 lần chụp/ngày.
+- **Điều kiện giải quyết:** Owner chọn nhịp chụp thường thật cho firmware và gói Cloudflare (Free hay Workers Paid).
+- **Owner:** Chưa gán
+
+### A31 — Định dạng lời nhắn thoại gia đình: WAV PCM mono 16-bit
+
+- **Trạng thái:** Proposed · 2026-10-19
+- **Nội dung:** Firmware sau này phát bằng I2S từ RAM hoặc stream, không giải mã nén.
+- **Mặc định đang dùng:** RIFF/WAVE PCM (format 1), mono, 16-bit little-endian, 0,5–60 s, ≤ 2,2 MB, tần số theo hồ sơ thiết bị `DEVICE_AUDIO_SAMPLE_RATES` (mặc định chỉ 16 000 Hz; có thể thêm 8 000/22 050/24 000 khi firmware hỗ trợ). Tệp khác tần số bị từ chối khi tải lên, không nhận âm thầm; chuyển đổi bằng `ffmpeg -i in.m4a -ac 1 -ar 16000 -sample_fmt s16 out.wav`. Mỗi lần thay là một phiên bản mới với khóa R2 bất biến; lệnh phát ghim phiên bản và mang `sha256`, `byte_size` để thiết bị kiểm tra. Thiết bị chỉ tải được âm thanh qua lệnh đang hoạt động (hỗ trợ `Range`). Lưu tới khi người chăm sóc xóa (thời hạn lưu: D08).
+- **Điều kiện giải quyết:** Xác nhận với phần cứng loa/I2S và firmware.
+- **Owner:** Chưa gán
+
+### A32 — Ưu tiên GPU giữa Vision và LLM trên RTX 2060 6 GB
+
+- **Trạng thái:** Proposed · 2026-10-19
+- **Nội dung:** Đo một lần ngày 2026-10-19: Vision server thường trú + Qwen3 4B (num_ctx 6144) cùng nạp dùng 5.297/6.144 MiB; một fall-check 24 khung (71 ms) và một object-check (119 ms) vẫn chạy khi Qwen đang nạp. Đây là một lần đo, không phải kiểm chứng dưới tải.
+- **Mặc định đang dùng:** Agent dùng hai làn; làn báo cáo chỉ nhận việc khi không còn việc Vision (`defer_if_vision_pending`), việc Vision cắt ngang báo cáo đang sinh (trả job lại, không tính lượt), Ollama `keep_alive=0` để gỡ LLM sau mỗi báo cáo.
+- **Điều kiện giải quyết:** Đo dưới tải dài hơn, hoặc chuyển LLM sang máy khác.
+- **Owner:** Chưa gán
+
+### A33 — Lưu IMU thô 72 giờ và các tham số chất lượng dữ liệu của hợp nhất
+
+- **Trạng thái:** Proposed · 2026-10-19
+- **Nội dung:** IMU thô cần cho hợp nhất và điều tra sự cố nhưng chiếm chỗ D1. **Sửa ước lượng 2026-10-19:** con số cũ "≈ 48 MB/ngày" sai. `samples_json` lưu nguyên JSON: ≈ 42–48 byte/mẫu nếu firmware làm tròn (3–4 chữ số cho g, 1–2 cho °/s), ≈ 130 byte/mẫu nếu ghi float32 đầy đủ, nên 100 Hz liên tục ≈ 360–1 100 MB/ngày/thiết bị (chưa tính chỉ mục). D1 Free giữ 500 MB/DB; với 72 h thì cần 1,1–3,3 GB. Mỗi lô ≈ 11 dòng ghi (đồng hồ, bảng + 4 chỉ mục, xóa theo hạn), nên lô 10 s liên tục ≈ 95 000 dòng/ngày, sát hạn 100 000 của Free chỉ với một thiết bị. Đây là ước lượng theo tài liệu Cloudflare, chưa đo trên firmware. Khi D1 đầy hoặc hết dòng ghi, mọi lệnh ghi thất bại, kể cả cảnh báo.
+- **Mặc định đang dùng:** `IMU_RAW_RETENTION_HOURS=72` (cron xóa theo lô 500), `IMU_MAX_BATCH_AGE_SECONDS=3600`, lô ≤ 1000 mẫu và ≤ 120 s. Hợp nhất: `alignment_tolerance_ms=3000`, `imu_search_margin_ms=10000`, `imu_min_coverage_ratio=0.8`, `imu_max_gap_ms=500`, `imu_wait_seconds=60`. Quyết định giữ đặc trưng tính từ mẫu thô và độ phủ sau khi mẫu bị xóa. Đây là tham số chất lượng dữ liệu, không phải ngưỡng y khoa, và chưa kiểm chứng trên thiết bị. Bảo vệ dung lượng: `IMU_STORAGE_SOFT_LIMIT_MB=400` — khi DB lớn hơn, lô IMU thô bị từ chối rõ ràng (507 `imu_storage_budget_exceeded`, `Retry-After: 600`) còn burst, kích hoạt, quyết định, cảnh báo, lệnh vẫn ghi được; `GET /api/admin/v1/status` báo `storage.d1_size_bytes` và `storage.imu_ingest`. Không có giới hạn dòng ghi mỗi ngày trong mã (đếm sẽ tốn thêm ghi); theo dõi trong dashboard D1. Khuyến nghị trên Free: firmware chỉ gửi IMU quanh burst và kích hoạt.
+- **Điều kiện giải quyết:** Chốt thời hạn lưu (D08); đo nhịp gửi IMU thật của firmware (liên tục hay chỉ quanh burst), cách ghi số thực và cỡ dữ liệu; chọn Free (IMU quanh sự kiện) hay Workers Paid (IMU liên tục).
+- **Owner:** Chưa gán
+
+### A34 — Live Demo trong frontend: dữ liệu máy chủ là nguồn sự thật, từ chối ghi chỉ-cục-bộ khi có phiên máy chủ
+
+- **Trạng thái:** Proposed · 2026-10-19
+- **Nội dung:** Persona "Demo trực tiếp" (`r_liveshowcase`) là nơi duy nhất frontend hiện dữ liệu thật. Để không báo thành công điều máy chủ chưa ghi nhận, `frontend/src/data/demo/demoAdapter.ts` (không đổi giao diện):
+  - bản build production không có `VITE_API_BASE_URL` thì không kết nối (không gọi localhost) và luồng báo "Mất luồng cập nhật, đang thử lại";
+  - sự kiện và cảnh báo từ máy chủ được cập nhật tại chỗ (trạng thái, phiên bản, xác minh), mang `source_mode`/`policy_version` thật thay cho nhãn mô phỏng;
+  - thao tác cảnh báo của cảnh báo máy chủ gửi tới API và chỉ áp dụng kết quả máy chủ xác nhận;
+  - khi đang có phiên máy chủ, các thao tác ghi chỉ có trong bộ nhớ (ghi chú, xuất dữ liệu, ghép thiết bị, mời, công cụ demo phát sự kiện…) bị từ chối với thông báo rõ ràng;
+  - mỗi lần (mở lại) stream dùng vé mới; vé đã dùng bị bỏ ngay khi stream lỗi; stream hỏng liên tiếp được báo "Mất luồng cập nhật" và thử lại với độ trễ tăng dần (ADR-018).
+  Ngoài lớp dữ liệu, chỉ đổi hai câu chữ trên trang đăng nhập (D12) để không còn nói "chưa có máy chủ xác thực".
+- **Điều kiện giải quyết:** Khi có adapter `http` đầy đủ (M1+) thì thay cách này.
+- **Owner:** Chưa gán
+
+### A35 — Một hệ thiết kế (bảng màu landing) cho landing, đăng nhập và ứng dụng; một tài khoản Live Demo (thay A29; ghi đè ADR-001 cho ứng dụng)
+
+- **Trạng thái:** Proposed · 2026-10-19
+- **Nội dung:** Theo yêu cầu mới nhất của người dùng (nguồn số 1): landing là chuẩn thị giác, đăng nhập và ứng dụng sau đăng nhập phải cùng một sản phẩm, và chỉ còn một tài khoản Live Demo dùng chung.
+  - **Token.** `frontend/src/design-system/tokens.css` vẫn là nguồn duy nhất. Tám màu landing (A19) giữ nguyên giá trị; các token ngữ nghĩa của ứng dụng chỉ còn là bí danh: `surface` = ivory, `fg` = ink, `accent` = teal-deep, `accent-light` = signal. Các bóng Neumorphism (`extruded`, `inset`…) giữ tên nhưng đổi nghĩa: vòng 1px bằng shadow (không đổi kích thước hộp) cộng bóng giấy mềm của landing. Bán kính thẻ 32px → 24px (khớp thẻ đăng nhập). Không thêm màu mới; lỗi vẫn là icon, chữ đậm và viền đậm, không đỏ/hổ phách (ADR-009).
+  - **Primitive dùng chung** (`design-system/primitives.tsx`, `feedback.tsx`, `overlays.tsx`): `SoftSurface` raised = thẻ `paper` viền mảnh; `buttonClasses` dùng lại màu nút của `landingButtonClasses` (pill, teal-deep, tông `dark` cho thanh điều hướng); ô nhập là `InsetField` (viền ink/55, focus teal); `IconWell` = `IconRing` của landing; tab/phân đoạn là nhãn pill, mục chọn đổi nền teal đậm và có chấm đánh dấu. Tên component giữ nguyên để các trang không phải sửa.
+  - **Khung ứng dụng** (`app/AppShell.tsx`): thanh bên và thanh đầu trang midnight như header landing (nhãn mono, nav pill, mục đang chọn có viền signal và chữ đậm), vùng nội dung ivory/paper. Một tông cố định như landing, không có công tắc sáng/tối.
+  - **Đăng nhập** (`features/auth/LoginPage.tsx`): khu thương hiệu midnight cạnh khu biểu mẫu ivory/paper, dùng đúng các primitive trên. Bỏ khối "Vào bản demo" (bốn người dùng mô phỏng và LIVESHOWCASE), bỏ nút đổi tông và khóa `localStorage` `login-tone` (A29), bỏ thành phần riêng `loginParts`/`loginTone`. Đăng nhập đúng chuyển tới `/people`, và `/people` (`features/recipients/LiveDemoHome.tsx`) chuyển thẳng tới tổng quan của hồ sơ đầu tiên máy chủ cấp quyền xem.
+  - **Thương hiệu.** Mọi nơi dùng wordmark "CareLens AI" của landing (`design-system/Brand.tsx`, chuyển từ `features/landing/Brand.tsx`). `BrandIdentity` (logo Day1Care ở đăng nhập và ứng dụng) bị xóa; tiêu đề tab đổi sang "CareLens AI". Logo Day1Care chỉ còn làm favicon (`public/brand/day1care-logo.png`), chưa đổi vì là tài sản thương hiệu cần chủ sở hữu quyết.
+  - **Gỡ phần chỉ phục vụ demo nhiều người dùng:** `OnboardingPage` (tạo hồ sơ; vốn bị từ chối khi có phiên máy chủ), `AdminPage` và route `/admin` (chỉ persona quản trị mô phỏng vào được), trang danh sách hồ sơ và bộ chọn hồ sơ, `enterDemo`/`useDemoControls` trong giao diện. Các phương thức tương ứng của `DemoAdapter` và fixture persona **còn lại làm điểm tiếp cận cho unit test** (`demoAdapter.test.ts`), không còn đường vào từ giao diện.
+  - **Trung thực:** email fixture (`*.invalid`) không còn hiện như email của người đăng nhập; nhãn cạnh nội dung là "Demo trực tiếp"; câu "Toàn bộ dữ liệu trên trang là dữ liệu mô phỏng" bị bỏ vì sai với dữ liệu máy chủ.
+- **Mâu thuẫn ghi nhận:** `.claude/rules/frontend.md` (mục Neumorphism, cấm dark mode/viền) và AGENTS.md §6 "Thiết kế" nói ngược lại; đã cập nhật hai nơi này theo A35. `docs/CARELENS_ECOPATCH_SYSTEM_UI_PROMPT.md` và ARCHITECTURE §7.4 (công thức bóng Neumorphism) **chưa sửa**. Trang EcoPatch, Chia sẻ, Thiết bị vẫn hiển thị dữ liệu fixture cho hồ sơ Live Demo (có nhãn "Demo trực tiếp"); chưa được thay bằng dữ liệu máy chủ.
+- **Điều kiện giải quyết:** Người dùng xác nhận (a) bảng màu landing là chuẩn cho cả ứng dụng, (b) tên hiển thị CareLens AI thay Day1Care và số phận của favicon, (c) việc ẩn hoặc nối dữ liệu máy chủ cho các trang còn dùng fixture. Độ tương phản của các cặp màu mới chưa chạy công cụ a11y độc lập; palette.test.ts chỉ kiểm các cặp đã dùng ở landing.
+- **Owner:** Chưa gán
+
+### A36 — Đăng nhập web bằng tên đăng nhập; mật khẩu do owner chọn lưu bằng PBKDF2 (tài khoản trình diễn DAYONE)
+
+- **Trạng thái:** Proposed · 2026-10-19
+- **Nội dung:** Theo yêu cầu mới nhất của người dùng: tài khoản trình diễn dùng chung là `DAYONE` / `DAYONE` (chỉ cho cuộc thi, không phải khuyến nghị cho production).
+  - **Hợp đồng:** `POST /api/app/v1/session` nhận `username` (email hoặc tên đăng nhập thuần `[a-z0-9._@+-]`, 3–254 ký tự, không phân biệt hoa thường); `email` cũ vẫn được nhận. Admin `POST /caregivers/{id}/login` nhận `login_id` (hoặc `login_email` cũ) và `password` tùy chọn (5–128 ký tự). Cột `login_email` giữ nguyên (không có migration mới).
+  - **Lưu mật khẩu:** mật khẩu sinh tự động (100 bit) vẫn là SHA-256 (đủ vì không đoán được offline). Mật khẩu **do owner chọn** có thể yếu nên lưu `pbkdf2-sha256$<vòng>$<salt>$<băm>` (WebCrypto, salt ngẫu nhiên 16 byte, mặc định 100000 vòng là mức tối đa của Workers; số vòng nằm trong chuỗi băm nên hạ `LOGIN_PBKDF2_ITERATIONS` không làm hỏng băm cũ). Mật khẩu chọn phân biệt hoa thường; không bao giờ được trả về hay ghi log. Tài khoản không tồn tại vẫn tốn một lần PBKDF2 để thời gian trả lời không lộ sự tồn tại.
+  - **Không đổi:** giới hạn 20 lần/60 s mỗi IP (tính cả lần đúng), phiên riêng mỗi lần đăng nhập (đăng xuất một nơi không ảnh hưởng nơi khác), xoay mật khẩu kết thúc mọi phiên, vé stream dùng một lần, quyền `viewer` chỉ đọc.
+  - **Rủi ro chấp nhận:** `DAYONE` đoán được. Giảm nhẹ bằng quyền chỉ xem trên một hồ sơ trình diễn, giới hạn tần suất, và xoay ngay sau buổi trình diễn (`docs/DEPLOYMENT_RUNBOOK.md` §8.1). Khả năng bruteforce online dưới giới hạn tần suất chưa được đánh giá bằng thử nghiệm tải.
+  - **Chưa kiểm:** thời gian CPU của PBKDF2 100000 vòng trên Workers Free (giới hạn 10 ms) chưa đo trên Cloudflare; chỉ chạy được trong `wrangler dev` và test Workers cục bộ. Nếu đăng nhập lỗi vượt CPU sau deploy, hạ `LOGIN_PBKDF2_ITERATIONS` rồi xoay lại mật khẩu, hoặc dùng gói Paid.
+- **Điều kiện giải quyết:** Người dùng xác nhận chấp nhận mật khẩu yếu cho trình diễn; đo đăng nhập trên bản deploy; tạo tài khoản bằng `admin.py login --login-id DAYONE --choose-password` trên backend đã deploy.
+- **Owner:** Chưa gán
+
+### A37 — Đăng nhập bằng Google (OIDC code + PKCE) chỉ cho danh tính do owner cho phép; sửa lỗi "không kết nối" khi chạy cục bộ
+
+- **Trạng thái:** Proposed · 2026-10-19
+- **Nội dung (nguyên nhân lỗi cục bộ):** trang đăng nhập báo "Không kết nối được máy chủ CareLens" vì (1) `npm run dev:backend` thoát ngay với mã 3 khi DB cục bộ cũ hơn kiểm tra schema, nên không có gì nghe ở cổng 8787; (2) có thể còn hai bộ `wrangler dev`/`workerd` chạy chồng, nhận kết nối nhưng không trả lời; (3) khi origin của trang không nằm trong `ALLOWED_ORIGINS`, preflight bị 403 và trình duyệt báo y hệt máy chủ chết, nên frontend gọi nhầm là mất kết nối. Đã sửa: frontend thăm dò `GET /health` (no-cors) để phân biệt "máy chủ tắt" với "máy chủ từ chối origin", thêm báo lỗi riêng cho 400/422; thêm `scripts/dev_setup.py` (`init`, `provision`) và `docs/DEV_LOCAL.md`. Không có dữ liệu mô phỏng hay xác thực giả nào thay thế.
+- **Nội dung (Google):** luồng authorization code + PKCE (S256) thực hiện hoàn toàn ở Worker (`src/google.ts`), scope chỉ `openid email`. State dùng một lần (băm trong D1, 10 phút) và gắn với cookie HttpOnly của trình duyệt khởi tạo (chặn login CSRF). Mã đổi token cùng client secret (bí mật Worker) và code_verifier; ID token kiểm chữ ký RS256 theo JWKS của Google, `iss`, `aud`, `exp`, `iat`, `nonce`, `email_verified`. Chuyển hướng về web chỉ tới `GOOGLE_POST_LOGIN_URL` cấu hình sẵn; web đổi mã `clx_…` dùng một lần (60 giây, nằm ở fragment, bị xóa khỏi thanh địa chỉ ngay) lấy phiên riêng qua `POST /session/exchange`, nên token phiên không bao giờ nằm trên URL. Không có token Google nào được lưu hay log; không dùng web storage.
+- **Chính sách cấp quyền:** **danh sách cho phép tường minh do owner quản** (`google_identities`, bảng D1): `admin.py google-allow --user … --email …` gắn một email Google với một tài khoản chỉ xem có sẵn; không tự tạo tài khoản, không cho theo miền. Lần đăng nhập đầu gắn `sub` của Google; cùng email với `sub` khác bị từ chối (chống chiếm lại địa chỉ). Danh sách rỗng = không ai vào được bằng Google. Chọn danh sách email thay vì miền Workspace vì chưa có miền nào do owner chỉ định; chưa đoán email hay miền nào.
+- **Cấu hình cần owner:** `GOOGLE_CLIENT_ID`, `GOOGLE_REDIRECT_URI`, `GOOGLE_POST_LOGIN_URL` (biến) và `GOOGLE_CLIENT_SECRET` (secret). Thiếu client id và secret thì Google tắt và nút báo "chưa được cấu hình"; cấu hình dở dang hoặc URL sai thì chỉ các route Google báo 503 `misconfigured` (phần còn lại của API không bị ảnh hưởng). Không có giá trị nào được bịa trong repo.
+- **Không đổi:** đăng nhập `DAYONE` bằng mật khẩu (A36), giới hạn tần suất (tính cả callback và exchange), phiên riêng cho mỗi lần đăng nhập, vé stream dùng một lần, quyền `viewer`.
+- **Đã kiểm chứng:** 23 test Worker với "Google giả" (khóa RSA thật ký ID token, JWKS thật) cho state/CSRF/PKCE/nonce/chữ ký/audience/issuer/hết hạn/email chưa xác minh/danh tính lạ/`sub` lệch/hết hạn mã/phiên độc lập; Worker thật cục bộ (client id giả) cho redirect bắt đầu, cookie, từ chối callback giả và nút trong trình duyệt. **Chưa kiểm:** đăng nhập với Google thật (cần client id/secret và tài khoản Google thật của owner), thời gian CPU của PBKDF2/RSA trên Workers Free, kiểm duyệt màn hình đồng ý của Google khi ra khỏi trạng thái Testing.
+- **Điều kiện giải quyết:** Owner tạo OAuth client, điền cấu hình, `google-allow` các email; kiểm một lần đăng nhập Google thật.
 - **Owner:** Chưa gán
 
 ## Mẫu

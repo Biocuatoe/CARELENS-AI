@@ -1,0 +1,36 @@
+# care-monitoring local development overrides (copy to .dev.vars; never commit .dev.vars).
+# `wrangler dev` reads .dev.vars on top of the "vars" in wrangler.jsonc. For production use
+# `wrangler secret put <NAME>` for secrets and edit "vars" for non-secret settings.
+
+# SHA-256 (64 lowercase hex) of the admin bearer token. Create a token and its digest with:
+#   python ../scripts/make_admin_token.py
+# Keep the token itself in a password manager; only the digest goes here.
+ADMIN_TOKEN_SHA256=
+
+# Local development only: accept captures/IMU events labelled source_mode="simulated" (test harness).
+# Must stay "false" in production.
+ACCEPT_SIMULATED_SOURCES=true
+ENVIRONMENT=development
+
+# Browser origins of the local frontend (Vite dev 5173, preview 4173).
+ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173
+
+# /api/demo/stream (the frontend's Live Demo). Normal access is sign-in + single-use stream ticket.
+# For local development only, the "LIVESHOWCASE" persona button (no sign-in) can see one recipient when
+# the browser runs on this machine: set the recipient id and keep the allowlist on loopback.
+LEGACY_STREAM_RECIPIENT_ID=
+LEGACY_STREAM_DEVICE_ID=
+LEGACY_STREAM_ALLOWED_IPS=127.0.0.1/32,::1/128
+
+# Fusion policy override (JSON, see src/env.ts FusionPolicySchema). Empty = fusion-rules.v2 defaults with
+# no candidate rules, i.e. no fall alerts. Never put a threshold here without the owner's approval record.
+FUSION_POLICY_JSON=
+
+# Google sign-in (optional; all four together, or leave all empty = off). Create an OAuth client of type "Web application"
+# in Google Cloud Console and register EXACTLY this redirect URI. See docs/DEV_LOCAL.md and docs/DEPLOYMENT_RUNBOOK.md §8.2.
+# The flow must start on the redirect URI's own host, so for local tests build the frontend with
+# VITE_API_BASE_URL=http://localhost:8787 (not 127.0.0.1) when the redirect URI uses localhost.
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=http://localhost:8787/api/app/v1/auth/google/callback
+GOOGLE_POST_LOGIN_URL=http://localhost:5173/login

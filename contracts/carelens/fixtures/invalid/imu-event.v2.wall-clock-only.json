@@ -1,0 +1,21 @@
+{
+  "schema_version": "imu-event.v2",
+  "source_mode": "device",
+  "device_id": "esp32-cam-example",
+  "clock": {
+    "boot_id": "boot-7f3a91c2",
+    "uptime_ms": 3601600,
+    "wall_clock_synced": true,
+    "wall_time": "2026-10-19T01:00:06.100Z"
+  },
+  "trigger": {
+    "trigger_id": "trg-000045",
+    "trigger_type": "impact",
+    "firmware_rule_version": "fw-imu-example-0",
+    "capture_id": "cap-000124",
+    "device_metrics": {
+      "peak_accel_g": 2.1
+    },
+    "triggered_at": "2026-10-19T01:00:01.500Z"
+  }
+}

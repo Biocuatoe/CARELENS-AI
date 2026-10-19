@@ -3,6 +3,11 @@
  * phân quyền theo hồ sơ, state machine cảnh báo có version, dedup, gói đến muộn, idempotency, stream.
  * KHÔNG phải bảo mật thật: mọi kiểm tra ở đây chỉ để demo và test giao diện (AGENTS.md §6).
  * Trạng thái chỉ nằm trong bộ nhớ; tải lại trang sẽ đặt lại dữ liệu và phiên (giả định A04).
+ *
+ * Ngoại lệ có máy chủ thật (persona "Demo trực tiếp", r_liveshowcase): đăng nhập bằng biểu mẫu tài khoản gọi
+ * POST /api/app/v1/session của backend care-monitoring; token phiên chỉ nằm trong bộ nhớ của adapter. Luồng
+ * /api/demo/stream mở bằng vé dùng một lần, cảnh báo được xử lý qua API máy chủ, và khi đang có phiên máy chủ
+ * thì mọi thao tác ghi chỉ-cục-bộ bị từ chối để không có gì "lưu thành công" mà máy chủ chưa nhận.
  */
 import type {
   AccessOverview,
@@ -77,20 +82,50 @@ import {
 /** Ngưỡng kết nối là cấu hình kỹ thuật demo, không phải cam kết sản phẩm (plan §7.4). */
 export const CONNECTION_THRESHOLDS = { staleAfterMin: 5, disconnectedAfterMin: 15 };
 
-/** Base URL of the demo-control FastAPI server (backend + bot combined).
- *  The bot writes state to a JSON file; the API serves SSE at /api/demo/stream.
- *  Configurable via VITE_API_BASE_URL (default port 8787, must match scripts/demo/_run-api.ps1).
- *  Only used for dynamic personas (LIVSHOWCASE); static personas never call this URL. */
-export const DEMO_API_BASE: string =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://127.0.0.1:8787";
+/** Base URL of the care-monitoring backend (Cloudflare Worker) used by the Live Demo persona.
+ *  A production build uses VITE_API_BASE_URL only: without it there is no backend connection (the stream
+ *  reports itself unavailable) instead of silently calling localhost. Development falls back to the local
+ *  `npm run dev:backend` (wrangler dev on 127.0.0.1:8787). Static personas never call this URL. */
+export function resolveApiBase(configured: string | undefined, developmentFallback: string | null): string | null {
+  const value = configured?.trim();
+  if (value) return value.replace(/\/+$/, "");
+  return developmentFallback;
+}
+
+// import.meta.env.DEV is a build-time constant: production bundles do not even contain the local address.
+export const DEMO_API_BASE: string | null = resolveApiBase(
+  import.meta.env.VITE_API_BASE_URL as string | undefined,
+  import.meta.env.DEV ? "http://127.0.0.1:8787" : null,
+);
+
+/** A Live Demo stream that stayed open this long ended normally (the server closes streams after
+ *  SSE_MAX_LIFETIME_SECONDS, 300 s by default) and is reopened at once; a shorter one counts as a failure. */
+const STREAM_HEALTHY_MS = 30_000;
+
+/** Server sign-in held in memory only (never web storage). recipientId is the backend recipient shown as
+ *  the frontend persona r_liveshowcase. */
+interface BackendSession {
+  token: string;
+  expiresAt: string;
+  userName: string;
+  recipientId: string;
+  role: "caregiver" | "viewer";
+}
+
+interface LoginResponse {
+  token: string;
+  expires_at: string;
+  user: { user_id: string; display_name: string };
+  recipients: Array<{ recipient_id: string; role: string; permissions: string[] }>;
+}
 const PAGE_SIZE = { events: 15, alerts: 20, history: 20 };
 const MAX_REPORT_RANGE_DAYS = 90;
 
 export interface DemoAdapterOptions {
   now?: () => number;
   latencyMs?: [number, number];
-  /** Override the backend API base URL (useful in tests). Falls back to VITE_API_BASE_URL then DEMO_API_BASE. */
-  apiBase?: string;
+  /** Override the backend API base URL (tests). null = no backend configured. Defaults to DEMO_API_BASE. */
+  apiBase?: string | null;
 }
 
 interface DemoState extends DemoFixture {
@@ -128,22 +163,93 @@ export class DemoAdapter implements DataAdapter, DemoControls {
   private state!: DemoState;
   private readonly now: () => number;
   private readonly latency: [number, number];
-  private readonly apiBase: string;
+  private readonly apiBase: string | null;
   private subscribers = new Map<number, Subscriber>();
   private subscriberSeq = 0;
+  private backendSession: BackendSession | null = null;
+  /** Alerts received from the backend stream: actions on them go to the server, never to local state. */
+  private backendAlertIds = new Set<string>();
+  /** Live Demo stream failures in a row (never opened, ticket refused, or open for less than
+   *  STREAM_HEALTHY_MS). Every connection mints a ticket, a database write on the server, so after a failure
+   *  no new connection is attempted before streamRetryAt (5, 10, 20, 40, then 60 s). */
+  private streamFailures = 0;
+  private streamRetryAt = 0;
 
   constructor(options: DemoAdapterOptions = {}) {
     this.now = options.now ?? (() => Date.now());
     this.latency = options.latencyMs ?? [120, 320];
-    this.apiBase =
-      options.apiBase ??
-      ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://127.0.0.1:8787");
+    this.apiBase = options.apiBase !== undefined ? options.apiBase : DEMO_API_BASE;
     this.reset();
   }
 
-  /** Returns the effective API base URL (constructor option → VITE_API_BASE_URL → default). */
-  getApiBase(): string {
+  /** Returns the effective API base URL (constructor option → VITE_API_BASE_URL → development default), or
+   *  null when this build has no backend configured. */
+  getApiBase(): string | null {
     return this.apiBase;
+  }
+
+  /** true while a server sign-in is active (the Live Demo then shows server data only). */
+  hasBackendSession(): boolean {
+    return this.backendSession !== null;
+  }
+
+  /** JSON call to the care-monitoring backend. Never logs or stores the token. */
+  private async backendCall<T>(method: string, path: string, body: unknown, token: string | null): Promise<{ status: number; data: T | null }> {
+    if (!this.apiBase) {
+      throw new ApiError(
+        503,
+        "auth_unavailable",
+        "Bản web này chưa kết nối máy chủ xác thực (thiếu VITE_API_BASE_URL lúc build) nên chưa đăng nhập được. Vui lòng liên hệ người vận hành.",
+      );
+    }
+    const headers: Record<string, string> = {};
+    if (body !== undefined) headers["content-type"] = "application/json";
+    if (token) headers.authorization = `Bearer ${token}`;
+    let res: Response;
+    try {
+      res = await fetch(`${this.apiBase}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: "omit", cache: "no-store" });
+    } catch {
+      throw await this.explainNetworkFailure();
+    }
+    const text = await res.text();
+    let data: T | null = null;
+    try {
+      if (text) data = JSON.parse(text) as T;
+    } catch {
+      // Not JSON (e.g. a proxy error page): callers act on the status code alone.
+    }
+    return { status: res.status, data };
+  }
+
+  /**
+   * A rejected fetch is either "nothing answers" or "the server answered but refused this page's origin" (CORS): the
+   * browser reports both identically. An opaque `no-cors` probe of /health tells them apart, so a CORS misconfiguration
+   * is not presented as an outage.
+   */
+  private async explainNetworkFailure(): Promise<ApiError> {
+    let reachable = false;
+    try {
+      await fetch(`${this.apiBase}/health`, { mode: "no-cors", credentials: "omit", cache: "no-store" });
+      reachable = true;
+    } catch {
+      // nothing answered
+    }
+    if (reachable) {
+      return new ApiError(
+        503,
+        "origin_blocked",
+        `Máy chủ đang chạy nhưng không chấp nhận địa chỉ trang này (${globalThis.location?.origin ?? "không rõ"}). Người vận hành cần thêm địa chỉ này vào ALLOWED_ORIGINS của máy chủ.`,
+      );
+    }
+    return new ApiError(503, "api_unavailable", "Không kết nối được máy chủ CareLens. Kiểm tra máy chủ đang chạy và mạng, rồi thử lại.");
+  }
+
+  /** With a server sign-in the browser shows server data only: local simulated writes are refused so nothing
+   *  appears saved that the server never received. Alert actions go to the server (actOnAlert). */
+  private refuseLocalWrite(): void {
+    if (this.backendSession) {
+      throw new ApiError(403, "forbidden", "Bản web đang hiển thị dữ liệu thật từ máy chủ; thao tác này chưa có trên máy chủ nên không thực hiện được.");
+    }
   }
 
   /** Returns the current demo mode. */
@@ -158,6 +264,10 @@ export class DemoAdapter implements DataAdapter, DemoControls {
   /* ================================================================ infrastructure */
 
   reset(): void {
+    this.backendSession = null;
+    this.backendAlertIds = new Set();
+    this.streamFailures = 0;
+    this.streamRetryAt = 0;
     const now = this.now();
     const fixture = buildFixture(now);
     const previousUser = this.state?.sessionUserId ?? null;
@@ -479,10 +589,12 @@ export class DemoAdapter implements DataAdapter, DemoControls {
 
   private sessionFor(userId: string): Session {
     const user = this.user(userId);
+    const server = userId === "u_liveshowcase" ? this.backendSession : null;
     return {
-      user: { id: user.id, displayName: user.displayName, email: user.email, isPlatformAdmin: user.isPlatformAdmin },
+      // Email fixture (.invalid) không phải của người đăng nhập: với phiên máy chủ để trống thay vì hiển thị một địa chỉ bịa.
+      user: { id: user.id, displayName: server?.userName ?? user.displayName, email: server ? "" : user.email, isPlatformAdmin: user.isPlatformAdmin },
       mode: "demo",
-      expiresAt: iso(this.now() + 8 * HOUR),
+      expiresAt: server?.expiresAt ?? iso(this.now() + 8 * HOUR),
     };
   }
 
@@ -492,24 +604,80 @@ export class DemoAdapter implements DataAdapter, DemoControls {
     return this.sessionFor(user.id);
   }
 
-  async login(input: { email: string; password: string }): Promise<Session> {
-    await this.delay();
-    void input;
-    throw new ApiError(
-      503,
-      "auth_unavailable",
-      "Bản demo chưa kết nối máy chủ xác thực nên không kiểm tra được tài khoản. Hãy dùng “Vào bản demo”.",
-    );
+  /**
+   * Server sign-in for the Live Demo (owner-issued credential, see backend session.ts). On success the
+   * "Demo trực tiếp" persona shows the first recipient the account may read, with the account's real role:
+   * a viewer (e.g. a judge) is read-only, a caregiver may also act on alerts. Nothing is written to web storage.
+   */
+  async login(input: { username: string; password: string }): Promise<Session> {
+    const res = await this.backendCall<LoginResponse>("POST", "/api/app/v1/session", { username: input.username.trim(), password: input.password }, null);
+    if (res.status === 401) throw new ApiError(401, "unauthenticated", "Tài khoản hoặc mật khẩu không đúng.");
+    if (res.status === 429) throw new ApiError(429, "rate_limited", "Có quá nhiều lần đăng nhập từ mạng này. Vui lòng thử lại sau một phút.");
+    if (res.status === 400 || res.status === 422) {
+      throw new ApiError(res.status, "validation", "Máy chủ không chấp nhận định dạng tài khoản hoặc mật khẩu đã nhập.");
+    }
+    if (res.status !== 201 || !res.data?.token) {
+      throw new ApiError(503, "auth_unavailable", `Máy chủ không xác nhận đăng nhập (mã ${res.status}). Vui lòng thử lại sau.`);
+    }
+    return this.beginBackendSession(res.data);
+  }
+
+  /**
+   * Google sign-in, step 1: asks the server whether it is configured, so an unconfigured server gives an honest message
+   * instead of a redirect into a dead end. The redirect itself (and the OAuth exchange with Google) happens on the server.
+   */
+  async getGoogleSignIn(): Promise<{ enabled: boolean; startUrl: string }> {
+    const res = await this.backendCall<{ enabled?: boolean }>("GET", "/api/app/v1/auth/google/config", undefined, null);
+    if (res.status !== 200) throw new ApiError(503, "auth_unavailable", `Máy chủ không trả lời cấu hình đăng nhập Google (mã ${res.status}).`);
+    return { enabled: res.data?.enabled === true, startUrl: `${this.apiBase}/api/app/v1/auth/google/start` };
+  }
+
+  /** Google sign-in, step 2: the web app trades the single-use code from the redirect for its own session (same shape as login). */
+  async completeGoogleSignIn(code: string): Promise<Session> {
+    const res = await this.backendCall<LoginResponse>("POST", "/api/app/v1/session/exchange", { code }, null);
+    if (res.status === 401) throw new ApiError(401, "unauthenticated", "Phiên đăng nhập Google đã hết hạn hoặc đã được dùng. Vui lòng thử lại.");
+    if (res.status === 429) throw new ApiError(429, "rate_limited", "Có quá nhiều lần đăng nhập từ mạng này. Vui lòng thử lại sau một phút.");
+    if (res.status !== 201 || !res.data?.token) {
+      throw new ApiError(503, "auth_unavailable", `Máy chủ không xác nhận đăng nhập (mã ${res.status}). Vui lòng thử lại sau.`);
+    }
+    return this.beginBackendSession(res.data);
+  }
+
+  /** Turns a server session (password or Google sign-in) into the Live Demo session the UI shows. */
+  private beginBackendSession(data: LoginResponse): Session {
+    const target = data.recipients.find((r) => r.permissions.includes("data.read"));
+    if (!target) {
+      void this.backendCall("DELETE", "/api/app/v1/session", undefined, data.token).catch(() => undefined);
+      throw new ApiError(403, "forbidden", "Tài khoản đã đăng nhập nhưng chưa được cấp quyền xem hồ sơ nào.");
+    }
+    this.reset();
+    const role = target.role === "caregiver" ? "caregiver" : "viewer";
+    this.backendSession = { token: data.token, expiresAt: data.expires_at, userName: data.user.display_name, recipientId: target.recipient_id, role };
+    for (const g of this.state.grants) {
+      if (g.recipientId !== "r_liveshowcase" || g.userId !== "u_liveshowcase") continue;
+      g.role = role;
+      g.permissions = role === "caregiver" ? ["recipient.read", "data.read", "alerts.act"] : ["recipient.read", "data.read"];
+      g.userDisplayName = data.user.display_name;
+    }
+    for (const m of this.state.memberships) if (m.userId === "u_liveshowcase") m.role = "member";
+    this.state.sessionUserId = "u_liveshowcase";
+    this.state.sessionExpired = false;
+    this.state.mode = "dynamic";
+    return this.sessionFor("u_liveshowcase");
   }
 
   async logout(): Promise<void> {
     await this.delay();
+    const server = this.backendSession;
+    this.backendSession = null;
+    if (server) await this.backendCall("DELETE", "/api/app/v1/session", undefined, server.token).catch(() => undefined);
     const userId = this.state.sessionUserId;
     this.state.sessionUserId = null;
     for (const [id, sub] of this.subscribers) if (sub.userId === userId) this.subscribers.delete(id);
   }
 
   expireSession(): void {
+    this.backendSession = null;
     this.state.sessionExpired = true;
     for (const [id, sub] of this.subscribers) {
       sub.handlers.onClose("session_expired");
@@ -548,6 +716,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
     products: Product[];
   }): Promise<RecipientSummary> {
     await this.delay();
+    this.refuseLocalWrite();
     const user = this.requireSession();
     if (user.isPlatformAdmin) throw new ApiError(403, "forbidden", "Tài khoản quản trị nền tảng không tạo hồ sơ chăm sóc.");
     const fieldErrors: Record<string, string> = {};
@@ -848,6 +1017,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
     const { user } = this.authorize(recipientId, ["data.read", "alerts.act"]);
     const alert = this.state.alerts.find((a) => a.id === alertId && a.recipientId === recipientId);
     if (!alert) throw new ApiError(404, "not_found", "Không tìm thấy cảnh báo trong hồ sơ này.");
+    if (this.backendAlertIds.has(alertId)) return this.actOnBackendAlert(alert, input);
 
     if (input.type === "resolve") {
       const fieldErrors: Record<string, string> = {};
@@ -905,6 +1075,63 @@ export class DemoAdapter implements DataAdapter, DemoControls {
     return this.alertDetail(alert);
   }
 
+  /** Alert actions on server alerts are confirmed by the server, never applied locally first. */
+  private async actOnBackendAlert(alert: Alert, input: AlertActionInput): Promise<AlertDetail> {
+    const server = this.backendSession;
+    if (!server) {
+      throw new ApiError(403, "forbidden", "Cảnh báo này đến từ máy chủ. Hãy đăng nhập bằng tài khoản được cấp để xử lý.");
+    }
+    if (input.type === "resolve") {
+      const fieldErrors: Record<string, string> = {};
+      if (!["confirmed", "false_alarm", "uncertain"].includes(input.outcome)) fieldErrors.outcome = "Chọn kết quả kiểm tra.";
+      if (input.note.trim().length < 3) fieldErrors.note = "Nhập ghi chú xử lý (ít nhất 3 ký tự).";
+      if (Object.keys(fieldErrors).length) throw new ApiError(422, "validation", "Thông tin chưa hợp lệ.", { fieldErrors });
+    }
+    const res = await this.backendCall<{ alert?: BackendAlertView; code?: string; detail?: string }>(
+      "POST",
+      `/api/app/v1/recipients/${encodeURIComponent(server.recipientId)}/alerts/${encodeURIComponent(alert.id)}/actions`,
+      {
+        action: input.type,
+        expected_version: input.expectedVersion,
+        review_outcome: input.type === "resolve" ? input.outcome : null,
+        note: input.type === "resolve" ? input.note.trim() : null,
+      },
+      server.token,
+    );
+    if (res.status === 401) {
+      this.expireSession();
+      throw new ApiError(401, "session_expired", "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+    }
+    if (res.status === 403) throw new ApiError(403, "forbidden", "Tài khoản này chỉ có quyền xem, không xử lý được cảnh báo.");
+    if (res.status === 404) throw new ApiError(404, "not_found", "Máy chủ không còn cảnh báo này.");
+    if (res.status === 409) {
+      throw new ApiError(409, "conflict", "Cảnh báo đã thay đổi trên máy chủ trước khi thao tác được lưu. Trang sẽ tải trạng thái mới nhất.", { current: this.alertDetail(alert) });
+    }
+    if (res.status !== 200 || !res.data?.alert) {
+      throw new ApiError(res.status === 422 ? 422 : 503, res.status === 422 ? "validation" : "api_unavailable", res.data?.detail ?? `Máy chủ không xác nhận thao tác (mã ${res.status}).`);
+    }
+    const a = res.data.alert;
+    alert.status = a.status as Alert["status"];
+    alert.version = a.version;
+    alert.reviewOutcome = (a.review_outcome as Alert["reviewOutcome"]) ?? null;
+    alert.resolutionNote = a.review_note ?? null;
+    alert.resolvedAt = a.resolved_at ?? null;
+    if (input.type !== "resolve" && !alert.assigneeName) alert.assigneeName = server.userName;
+    if (input.type === "resolve") alert.resolvedByName = server.userName;
+    this.state.actions.push({
+      id: this.nextId("ac"),
+      alertId: alert.id,
+      type: input.type,
+      actorName: server.userName,
+      actorKind: "user",
+      outcome: input.type === "resolve" ? input.outcome : null,
+      note: input.type === "resolve" ? input.note.trim() : null,
+      at: this.nowIso(),
+    });
+    this.emit(alert.recipientId, "alert.updated", alert.id);
+    return this.alertDetail(alert);
+  }
+
   private conflictMessage(alert: Alert): string {
     const last = this.state.actions.filter((a) => a.alertId === alert.id).sort((a, b) => b.at.localeCompare(a.at))[0];
     if (last && last.actorKind === "user") {
@@ -931,6 +1158,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
 
   async startPairing(recipientId: string, input: { product: Product; serial: string }): Promise<PairingChallenge> {
     await this.delay();
+    this.refuseLocalWrite();
     this.authorize(recipientId, ["devices.manage"], input.product);
     const serial = input.serial.trim().toUpperCase();
     if (serial.length < 6) {
@@ -958,6 +1186,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
 
   async confirmPairing(recipientId: string, challengeId: string, code: string): Promise<Device> {
     await this.delay();
+    this.refuseLocalWrite();
     const challenge = this.state.pairings.find((p) => p.id === challengeId && p.recipientId === recipientId);
     this.authorize(recipientId, ["devices.manage"], challenge?.product);
     if (!challenge) throw new ApiError(404, "not_found", "Phiên ghép thiết bị không tồn tại.");
@@ -992,6 +1221,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
 
   async unassignDevice(recipientId: string, deviceId: string): Promise<void> {
     await this.delay();
+    this.refuseLocalWrite();
     this.authorize(recipientId, ["devices.manage"]);
     const assignment = this.state.assignments.find((a) => a.deviceId === deviceId && a.recipientId === recipientId && !a.validTo);
     if (!assignment) throw new ApiError(404, "not_found", "Thiết bị không thuộc hồ sơ này.");
@@ -1025,6 +1255,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
     input: { startedAt: string; lotCode: string | null; expectedReplaceAt: string | null; idempotencyKey: string },
   ): Promise<PatchSession> {
     await this.delay();
+    this.refuseLocalWrite();
     const { user } = this.authorize(recipientId, ["patches.replace"], "ecopatch");
     const key = `patch:${user.id}:${input.idempotencyKey}`;
     const previousId = this.state.idempotency.get(key);
@@ -1190,6 +1421,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
 
   async addNote(recipientId: string, body: string): Promise<CareNote> {
     await this.delay();
+    this.refuseLocalWrite();
     const { user } = this.authorize(recipientId, ["notes.write"]);
     const text = body.trim();
     if (text.length < 2 || text.length > 1000) {
@@ -1272,6 +1504,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
     input: { from: string; to: string; products: Product[]; idempotencyKey: string },
   ): Promise<ExportJob> {
     await this.delay();
+    this.refuseLocalWrite();
     const { user, recipient } = this.authorize(recipientId, ["data.read", "exports.create"]);
     const key = `export:${user.id}:${input.idempotencyKey}`;
     const existingId = this.state.idempotency.get(key);
@@ -1393,6 +1626,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
 
   async createInvitation(recipientId: string, input: { email: string; role: "caregiver" | "viewer" }): Promise<Invitation> {
     await this.delay();
+    this.refuseLocalWrite();
     const { user, recipient } = this.authorize(recipientId, ["sharing.manage"]);
     const email = input.email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -1432,6 +1666,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
 
   async cancelInvitation(recipientId: string, invitationId: string): Promise<void> {
     await this.delay();
+    this.refuseLocalWrite();
     this.authorize(recipientId, ["sharing.manage"]);
     const invitation = this.state.invitations.find((i) => i.id === invitationId && i.recipientId === recipientId);
     if (!invitation) throw new ApiError(404, "not_found", "Không tìm thấy lời mời.");
@@ -1441,6 +1676,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
 
   async revokeGrant(recipientId: string, grantId: string): Promise<void> {
     await this.delay();
+    this.refuseLocalWrite();
     const { user } = this.authorize(recipientId, ["sharing.manage"]);
     const grant = this.state.grants.find((g) => g.id === grantId && g.recipientId === recipientId);
     if (!grant || grant.revokedAt) throw new ApiError(404, "not_found", "Quyền truy cập không tồn tại hoặc đã bị thu hồi.");
@@ -1477,6 +1713,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
 
   async updateNotificationSettings(input: { backupUserId: string | null; reminderMinutes: number | null }): Promise<NotificationSettings> {
     await this.delay();
+    this.refuseLocalWrite();
     const user = this.requireSession();
     const fieldErrors: Record<string, string> = {};
     if (input.backupUserId && !this.backupCandidates(user.id).some((c) => c.userId === input.backupUserId)) {
@@ -1492,6 +1729,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
 
   async sendTestNotification(): Promise<NotificationDelivery> {
     await this.delay();
+    this.refuseLocalWrite();
     const user = this.requireSession();
     const delivery: NotificationDelivery & { ownerId: string } = {
       id: this.nextId("nd"),
@@ -1569,29 +1807,79 @@ export class DemoAdapter implements DataAdapter, DemoControls {
       }
     }
 
-    // Connect real SSE to the FastAPI backend.
-    // The backend SSE polls apps/demo-control/.demo-state/state.json and emits
-    // a state_update whenever seq increments (i.e. whenever the bot mutates state).
-    // We translate each backend state_update into in-browser hints so React Query
-    // invalidates the right queries.
+    // Live Demo: the care-monitoring backend serves state_update frames at /api/demo/stream. With a server
+    // sign-in each (re)connection uses a fresh single-use ticket (EventSource cannot send headers). Without a
+    // sign-in the backend only answers with data on a development allowlist; otherwise its state is empty.
+    // Each backend state_update is merged into the in-memory state and turned into hints for React Query.
     //
     // Skip SSE in test environments (jsdom does not polyfill EventSource).
     let es: EventSource | null = null;
     let esClosed = false;
     // Track the highest seq seen from the backend so we can send it back as
     // last_seq on every reconnect, allowing the server to skip already-seen state.
-    // We use a query parameter because EventSource does not support custom headers.
     let lastBackendSeq = lastSeq ?? -1;
 
-    const connectSSE = () => {
+    /** The stream cannot be served: release this subscription and let useRecipientStream show
+     *  "Mất luồng cập nhật, đang thử lại" and resubscribe (backend unavailability stays visible). */
+    const fail = (reason: "error" | "session_expired") => {
+      if (esClosed) return;
+      esClosed = true;
+      es?.close();
+      es = null;
+      this.subscribers.delete(id);
+      handlers.onClose(reason);
+    };
+    /** Counts a failed connection and pushes the next allowed attempt back (5, 10, 20, 40, 60 s). */
+    const failWithBackoff = () => {
+      this.streamFailures += 1;
+      this.streamRetryAt = Date.now() + Math.min(60_000, 2_500 * 2 ** this.streamFailures);
+      fail("error");
+    };
+
+    const connectSSE = async () => {
       if (esClosed) return;
       if (typeof EventSource === "undefined") return; // Not available in jsdom test env.
       // SSE always connects when there is an active session and grant for the recipient.
       // The grant check above guarantees that static personas (u_minh, u_lan, u_ha, u_khoa)
       // never reach this point.
-
-      const url = `${this.apiBase}/api/demo/stream${lastBackendSeq >= 0 ? `?last_seq=${lastBackendSeq}` : ""}`;
-      es = new EventSource(url);
+      if (!this.apiBase) {
+        queueMicrotask(() => fail("error"));
+        return;
+      }
+      // Still backing off after a failure: report the stream as unavailable without asking for a ticket.
+      if (Date.now() < this.streamRetryAt) {
+        queueMicrotask(() => fail("error"));
+        return;
+      }
+      const params = new URLSearchParams();
+      const server = this.backendSession;
+      if (server) {
+        let ticket: { status: number; data: { ticket?: string } | null };
+        try {
+          ticket = await this.backendCall<{ ticket?: string }>("POST", "/api/app/v1/stream-tickets", { recipient_id: server.recipientId }, server.token);
+        } catch {
+          failWithBackoff();
+          return;
+        }
+        if (ticket.status === 401) {
+          fail("session_expired");
+          this.expireSession();
+          return;
+        }
+        if (ticket.status !== 201 || !ticket.data?.ticket) {
+          failWithBackoff();
+          return;
+        }
+        params.set("ticket", ticket.data.ticket);
+      }
+      if (esClosed) return;
+      if (lastBackendSeq >= 0) params.set("last_seq", String(lastBackendSeq));
+      const query = params.toString();
+      es = new EventSource(`${this.apiBase}/api/demo/stream${query ? `?${query}` : ""}`);
+      let openedAt: number | null = null;
+      es.onopen = () => {
+        openedAt = Date.now();
+      };
 
       es.onmessage = (e: MessageEvent) => {
         if (esClosed) return;
@@ -1695,14 +1983,23 @@ export class DemoAdapter implements DataAdapter, DemoControls {
 
       es.onerror = () => {
         if (esClosed) return;
+        // Close at once: the browser would otherwise retry the same URL with the consumed ticket.
         es?.close();
         es = null;
-        // Reconnect after 5 seconds, mimicking the SSE stream.ts retry behaviour.
-        setTimeout(connectSSE, 5_000);
+        // A stream that stayed open ends normally after the server's SSE_MAX_LIFETIME_SECONDS: reconnect at
+        // once with a fresh ticket. One that never opened (backend down, ticket refused) or dropped quickly
+        // (e.g. a proxy cutting event streams) is reported and retried with growing delays.
+        if (openedAt !== null && Date.now() - openedAt >= STREAM_HEALTHY_MS) {
+          this.streamFailures = 0;
+          this.streamRetryAt = 0;
+          setTimeout(() => void connectSSE(), 250);
+        } else {
+          failWithBackoff();
+        }
       };
     };
 
-    connectSSE();
+    void connectSSE();
 
     return () => {
       this.subscribers.delete(id);
@@ -1867,7 +2164,15 @@ export class DemoAdapter implements DataAdapter, DemoControls {
     for (const ev of events as EventFromBackend[]) {
       if (ev.recipient_id !== "r_liveshowcase") continue;
       const existing = this.state.events.find((x) => x.id === ev.id);
-      if (!existing) {
+      if (existing) {
+        // Backend records change (decision verified, command played, status line): mirror them.
+        existing.summary = ev.summary || existing.summary;
+        existing.severity = (ev.severity as CareEvent["severity"]) || existing.severity;
+        existing.type = ev.type ?? existing.type;
+        existing.observedAt = ev.observed_at || existing.observedAt;
+        existing.receivedAt = ev.received_at || existing.receivedAt;
+        existing.alertId = ev.alert_id ?? existing.alertId;
+      } else {
         const stub: CareEvent = {
           id: ev.id,
           sourceRecordId: ev.source_record_id || `sse-evt-${ev.id}`,
@@ -1883,7 +2188,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
           receivedAt: ev.received_at || "",
           modelVersion: ev.schema_version || "simulator-1.0",
           ruleVersion: ev.schema_version || "simulator-1.0",
-          alertId: null,
+          alertId: ev.alert_id ?? null,
           sourceMode: (ev.source_mode as CareEvent["sourceMode"]) || "simulated",
           // Preserve the backend `type` field if present (e.g. "lying" for posture events)
           type: ev.type ?? (ev.category as CareEvent["category"]),
@@ -1904,8 +2209,21 @@ export class DemoAdapter implements DataAdapter, DemoControls {
     if (!this.isDynamic()) return;
     for (const al of alerts as AlertFromBackend[]) {
       if (al.recipient_id !== "r_liveshowcase") continue;
+      this.backendAlertIds.add(al.id);
       const existing = this.state.alerts.find((x) => x.id === al.id);
-      if (!existing) {
+      if (existing) {
+        // The server's alert state machine is authoritative (actions by other caregivers included).
+        if ((al.version ?? existing.version) >= existing.version) {
+          existing.status = (al.status as Alert["status"]) || existing.status;
+          existing.version = al.version ?? existing.version;
+          existing.assigneeName = al.acknowledged_by || existing.assigneeName;
+          existing.reviewOutcome = (al.review_outcome as Alert["reviewOutcome"]) || null;
+          existing.resolutionNote = al.review_note || null;
+          existing.resolvedAt = al.resolved_at || null;
+          existing.resolvedByName = al.resolved_by || null;
+          existing.summary = al.summary || existing.summary;
+        }
+      } else {
         const stub: Alert = {
           id: al.id,
           recipientId: al.recipient_id,
@@ -1924,9 +2242,9 @@ export class DemoAdapter implements DataAdapter, DemoControls {
           resolutionNote: al.review_note || null,
           resolvedAt: al.resolved_at || null,
           resolvedByName: al.resolved_by || null,
-          ruleVersion: "simulator-1.0",
-          version: 1,
-          sourceMode: "simulated",
+          ruleVersion: al.policy_version || "unknown",
+          version: al.version ?? 1,
+          sourceMode: (al.source_mode as Alert["sourceMode"]) || "simulated",
         };
         this.state.alerts.push(stub);
         this.emit(al.recipient_id, "alert.created", al.id);
@@ -1974,6 +2292,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
   }
 
   async emitCareEvent(recipientId: string): Promise<string> {
+    this.refuseLocalWrite();
     const { recipient } = this.authorize(recipientId);
     const hub = this.recipientDevices(recipientId).find((d) => d.kind === "carelens_hub");
     if (!recipient.enrollments.some((e) => e.product === "carelens") || !hub) {
@@ -1996,6 +2315,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
   }
 
   async simulateOtherCaregiverClaim(recipientId: string): Promise<string> {
+    this.refuseLocalWrite();
     const { user } = this.authorize(recipientId);
     const alert = this.state.alerts
       .filter((a) => a.recipientId === recipientId && a.status === "open")
@@ -2024,6 +2344,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
   }
 
   async toggleHubConnection(recipientId: string): Promise<string> {
+    this.refuseLocalWrite();
     this.authorize(recipientId);
     const hub = this.recipientDevices(recipientId).find((d) => d.kind === "carelens_hub");
     if (!hub) return "Hồ sơ này chưa có hub CareLens.";
@@ -2040,6 +2361,7 @@ export class DemoAdapter implements DataAdapter, DemoControls {
   }
 
   async sendLateMeasurement(recipientId: string): Promise<string> {
+    this.refuseLocalWrite();
     this.authorize(recipientId);
     const core = this.recipientDevices(recipientId).find((d) => d.kind === "ecopatch_core");
     if (!core) return "Hồ sơ này chưa có lõi EcoPatch.";
@@ -2087,6 +2409,8 @@ interface EventFromBackend {
   product: string;
   /** Free-form sub-type, e.g. "lying" for a posture-category event. */
   type?: string;
+  /** care-monitoring backend: id of the provisional alert this event raised, if any. */
+  alert_id?: string | null;
 }
 
 interface AlertFromBackend {
@@ -2105,6 +2429,19 @@ interface AlertFromBackend {
   resolved_at: string | null;
   resolved_by: string | null;
   product: string;
+  /** care-monitoring backend: optimistic-concurrency version, fusion policy and provenance of the alert. */
+  version?: number;
+  policy_version?: string;
+  source_mode?: string;
+}
+
+/** Alert as returned by POST /api/app/v1/recipients/{id}/alerts/{id}/actions. */
+interface BackendAlertView {
+  status: string;
+  version: number;
+  review_outcome: string | null;
+  review_note: string | null;
+  resolved_at: string | null;
 }
 
 interface DemoStateFromBackend {

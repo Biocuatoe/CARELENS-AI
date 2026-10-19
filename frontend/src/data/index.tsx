@@ -56,9 +56,3 @@ export function useAdapter(): DataAdapter {
   if (!ctx) throw new Error("useAdapter phải nằm trong AdapterProvider");
   return ctx.adapter;
 }
-
-export function useDemoControls(): DemoControls | null {
-  const ctx = useContext(AdapterContext);
-  if (!ctx) throw new Error("useDemoControls phải nằm trong AdapterProvider");
-  return ctx.demo;
-}

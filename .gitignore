@@ -30,6 +30,10 @@ test-results/
 *.crt
 secrets/
 service-account*.json
+# Retired Firebase admin key (backend Firebase removed, ADR-015); never re-add
+*firebase*service-account*.json
+# care-monitoring device credential registry (token digests)
+backend/**/device-credentials*.json
 
 # Generated demo exports and local data
 exports/

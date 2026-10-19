@@ -1,0 +1,13 @@
+{
+  "schema_version": "daily-report-llm.v1",
+  "summary_vi": "Tóm tắt thử: không có quyết định nghi ngã trong ngày.",
+  "notable_events": [],
+  "unverified_items": [],
+  "data_gaps": [
+    {
+      "gap_id": "g1",
+      "note_vi": "Không có liên lạc thiết bị."
+    }
+  ],
+  "source_event_ids": []
+}

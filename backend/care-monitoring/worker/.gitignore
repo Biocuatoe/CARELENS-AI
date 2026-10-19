@@ -1,0 +1,6 @@
+# Local Wrangler state (local D1/R2/DO data, dry-run bundles) and local secrets.
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+node_modules/

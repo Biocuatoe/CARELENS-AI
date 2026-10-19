@@ -84,7 +84,7 @@ export function Dialog({ open, onClose, title, description, children, footer, bu
       )}
     >
       {open ? (
-        <div className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-y-auto rounded-container bg-surface p-6 shadow-extruded sm:p-8">
+        <div className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-y-auto rounded-container bg-paper p-6 shadow-extruded sm:p-8">
           <div className="mb-4 flex items-start justify-between gap-4">
             <div>
               <h2 id={titleId} className="text-xl font-bold">
@@ -123,7 +123,7 @@ export function Drawer({ open, onClose, title, description, children, footer, bu
       )}
     >
       {open ? (
-        <div className="flex h-full flex-col overflow-y-auto bg-surface p-6 shadow-extruded sm:rounded-l-container sm:p-8">
+        <div className="flex h-full flex-col overflow-y-auto bg-paper p-6 shadow-extruded sm:rounded-l-container sm:p-8">
           <div className="mb-6 flex items-start justify-between gap-4">
             <div>
               <h2 id={titleId} className="text-xl font-bold">
@@ -148,7 +148,7 @@ export function Drawer({ open, onClose, title, description, children, footer, bu
 export type TabOption<T extends string> = { value: T; label: string };
 
 /**
- * Nhóm lựa chọn dạng tab (raised → inset khi chọn).
+ * Nhóm lựa chọn dạng tab: nhãn pill viền mảnh, mục đang chọn đổi sang nền teal đậm và có chấm đánh dấu (không chỉ dựa vào màu).
  * - `semantics="radio"` (mặc định): bộ lọc đổi cùng một nội dung.
  * - `semantics="tabs"`: tab chuẩn ARIA, panel dùng `tabPanelId(idBase, value)` và `tabId(idBase, value)`.
  */
@@ -213,15 +213,13 @@ export function SoftTabs<T extends string>({
               }
             }}
             className={cn(
-              "min-h-11 rounded-inner px-3 text-sm font-medium text-fg transition-[box-shadow,transform] duration-300 ease-out sm:px-4",
+              "min-h-11 rounded-full px-3 text-sm font-medium text-fg transition-[box-shadow,background-color,color] duration-300 ease-out sm:px-4",
               "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-              selected
-                ? "bg-surface font-bold shadow-inset-sm"
-                : "bg-surface shadow-extruded-sm hover:-translate-y-px hover:shadow-extruded",
+              selected ? "bg-teal-deep font-bold text-paper" : "shadow-extruded-sm hover:text-accent hover:shadow-inset-deep",
             )}
           >
             <span className="inline-flex items-center gap-2">
-              {selected ? <span aria-hidden className="size-2 rounded-full bg-accent" /> : null}
+              {selected ? <span aria-hidden className="size-2 rounded-full bg-paper" /> : null}
               {option.label}
             </span>
           </button>
@@ -235,7 +233,7 @@ export function SoftTabs<T extends string>({
 
 /**
  * Mục mở/đóng dùng <details>/<summary> gốc: thao tác bằng bàn phím và trình đọc màn hình sẵn có.
- * Đóng = raised nhỏ, mở = inset.
+ * Đóng = viền nhạt, mở = viền đậm.
  */
 export function Disclosure({
   summary,
@@ -253,7 +251,7 @@ export function Disclosure({
   const Heading = headingLevel ? (`h${headingLevel}` as const) : null;
   const label = <span className="flex-1">{summary}</span>;
   return (
-    <details className={cn("group rounded-control bg-surface shadow-extruded-sm transition-shadow duration-300 ease-out open:shadow-inset-sm", className)}>
+    <details className={cn("group rounded-control bg-surface shadow-extruded-sm transition-shadow duration-300 ease-out open:shadow-inset", className)}>
       <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 rounded-control px-4 py-3 font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
         {leading}
         {Heading ? <Heading className="flex-1 font-sans text-base font-bold tracking-normal">{summary}</Heading> : label}

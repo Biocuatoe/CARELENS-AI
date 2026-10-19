@@ -10,6 +10,7 @@ import {
 } from "react";
 import { Check, LoaderCircle, TriangleAlert } from "lucide-react";
 import { cn } from "./cn";
+import { buttonVariantClasses, type Tone } from "./landing";
 
 /* ------------------------------------------------------------------ Surface */
 
@@ -40,7 +41,7 @@ const radiusClass = {
 
 const paddingClass = { none: "", sm: "p-4", md: "p-4 sm:p-7 lg:p-8", lg: "p-6 sm:p-9 md:p-12" };
 
-/** Bề mặt Neumorphism. Mặc định: panel raised 32px, padding 32px (SYSTEM_UI_PROMPT). */
+/** Bề mặt của ứng dụng theo landing: thẻ `paper` có viền mảnh và bóng giấy (raised); các độ sâu còn lại là ô lồng trên nền `surface`. */
 export function SoftSurface({
   as: Tag = "div",
   depth = "raised",
@@ -52,7 +53,7 @@ export function SoftSurface({
   return (
     <Tag
       className={cn(
-        "bg-surface",
+        depth === "raised" ? "bg-paper" : "bg-surface",
         depthClass[depth],
         radiusClass[radius],
         paddingClass[padding],
@@ -68,27 +69,27 @@ export function SoftSurface({
 export type ButtonVariant = "primary" | "secondary";
 export type ButtonSize = "md" | "sm" | "icon";
 
+/** Nút pill của landing (cùng hình khối và màu với `landingButtonClasses`), thêm cỡ cho ứng dụng. Tông `dark` dùng trên thanh điều hướng midnight. */
 export function buttonClasses({
   variant = "secondary",
   size = "md",
+  tone = "light",
   className,
 }: {
   variant?: ButtonVariant;
   size?: ButtonSize;
+  tone?: Tone;
   className?: string;
 } = {}) {
   return cn(
-    "inline-flex items-center justify-center gap-2 rounded-control font-medium select-none",
-    "transition-[transform,box-shadow] duration-300 ease-out",
-    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+    "inline-flex items-center justify-center gap-2 rounded-full text-center text-sm font-bold select-none",
+    "transition-[background-color,color,border-color,transform] duration-300 ease-out active:translate-y-px",
+    "focus-visible:outline-2 focus-visible:outline-offset-2",
     "disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-not-allowed aria-disabled:opacity-60",
-    size === "md" && "min-h-12 px-6 text-base",
-    size === "sm" && "min-h-11 px-4 text-sm",
+    size === "md" && "min-h-12 px-6",
+    size === "sm" && "min-h-11 px-4",
     size === "icon" && "size-12 shrink-0",
-    variant === "primary" &&
-      "bg-accent-strong font-bold text-white shadow-extruded enabled:hover:-translate-y-px enabled:hover:shadow-extruded-hover enabled:active:translate-y-[0.5px] enabled:active:shadow-accent-pressed",
-    variant === "secondary" &&
-      "bg-surface text-fg shadow-extruded-sm enabled:hover:-translate-y-px enabled:hover:shadow-extruded enabled:active:translate-y-[0.5px] enabled:active:shadow-inset-sm",
+    buttonVariantClasses[tone][variant],
     className,
   );
 }
@@ -120,26 +121,24 @@ export const SoftButton = forwardRef<HTMLButtonElement, SoftButtonProps>(functio
 
 /* ------------------------------------------------------------------ Icon well */
 
+/** Vòng icon của landing (`IconRing`): viền mảnh, icon teal. */
 export function IconWell({
   children,
   size = "md",
-  depth = "insetDeep",
   className,
 }: {
   children: ReactNode;
   size?: "sm" | "md" | "lg";
-  depth?: "inset" | "insetDeep" | "insetSm";
   className?: string;
 }) {
   return (
     <span
       aria-hidden
       className={cn(
-        "inline-flex shrink-0 items-center justify-center bg-surface text-accent",
-        depthClass[depth],
-        size === "sm" && "size-10 rounded-inner [&_svg]:size-5",
-        size === "md" && "size-12 rounded-control [&_svg]:size-6",
-        size === "lg" && "size-16 rounded-control [&_svg]:size-7",
+        "inline-flex shrink-0 items-center justify-center rounded-full text-accent shadow-extruded-sm",
+        size === "sm" && "size-10 [&_svg]:size-5",
+        size === "md" && "size-12 [&_svg]:size-6",
+        size === "lg" && "size-16 [&_svg]:size-7",
         className,
       )}
     >
@@ -168,7 +167,7 @@ type FieldFrameProps = {
 function FieldFrame({ id, label, hint, error, required, children, className }: FieldFrameProps) {
   return (
     <div className={cn("flex flex-col gap-2", className)}>
-      <label htmlFor={id} className="font-medium text-fg">
+      <label htmlFor={id} className="text-sm font-bold text-fg">
         {label}
         {required ? <span className="sr-only"> (bắt buộc)</span> : null}
         {required ? (
@@ -333,7 +332,7 @@ export const Choice = forwardRef<HTMLInputElement, ChoiceProps>(function Choice(
       htmlFor={inputId}
       className={cn(
         "flex min-h-12 cursor-pointer items-start gap-3 rounded-control bg-surface p-3 shadow-extruded-sm transition-shadow duration-300 ease-out",
-        "has-[:checked]:shadow-inset-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60",
+        "has-[:checked]:shadow-inset-deep has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60",
         "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent",
         className,
       )}
@@ -342,7 +341,7 @@ export const Choice = forwardRef<HTMLInputElement, ChoiceProps>(function Choice(
       <span
         aria-hidden
         className={cn(
-          "inline-flex size-7 shrink-0 items-center justify-center bg-surface shadow-inset-sm",
+          "inline-flex size-7 shrink-0 items-center justify-center bg-surface shadow-inset",
           type === "radio" ? "rounded-full" : "rounded-inner",
           "peer-checked:[&>*]:scale-100",
         )}

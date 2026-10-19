@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://carelens.invalid/contracts/carelens/command-status.v2.schema.json",
+  "title": "command-status.v2",
+  "x-generated-from": "backend/care-monitoring/worker/src/contracts.ts (do not edit by hand)",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "command-status.v2"
+    },
+    "device_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "clock": {
+      "type": "object",
+      "properties": {
+        "boot_id": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9._:-]+$",
+          "description": "Random identifier the firmware generates at every boot. All uptime_ms values are relative to this boot."
+        },
+        "uptime_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000,
+          "description": "Device monotonic clock when this request body was built."
+        },
+        "wall_clock_synced": {
+          "type": "boolean",
+          "description": "true only after SNTP synchronisation succeeded in this boot."
+        },
+        "wall_time": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Device wall clock at uptime_ms when synced; diagnostics only, never used to order evidence."
+        }
+      },
+      "required": [
+        "boot_id",
+        "uptime_ms",
+        "wall_clock_synced",
+        "wall_time"
+      ],
+      "additionalProperties": false,
+      "description": "Clock block of every device request. The backend maps uptime to server time per boot (received_at − uptime_ms, minimum over the boot); evidence from the same boot is aligned on uptime_ms directly."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "started",
+        "completed",
+        "failed",
+        "rejected",
+        "cancelled"
+      ]
+    },
+    "reason_code": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "expired_on_device",
+            "unsupported_command",
+            "audio_download_failed",
+            "audio_integrity_failed",
+            "audio_format_unsupported",
+            "playback_error",
+            "preempted_by_higher_priority",
+            "busy",
+            "cancel_requested",
+            "other"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "detail": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 200
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "device_id",
+    "clock",
+    "status",
+    "reason_code",
+    "detail"
+  ],
+  "additionalProperties": false,
+  "description": "Device acknowledgement of a delivered command: accepted (stored, audio verified), started (sound began), completed (played to the end), failed/rejected (reason_code required), cancelled (only after the backend asked). Playback is recorded as done only from this report."
+}

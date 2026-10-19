@@ -1,10 +1,10 @@
 {
   "name": "istartup",
   "private": true,
-  "workspaces": ["frontend/*", "backend/*"],
+  "workspaces": ["frontend", "backend/*"],
   "scripts": {
     "dev": "npm run dev -w @istartup/web",
-    "dev:backend": "cd backend/demo-control && python start_backend.py",
+    "dev:backend": "cd backend/care-monitoring && python start_backend.py",
     "dev:all": "npm run dev:backend & npm run dev",
     "build": "npm run build -w @istartup/web",
     "preview": "npm run preview -w @istartup/web",
@@ -12,9 +12,7 @@
     "test:e2e": "npm run test:e2e -w @istartup/web",
     "lint": "npm run lint -w @istartup/web",
     "typecheck": "npm run typecheck -w @istartup/web",
-    "format": "npm run format -w @istartup/web",
-    "bridge": "npm run start -w @istartup/demo-bridge",
-    "dev:bridge": "npm run start -w @istartup/demo-bridge"
+    "format": "npm run format -w @istartup/web"
   },
   "engines": { "node": ">=22" }
 }

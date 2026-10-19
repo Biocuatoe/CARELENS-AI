@@ -1,0 +1,430 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://carelens.invalid/contracts/carelens/vision-result.v1.schema.json",
+  "title": "vision-result.v1",
+  "x-generated-from": "backend/care-monitoring/worker/src/contracts.ts (do not edit by hand)",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "vision-result.v1"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    },
+    "capture_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "package_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "vision_health": {
+      "type": "object",
+      "properties": {
+        "fall_heads": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "drink": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fall_heads",
+        "drink"
+      ],
+      "additionalProperties": false
+    },
+    "input_validation": {
+      "type": "object",
+      "properties": {
+        "frame_count": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "jpeg_ok": {
+          "type": "boolean"
+        },
+        "cadence_status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "out_of_tolerance",
+            "gap"
+          ]
+        },
+        "min_interval_ms": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_interval_ms": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "issues": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      },
+      "required": [
+        "frame_count",
+        "jpeg_ok",
+        "cadence_status",
+        "min_interval_ms",
+        "max_interval_ms",
+        "issues"
+      ],
+      "additionalProperties": false
+    },
+    "fall": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "skipped",
+            "failed"
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 200
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "aggregation": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "single_request.v1",
+                "max_request_score_overlapping.v1"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "aggregate_score": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "requests": {
+          "maxItems": 3,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "frame_start": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 39
+              },
+              "frame_end": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 39
+              },
+              "t_start_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "t_end_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "score": {
+                "type": "number",
+                "description": "Uncalibrated logit from /v1/fall-check. Not a probability."
+              },
+              "window_logits": {
+                "minItems": 1,
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              },
+              "windows": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "threshold": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "alert": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              }
+            },
+            "required": [
+              "frame_start",
+              "frame_end",
+              "t_start_ms",
+              "t_end_ms",
+              "score",
+              "window_logits",
+              "windows",
+              "threshold",
+              "alert",
+              "status"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "aggregation",
+        "aggregate_score",
+        "requests"
+      ],
+      "additionalProperties": false
+    },
+    "drink": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "skipped",
+            "failed"
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 200
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "aggregation": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "drink_capture_aggregate.v1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "aggregate_label": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "uong_nuoc",
+                "uong_thuoc",
+                "khong"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cross_window_review": {
+          "type": "boolean"
+        },
+        "distinct_lift_frames": {
+          "maxItems": 40,
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 39
+          }
+        },
+        "requests": {
+          "maxItems": 3,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "frame_start": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 39
+              },
+              "frame_end": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 39
+              },
+              "t_start_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "t_end_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "label": {
+                "type": "string",
+                "enum": [
+                  "uong_nuoc",
+                  "uong_thuoc",
+                  "khong"
+                ]
+              },
+              "evidence": {
+                "type": "object",
+                "properties": {
+                  "frames": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 24
+                  },
+                  "cup_frames": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 24
+                  },
+                  "medicine_frames": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 24
+                  },
+                  "near_face_frames": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 24
+                  },
+                  "lift_frame": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 23
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "cup_lifted_to_face": {
+                    "type": "boolean"
+                  },
+                  "medicine_handled": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "frames",
+                  "cup_frames",
+                  "medicine_frames",
+                  "near_face_frames",
+                  "lift_frame",
+                  "cup_lifted_to_face"
+                ],
+                "additionalProperties": false
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              }
+            },
+            "required": [
+              "frame_start",
+              "frame_end",
+              "t_start_ms",
+              "t_end_ms",
+              "label",
+              "evidence",
+              "status"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "aggregation",
+        "aggregate_label",
+        "cross_window_review",
+        "distinct_lift_frames",
+        "requests"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "idempotency_key",
+    "capture_id",
+    "package_version",
+    "vision_health",
+    "input_validation",
+    "fall",
+    "drink"
+  ],
+  "additionalProperties": false,
+  "description": "Normalized outputs of the local Vision package for one capture. Numbers and labels only: no frames, boxes or timings."
+}

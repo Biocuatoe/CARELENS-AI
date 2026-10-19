@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://carelens.invalid/contracts/carelens/daily-report-result.v1.schema.json",
+  "title": "daily-report-result.v1",
+  "x-generated-from": "backend/care-monitoring/worker/src/contracts.ts (do not edit by hand)",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "daily-report-result.v1"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    },
+    "input_snapshot_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "report": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "daily-report-llm.v1"
+        },
+        "summary_vi": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "notable_events": {
+          "maxItems": 40,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "event_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "note_vi": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              }
+            },
+            "required": [
+              "event_id",
+              "note_vi"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "unverified_items": {
+          "maxItems": 40,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "event_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "note_vi": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              }
+            },
+            "required": [
+              "event_id",
+              "note_vi"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "data_gaps": {
+          "maxItems": 24,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "gap_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32
+              },
+              "note_vi": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              }
+            },
+            "required": [
+              "gap_id",
+              "note_vi"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "source_event_ids": {
+          "maxItems": 200,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "summary_vi",
+        "notable_events",
+        "unverified_items",
+        "data_gaps",
+        "source_event_ids"
+      ],
+      "additionalProperties": false,
+      "description": "Structured output the local LLM must return for a daily report. Validated before it is stored."
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "runtime": {
+          "type": "string",
+          "const": "ollama"
+        }
+      },
+      "required": [
+        "name",
+        "digest",
+        "runtime"
+      ],
+      "additionalProperties": false
+    },
+    "inference": {
+      "type": "object",
+      "properties": {
+        "eval_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "prompt_eval_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "total_duration_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        }
+      },
+      "required": [
+        "eval_count",
+        "prompt_eval_count",
+        "total_duration_ms",
+        "attempts"
+      ],
+      "additionalProperties": false,
+      "description": "Counters reported by the Ollama runtime for the real generation call."
+    }
+  },
+  "required": [
+    "schema_version",
+    "idempotency_key",
+    "input_snapshot_sha256",
+    "report",
+    "model",
+    "inference"
+  ],
+  "additionalProperties": false
+}

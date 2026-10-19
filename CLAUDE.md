@@ -21,7 +21,7 @@
 | `/milestone [M0..M5]` | Thực hiện hoặc tiếp tục một mốc, kết thúc bằng báo cáo |
 | `/ui-screen [S01..S14 \| landing:<section> \| component:<Name>]` | Dựng màn hình, section landing hoặc primitive |
 | `/api-endpoint <METHOD> <path>` | Thêm hoặc sửa endpoint nghiệp vụ |
-| `/ingest-adapter <carelens\|ecopatch> <simulator\|real>` | Thêm simulator, adapter, contract nguồn |
+| `/ingest-adapter carelens <simulator\|real>` | Thêm simulator (chỉ cho test), adapter, contract nguồn. EcoPatch backend đã ngừng (ADR-015) |
 | `/decision-log <chủ đề>` | Ghi quyết định, giả định, mâu thuẫn tài liệu |
 | `/guardrail-check [path\|branch]` | Rà thay đổi theo AGENTS.md §6 trước khi báo xong |
 

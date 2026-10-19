@@ -8,7 +8,7 @@ Trạng thái dữ liệu: **toàn bộ là mô phỏng**. Chưa có API nghiệ
 
 ```bash
 npm install
-npm run dev          # http://localhost:5173 là landing; /login → "Vào bản demo"
+npm run dev          # http://localhost:5173 là landing; /login → tài khoản Live Demo (cần backend, xem A35)
 ```
 
 Người dùng mô phỏng:
@@ -27,8 +27,8 @@ Nút **Dữ liệu mô phỏng** trên header mở công cụ demo với các t�
 | ID | Màn hình | Route | Trạng thái | Nguồn dữ liệu |
 | --- | --- | --- | --- | --- |
 | Shell | Sidebar ≥1024px, rail 768–1023px, hamburger <768px, header sticky, đổi hồ sơ | – | Đã dựng | Mô phỏng |
-| S01 | Đăng nhập | `/login` | Đã dựng. Form có đủ trạng thái nhưng báo không khả dụng vì chưa có máy chủ xác thực | Mô phỏng |
-| S02 | Onboarding 5 bước | `/onboarding` | Đã dựng. Chưa lưu nháp để tiếp tục sau | Mô phỏng |
+| S01 | Đăng nhập | `/login` | Đã dựng theo bảng màu landing (A35). Một tài khoản Live Demo dùng chung, đăng nhập qua backend care-monitoring; không còn chọn người dùng mô phỏng. Build thiếu `VITE_API_BASE_URL` thì báo chưa kết nối máy chủ | Máy chủ thật (đã kiểm bằng backend giả ở tầng mạng trong e2e; chưa kiểm trên bản deploy) |
+| S02 | Onboarding 5 bước | (đã gỡ) | Gỡ theo A35: tài khoản Live Demo chỉ có một hồ sơ do máy chủ cấp, không tạo hồ sơ từ giao diện | Không áp dụng |
 | S03 | Chọn hồ sơ | `/people` | Đã dựng | Mô phỏng |
 | S04 | Tổng quan | `/people/:id/overview` | Đã dựng | Mô phỏng |
 | S05 | CareLens | `/people/:id/carelens` | Đã dựng. Chưa có màn hình cấu hình AI cho người vận hành | Mô phỏng |
@@ -40,14 +40,14 @@ Nút **Dữ liệu mô phỏng** trên header mở công cụ demo với các t�
 | S11 | Báo cáo và xuất CSV | `/people/:id/reports` | Đã dựng. Không có xuất PDF | Mô phỏng |
 | S12 | Gia đình và quyền truy cập | `/people/:id/sharing` | Đã dựng. Chưa có luồng chấp nhận lời mời | Mô phỏng |
 | S13 | Thông báo và tài khoản | `/settings/notifications` | Đã dựng. Web Push chưa cấu hình (D09) | Mô phỏng |
-| S14 | Vận hành | `/admin` | Đã dựng | Mô phỏng |
+| S14 | Vận hành | (đã gỡ) | Gỡ theo A35: chỉ persona quản trị mô phỏng vào được | Không áp dụng |
 | Landing | Trang giới thiệu | `/` | Đã dựng đủ 8 section theo prompt: header sticky, hero, hai giải pháp, bản xem thử có tab, cách bắt đầu, quyền riêng tư, FAQ, CTA cuối và footer. CTA và dữ liệu xem thử theo A10 | Fixture tĩnh có nhãn mô phỏng |
 
 ## 3. Vị trí mã nguồn
 
 | Thành phần | Vị trí |
 | --- | --- |
-| Token Neumorphism (một nguồn) | `frontend/src/design-system/tokens.css` |
+| Token (một nguồn, bảng màu landing, A35) | `frontend/src/design-system/tokens.css` |
 | Primitive | `frontend/src/design-system/primitives.tsx`, `feedback.tsx`, `overlays.tsx` |
 | Component nghiệp vụ dùng chung | `frontend/src/features/common/` |
 | Hợp đồng dữ liệu tạm (A02) | `frontend/src/data/contracts.ts` |

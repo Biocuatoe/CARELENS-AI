@@ -1,15 +1,15 @@
 ---
 name: ingest-adapter
-description: Add or extend a device data source for the CareLens + EcoPatch webapp — a synthetic simulator or a verified real adapter under integrations/carelens or integrations/ecopatch, its versioned JSON Schema contract in contracts/, and the authenticated ingest path with dedup, device-assignment mapping, quarantine and late-arrival handling. Use for "tạo simulator CareLens", "thêm metric EcoPatch", "kịch bản gói đến muộn", "nối hub thật".
-argument-hint: "<carelens|ecopatch> <simulator|real> [kịch bản hoặc metric]"
+description: Add or extend a CareLens AI device data source — a test-only synthetic simulator or a verified real adapter under integrations/carelens, its versioned JSON Schema contract in contracts/, and the authenticated ingest path with dedup, device-assignment mapping, quarantine and late-arrival handling. EcoPatch backend sources are retired (ADR-015). Use for "tạo simulator CareLens", "kịch bản gói đến muộn", "nối hub thật", "nối worker Module 1".
+argument-hint: "carelens <simulator|real> [kịch bản]"
 ---
 
 # Nguồn dữ liệu: $ARGUMENTS
 
 ## 0. Cổng kiểm tra
 
-- **Adapter thật:** chỉ làm khi `docs/DECISIONS.md` có D01, D02, D03 (CareLens) hoặc D04 (EcoPatch) ở trạng thái Accepted, và có tài liệu API hoặc thiết bị để xác minh. Thiếu điều kiện thì dừng phần adapter thật, báo điều kiện còn thiếu, đề xuất làm simulator.
-- **Metric EcoPatch mới:** cần nguồn xác nhận thiết bị hỗ trợ, có đơn vị và tần suất. Không có thì không thêm.
+- **Adapter thật:** chỉ làm khi `docs/DECISIONS.md` có D01, D02, D03, D10 ở trạng thái Accepted, và có tài liệu API hoặc thiết bị để xác minh. Thiếu điều kiện thì dừng phần adapter thật, báo điều kiện còn thiếu, đề xuất làm simulator cho test.
+- **EcoPatch:** backend đã ngừng (ADR-015). Không thêm nguồn, metric hay contract EcoPatch.
 - **Không bao giờ thêm:** hydrat hóa, điện giải, SpO2, confidence suy diễn, trường ảnh.
 
 ## 1. Contract

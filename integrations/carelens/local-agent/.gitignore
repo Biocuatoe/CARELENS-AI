@@ -1,0 +1,3 @@
+# Runtime files of the local agent (logs without media/secrets, PID, stop flag) and its secrets file.
+run/
+agent.env

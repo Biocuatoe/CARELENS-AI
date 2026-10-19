@@ -9,6 +9,7 @@ export type ApiErrorCode =
   | "rate_limited"
   | "auth_unavailable"
   | "api_unavailable"
+  | "origin_blocked"
   | "internal";
 
 export class ApiError extends Error {

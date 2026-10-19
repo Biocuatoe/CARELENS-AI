@@ -1,8 +1,7 @@
 import { createBrowserRouter, Navigate, useParams } from "react-router";
 import { LoginPage } from "../features/auth/LoginPage";
 import { LandingPage } from "../features/landing/LandingPage";
-import { OnboardingPage } from "../features/onboarding/OnboardingPage";
-import { PeoplePage } from "../features/recipients/PeoplePage";
+import { LiveDemoHome } from "../features/recipients/LiveDemoHome";
 import { OverviewPage } from "../features/overview/OverviewPage";
 import { CareLensPage } from "../features/carelens/CareLensPage";
 import { EcoPatchPage } from "../features/ecopatch/EcoPatchPage";
@@ -13,7 +12,6 @@ import { HistoryPage } from "../features/history/HistoryPage";
 import { ReportsPage } from "../features/reports/ReportsPage";
 import { SharingPage } from "../features/sharing/SharingPage";
 import { NotificationSettingsPage } from "../features/settings/NotificationSettingsPage";
-import { AdminPage } from "../features/admin/AdminPage";
 import { NotFoundPage } from "./NotFoundPage";
 import { GeneralLayout, RecipientLayout, RequireAuth, RequireProduct, RequireRecipientPermission } from "./layouts";
 
@@ -37,13 +35,11 @@ export const routes = [
   {
     element: <RequireAuth />,
     children: [
-      { path: "/onboarding", element: <OnboardingPage /> },
       {
         element: <GeneralLayout />,
         children: [
-          { path: "/people", element: <PeoplePage /> },
+          { path: "/people", element: <LiveDemoHome /> },
           { path: "/settings/notifications", element: <NotificationSettingsPage /> },
-          { path: "/admin", element: <AdminPage /> },
         ],
       },
       {
