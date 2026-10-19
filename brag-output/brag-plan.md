@@ -72,6 +72,14 @@ The standard `/brag` workflow favours shorter videos; the 30 s duration is the b
 
 Pre-render stills were inspected for every scene and for the transitions 2→3 (flash), 3→4, 4→5, 5→6, 6→7 (flash → iris), plus a contact sheet of ~60 frames. Fixes made from that review: Vietnamese-capable monospace face (system monospace broke stacked diacritics), headline size/collision in scene 2, right label column clipping, call-outs covering the figure's face, backing panels behind step chips, brighter flash bridge, lens-centred final push, flash→greeting mask.
 
+### Revision 2 (DAYONE rebrand and copy corrections)
+
+* `Kena CI` → `DAYONE` everywhere: opening line (`DAYONE presents · CareLens AI`), end card, page title, package name/description, plan, share copy (`#DAYONE`). A case-insensitive search of `composition/`, plan and share copy finds no remaining "kena".
+* Removed on-screen: the hardware "estimated / unverified" footnote and the per-component uncertainty notes on the close-up cards; the slogan explanatory line under the opening tagline; the medication sentence "Không quan sát được không có nghĩa là chưa uống thuốc." (banner and its sound cue).
+* Scenario 1/2 upper-left captions rebuilt as one shared `ScenarioCaption` component: Plus Jakarta Sans (full Vietnamese diacritics), sentence case, no letter-spacing, `Tình huống 0N · topic` followed by a `Ví dụ` badge, same position/size in both scenarios, on a solid dark plate, one fade in and one fade out per scenario (no motion/blur, no duplicate caption at the scenario 2 sub-scene cross-fade). The redundant "VÍ DỤ" tag inside the scenario 2 timeline panel was dropped.
+* Verified on the exported MP4: the caption area was sampled at 0.25–0.7 s steps across both scenarios (crops) plus transition frames; position, wrapping and accents are identical on every sampled frame. Removed texts were checked in the exact screen regions where they used to appear (bottom-left strip 3.6–8.4 s, slogan note 1.0–3.3 s, banner area 17.9–19.4 s): empty.
+* Not verified automatically: no OCR engine is available in this environment, so "text absent" is established by source search plus visual inspection, not OCR.
+
 ## 7. Known limitations
 
 * **No voice-over.** No high-quality natural Vietnamese TTS is available offline; the brief allows on-screen text only in that case. The soundtrack is original procedural music + SFX. It was measured (levels, peaks, loudness) but could not be *listened to* in this environment — a human listen is recommended before publishing.

@@ -20,7 +20,7 @@ function ScenarioCaption({ t, a, b, title }: { t: number; a: number; b: number; 
   if (k <= 0.002) return null;
   const [num, topic] = title.split(" · ");
   return (
-    <div className="absolute flex items-center gap-5" style={{ left: 110, top: 62, height: 56, opacity: k, whiteSpace: "nowrap" }}>
+    <div className="absolute flex items-center gap-5 rounded-[32px]" style={{ left: 86, top: 48, height: 84, paddingLeft: 24, paddingRight: 28, opacity: k, whiteSpace: "nowrap", background: "rgba(10,19,25,0.97)" }}>
       <p className="font-display text-[34px] leading-none font-bold text-ivory">
         {num}
         <span className="text-ivory/60"> · </span>
