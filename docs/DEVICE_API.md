@@ -1,6 +1,6 @@
 # Giao thức thiết bị ESP32-S3 CAM ↔ care-monitoring
 
-Phiên bản 2026-10-19. Dành cho người viết firmware. Trạng thái: **Đề xuất** (ADR-019). Backend và harness kiểm thử (`integrations/carelens/local-agent/tools/sample_device.py`) **đã kiểm chứng** theo đúng giao thức này bằng test cục bộ; **chưa có firmware và chưa chạy trên ESP32 thật**. Đánh giá sẵn sàng và kế hoạch thử đầu tiên: `docs/ESP32_READINESS.md`. Schema chính thức: `contracts/carelens/*.schema.json` (sinh từ `backend/care-monitoring/worker/src/contracts.ts`), ví dụ hợp lệ ở `contracts/carelens/fixtures/valid/`.
+Phiên bản 2026-10-19 (bổ sung ADR-022 và ADR-024 cùng ngày). Dành cho người viết firmware. Trạng thái: **Đề xuất** (ADR-019, ADR-022, ADR-024). **Đã kiểm chứng trên ESP32-S3 thật với backend cục bộ** (`firmware/carelens-esp32s3/`, `docs/E2E_TEST_RESULTS.md`): heartbeat, lệnh âm thanh đủ vòng đời, lô IMU thô, burst ảnh, âm lượng từ xa, 9 kịch bản lỗi. **Chưa chạy với Worker production**: production chưa có ADR-022/024 và migration 0004–0007 (`docs/PRODUCTION_ROLLOUT_READINESS.md`). Harness `integrations/carelens/local-agent/tools/sample_device.py` vẫn dùng cho test. Đánh giá sẵn sàng và kế hoạch thử đầu tiên: `docs/ESP32_READINESS.md`. Schema chính thức: `contracts/carelens/*.schema.json` (sinh từ `backend/care-monitoring/worker/src/contracts.ts`), ví dụ hợp lệ ở `contracts/carelens/fixtures/valid/`.
 
 ## 1. Xác thực
 
@@ -12,7 +12,7 @@ Phiên bản 2026-10-19. Dành cho người viết firmware. Trạng thái: **Đ
 | Thu hồi / xoay | 401 sau khi owner thu hồi hoặc xoay token: dừng gửi, báo lỗi cục bộ, chờ cấp lại. Không thử lại vòng lặp nhanh |
 | Bí mật khác | Firmware không chứa token admin, agent hay bất kỳ secret Cloudflare nào |
 | Mạng | Chỉ HTTPS tới URL Worker (ví dụ `https://care-monitoring.<subdomain>.workers.dev`), kiểm chứng chỉ TLS |
-| TLS thực tế (đã đo bằng `openssl s_client`, 2026-10-19) | Bản deploy `care-monitoring.care-monitoring-worker.workers.dev` trình chuỗi **ECDSA**: lá P-256 (Let's Encrypt `YE2`) → `Root YE` → `ISRG Root X2` (ký chéo bởi `ISRG Root X1`). Chấp nhận TLS 1.2 và 1.3. Chuỗi do Cloudflare chọn và có thể đổi (nhà phát hành khác, ví dụ Google Trust Services). Firmware phải: bật bộ mã ECDHE-ECDSA và đường cong secp256r1 + secp384r1 của mbedTLS; có gốc tin cậy phù hợp (kho gốc của ESP-IDF hoặc ghim **ISRG Root X1**, hết hạn 2035, và dự phòng khi nhà phát hành đổi); **đồng bộ SNTP trước yêu cầu HTTPS đầu tiên**, vì kiểm hạn chứng chỉ cần giờ đúng (giờ 1970 làm bắt tay lỗi). Chưa kiểm trên ESP32 thật |
+| TLS thực tế (đã đo bằng `openssl s_client`, 2026-10-19) | Bản deploy `care-monitoring.care-monitoring-worker.workers.dev` trình chuỗi **ECDSA**: lá P-256 (Let's Encrypt `YE2`) → `Root YE` → `ISRG Root X2` (ký chéo bởi `ISRG Root X1`). Chấp nhận TLS 1.2 và 1.3. Chuỗi do Cloudflare chọn và có thể đổi (nhà phát hành khác, ví dụ Google Trust Services). Firmware phải: bật bộ mã ECDHE-ECDSA và đường cong secp256r1 + secp384r1 của mbedTLS; có gốc tin cậy phù hợp (kho gốc của ESP-IDF hoặc ghim **ISRG Root X1**, hết hạn 2035, và dự phòng khi nhà phát hành đổi); **đồng bộ SNTP trước yêu cầu HTTPS đầu tiên**, vì kiểm hạn chứng chỉ cần giờ đúng (giờ 1970 làm bắt tay lỗi). **Đã kiểm trên ESP32-S3 thật (2026-10-19):** firmware tích hợp (Arduino-ESP32 3.3.8, mbedTLS 3.6.5) dùng bộ chứng chỉ đầy đủ của ESP-IDF, `GET /health` của `workers.dev` → 200 sau 2,4 s, xác minh chuỗi và tên máy chủ, không token (lệnh console `tlscheck`) |
 
 ## 2. Đồng hồ (bắt buộc trong mọi yêu cầu)
 
@@ -55,7 +55,11 @@ Free plan Cloudflare chịu được khoảng 1 burst/phút/thiết bị (A30); 
 }
 ```
 
-`camera|imu|speaker`: `ok|error|disabled|unknown`. `last_error`: mã ngắn `[a-z0-9_:.-]`, không văn bản tự do, không secret. Phản hồi 200: `{server_time, pending_commands, clock{boot_id, estimated_boot_epoch, issues}}`. Giới hạn 4 KB.
+`camera|imu|speaker`: `ok|error|disabled|unknown`. `last_error`: mã ngắn `[a-z0-9_:.-]`, không văn bản tự do, không secret. `speaker_volume` (tùy chọn, 0–1, ADR-024): âm lượng thiết bị đang dùng; **chỉ gửi khi phản hồi heartbeat có `config`** (Worker cũ từ chối trường lạ). `audio_codecs` (tùy chọn, ADR-025): codec firmware phát được, ⊆ `["pcm_s16le","mp3"]`; **chỉ gửi khi phản hồi có `config.report_audio_codecs: true`** (§8.3). Giới hạn 4 KB.
+
+Phản hồi 200: `{server_time, pending_commands, clock{boot_id, estimated_boot_epoch, issues}, config{speaker_volume, report_audio_codecs}}`. `config.speaker_volume` là mức admin đặt (0,05–0,70) hoặc `null` (giữ mức của thiết bị). Thiết bị áp dụng, lưu lại qua lần khởi động, và báo mức thật ở heartbeat kế; dashboard chỉ coi là đã áp dụng khi thiết bị báo.
+
+Heartbeat từ `boot_id` mới cũng là tín hiệu khởi động lại cho các lệnh (§8.2 mục 9). Firmware gửi heartbeat ngay sau khi kết nối, trước `commands/next`.
 
 ## 5. Burst ảnh
 
@@ -177,7 +181,7 @@ Quyết định do máy chủ tính (`fusion-rules.v2`, ADR-017). Với cấu h�
     "expires_in_ms": 300000,
     "action": {
       "kind": "voice",
-      "audio": { "voice_message_id": "vm_…", "version": 2, "content_type": "audio/wav", "codec": "pcm_s16le", "sample_rate_hz": 16000, "channels": 1, "bits_per_sample": 16, "duration_ms": 1500, "byte_size": 48044, "sha256": "…", "path": "/api/device/v1/commands/cmd_…/audio" }
+      "audio": { "voice_message_id": "vm_…", "version": 2, "content_type": "audio/mpeg", "codec": "mp3", "sample_rate_hz": 44100, "channels": 2, "duration_ms": 2037, "byte_size": 32600, "sha256": "…", "path": "/api/device/v1/commands/cmd_…/audio" }
     },
     "status_path": "/api/device/v1/commands/cmd_…/status"
   },
@@ -196,7 +200,7 @@ Máy chủ chỉ giao lệnh mới khi ưu tiên của nó **cao hơn** mọi l�
 
 ### 8.2 Hành vi thiết bị bắt buộc
 
-1. **Chống lặp:** cùng `command_id` có thể được giao lại (khi chưa nhận được `accepted` sau 30 s). Coi là cùng một lệnh; không phát hai lần.
+1. **Chống lặp:** cùng `command_id` có thể được giao lại (khi chưa nhận được `received`/`accepted` trước hạn, xem mục 8). Coi là cùng một lệnh; không phát hai lần. Firmware tích hợp giữ sổ lệnh trong NVS: lệnh đã kết thúc → báo lại trạng thái cuối; lệnh đã `started` trước khi khởi động lại → báo `failed device_rebooted`, không bao giờ phát lại.
 2. **Hạn chót:** tính hạn bằng đồng hồ đơn điệu: `uptime lúc nhận + expires_in_ms`. Quá hạn thì không bắt đầu phát; báo `rejected` với `expired_on_device`.
 3. **Âm thanh:** chỉ tải `action.audio.path` của lệnh này (không có API liệt kê thư viện). Có thể tải theo đoạn: `Range: bytes=a-b` → 206 + `Content-Range`. Kiểm `sha256` và `byte_size` sau khi tải; sai → `rejected` + `audio_integrity_failed`. Đường âm thanh chỉ mở khi lệnh ở `delivered/accepted/started` và chưa hết hạn (404 ngoài khoảng đó, 410 nếu lời nhắn đã bị xóa).
 4. **Xác nhận** — `POST {status_path}`:
@@ -207,23 +211,37 @@ Máy chủ chỉ giao lệnh mới khi ưu tiên của nó **cao hơn** mọi l�
 
 | `status` | Ý nghĩa | Từ trạng thái |
 | --- | --- | --- |
+| `received` (ADR-022, tùy chọn) | Đã lưu lệnh, chưa phát gì. **Không đổi trạng thái** (vẫn `delivered`); máy chủ ghi `received_at`, `device_boot_id` và không giao lại lệnh này nữa | `delivered` (lặp lại → `duplicate:true`) |
 | `accepted` | Đã lưu lệnh; với âm thanh: đã tải và kiểm SHA-256 | `delivered` |
-| `started` | Âm thanh/còi đã bắt đầu | `delivered`, `accepted` |
+| `started` | Âm thanh/còi đã thật sự bắt đầu (mẫu đầu tiên đã vào I2S). **Lệnh có âm thanh: chỉ sau `accepted`** | `accepted`; lệnh không có âm thanh: `delivered`, `accepted` |
 | `completed` | Phát hết. **Chỉ trạng thái này** được hiển thị là "đã phát" | `delivered`, `accepted`, `started` |
 | `failed` | Lỗi khi phát; `reason_code` bắt buộc | `delivered`, `accepted`, `started` |
 | `rejected` | Không thực hiện; `reason_code` bắt buộc | `delivered`, `accepted` |
 | `cancelled` | Đã dừng theo yêu cầu hủy | chỉ khi máy chủ đã yêu cầu hủy |
 
-`reason_code`: `expired_on_device`, `unsupported_command`, `audio_download_failed`, `audio_integrity_failed`, `audio_format_unsupported`, `playback_error`, `preempted_by_higher_priority`, `busy`, `cancel_requested`, `other`. `detail` ≤ 200 ký tự, không dữ liệu cá nhân.
+Ánh xạ: backend nhận lệnh = `queued`; trao cho thiết bị = `delivered`; thiết bị nhận = báo cáo `received`; đã tải và kiểm = `accepted`; bắt đầu phát = `started`; phát xong = `completed` (D15, ADR-022). Bảng trên là hành vi của backend cục bộ; Worker production hiện chưa có `received` và chưa buộc `accepted` trước `started`.
 
-5. **Trả lời 409:** báo lại cùng trạng thái → 200 `duplicate:true` (an toàn khi thử lại). 409 `invalid_transition` kèm `stop_playback: true` (lệnh đã hết hạn, bị hủy, bị thay thế hoặc đã kết thúc) → dừng ngay, bỏ lệnh. Không bắt đầu phát khi `accepted`/`started` bị từ chối.
+`reason_code`: `expired_on_device`, `unsupported_command`, `audio_download_failed`, `audio_integrity_failed`, `audio_format_unsupported`, `playback_error`, `preempted_by_higher_priority`, `busy`, `cancel_requested`, `device_rebooted`, `download_timeout`, `other`. `detail` ≤ 200 ký tự, không dữ liệu cá nhân. Máy chủ cũ trả 422 cho `received`, `device_rebooted`, `download_timeout`: firmware bỏ `received` và đổi lý do thành `other` (chi tiết giữ mã gốc).
+
+5. **Trả lời 409:** báo lại cùng trạng thái → 200 `duplicate:true` (an toàn khi thử lại). 409 `invalid_transition` kèm `stop_playback: true` (lệnh đã hết hạn, bị hủy, bị thay thế hoặc đã kết thúc) → dừng ngay, bỏ lệnh. Chỉ bắt đầu phát khi `accepted` đã được máy chủ trả 2xx và còn hạn (firmware tích hợp: nếu không gửi được `accepted` thì không phát, máy chủ tự ghi `download_timeout`). `started` được gửi ngay sau khi mẫu đầu tiên vào I2S; nếu bị trả `stop_playback: true` thì dừng phát ngay.
 6. **Hủy:** `cancel_command_ids` liệt kê lệnh đang ở trên thiết bị mà người chăm sóc yêu cầu hủy: dừng và báo `cancelled` + `cancel_requested`. Lệnh còn `queued` bị hủy ở máy chủ, không bao giờ tới thiết bị.
 7. **Mất kết nối lâu:** lệnh hết hạn khi thiết bị offline bị đánh dấu `expired` và **không bao giờ giao lại**. Nhắc lịch cũ chưa được nhận bị `superseded` bởi lần nhắc mới hơn cùng lịch.
-8. **Không báo hoàn tất:** lệnh ở `started` quá 600 s không có `completed`/`failed` → máy chủ ghi `failed` (`no_completion_report`).
+8. **Hạn chờ và hạn tải (ADR-022):** chưa có `received` → giao lại sau `30 s + ceil(byte_size / 16 000 B/s)` (lệnh không có âm thanh: 30 s); có `received` mà chưa `accepted` trước `received_at + 30 s + ceil(byte_size / 16 000)` (không quá `expires_at`) → `failed download_timeout`, không giao lại. Tốc độ tối thiểu chỉnh bằng `AUDIO_DOWNLOAD_MIN_BYTES_PER_SECOND`.
+9. **Khởi động lại:** heartbeat hoặc báo cáo trạng thái mang `boot_id` khác với boot đã báo về lệnh: lệnh chưa `started` (đã `received` hoặc `accepted`) → về `queued` với `status_reason device_rebooted` (chưa phát nên không thể phát trùng); lệnh `started` → `failed device_rebooted`, không bao giờ tự thành `completed`. Báo cáo của chính lệnh đó từ boot mới (ví dụ `completed` thiết bị đã lưu trước khi khởi động lại) vẫn được nhận.
+10. **Không báo hoàn tất:** lệnh ở `started` quá 600 s không có `completed`/`failed` → máy chủ ghi `failed` (`no_completion_report`).
 
-### 8.3 Định dạng âm thanh
+### 8.3 Định dạng âm thanh (ADR-025)
 
-RIFF/WAVE PCM (format 1), **mono, 16-bit little-endian**, tần số theo `DEVICE_AUDIO_SAMPLE_RATES` (mặc định **16 000 Hz**), 0,5–60 s, ≤ 2,2 MB. Phù hợp phát thẳng qua I2S (ví dụ MAX98357A) không cần giải mã. Máy chủ từ chối tệp khác định dạng khi tải lên nên thiết bị không nhận tệp không phát được. Mỗi phiên bản là khóa R2 bất biến; lệnh ghim phiên bản.
+Hai định dạng, máy chủ nêu rõ trong `action.audio` và thiết bị chỉ chấp nhận đúng hai cặp này (khác → `rejected audio_format_unsupported` trước khi tải một byte nào):
+
+| `content_type` / `codec` | Nội dung | Ghi chú |
+| --- | --- | --- |
+| `audio/mpeg` / `mp3` | MP3 đúng như người dùng tải lên: MPEG-1/2/2.5 Layer III, 8; 11,025; 12; 16; 22,05; 24; 32; 44,1 hoặc 48 kHz, mono hoặc stereo, CBR/VBR, 0,5–60 s, ≤ 2 000 000 byte; `duration_ms` = số khung × mẫu/khung (không tính khung Xing/Info) | Định dạng tải lên duy nhất từ ADR-025. Không có `bits_per_sample`. Chỉ giao cho thiết bị đã báo `mp3` trong `status.audio_codecs` |
+| `audio/wav` / `pcm_s16le` | RIFF/WAVE PCM mono 16-bit, tần số theo `DEVICE_AUDIO_SAMPLE_RATES`, ≤ 2,2 MB | Chỉ bản ghi lưu trước ADR-025; không tải lên mới được |
+
+Firmware tích hợp (`carelens-fw-0.2.0`): tải cả tệp vào PSRAM theo Range, kiểm `sha256` và `byte_size`, rồi với MP3 duyệt lại mọi tiêu đề khung (`src/mp3.cpp`, cùng quy tắc với máy chủ) và so `sample_rate_hz`, `channels`, `duration_ms` (lệch > 2 ms → `rejected audio_format_unsupported`, chi tiết `metadata_mismatch` hoặc mã `mp3_*`). Giải mã từng khung bằng dr_mp3 vào bộ đệm PSRAM cố định, I2S theo tần số của tệp, chuyển sang stereo 16-bit có âm lượng. `started` chỉ gửi sau khi khối PCM đầu tiên vào I2S; `completed` sau khối cuối và 150 ms im lặng; lỗi giải mã → `failed playback_error` (chi tiết `mp3_decode_error`, `mp3_format_changed`, `mp3_overlong`). Mỗi phiên bản là khóa R2 bất biến; lệnh ghim phiên bản.
+
+**Báo codec:** phản hồi heartbeat có `config.report_audio_codecs: true`; firmware 0.2.0 đáp lại bằng `status.audio_codecs: ["pcm_s16le","mp3"]` ở heartbeat kế (ngay lập tức, không chờ một phút). Firmware cũ không biết cờ này nên không gửi gì và được coi là chỉ phát WAV. Máy chủ cũ không gửi cờ nên firmware mới không gửi trường lạ (heartbeat `strict`).
 
 ## 9. Lỗi và thử lại
 
@@ -255,12 +273,21 @@ Lỗi luôn là `application/problem+json` với `code` và `request_id`.
 | Báo trạng thái lệnh | 64 KB (thực tế < 1 KB) |
 | Tốc độ | 120 yêu cầu/phút/thiết bị (Rate Limiting binding) |
 
-## 11. Chưa kiểm chứng (cần firmware và thiết bị thật)
+## 11. Đã đo trên thiết bị thật và còn chưa kiểm chứng
 
-- Thời gian thực tế của chụp 8 fps QVGA trên ESP32-S3, kích thước JPEG, bộ nhớ PSRAM cho 40 khung.
-- Độ trễ mạng thật và sai số ước lượng mốc boot.
-- Vị trí gắn MPU6050 (đeo trên người hay đặt cố định) — quyết định ý nghĩa của mọi quy tắc IMU (D11).
-- Phát I2S, thời lượng còi, hành vi khi mất điện giữa chừng.
-- Bắt tay TLS của mbedTLS với chuỗi ECDSA của `workers.dev` và việc có giờ đúng trước lần gọi HTTPS đầu (mục 1).
+Đã đo 2026-10-19 (ESP32-S3 thật, backend cục bộ qua HTTPS trong LAN; chi tiết `docs/E2E_TEST_RESULTS.md`):
+
+- Burst 24 khung VGA JPEG q12, mỗi khung khoảng 14–48 KB, chunk 8 khung khoảng 140 KB. Ở XCLK 10 MHz cảm biến cho một khung mỗi 90 ms nên khoảng chọn là 180 ms (`out_of_tolerance`); ở XCLK 20 MHz đạt 135–136 ms (`ok`, A41). Chưa đo burst 40 khung kích hoạt và nhiệt.
+- IMU 50 Hz ±8 g/±1000 °/s, lô 600 mẫu (~24–28 KB JSON), khoảng trung vị 20 ms, không cờ chất lượng, liền mạch qua lần backend vắng mặt 23 s và Wi-Fi mất 20–70 s.
+- Lệnh âm thanh: tải WAV 63 724 byte trong một Range 206 khoảng 40 ms trên LAN; vòng `delivered → completed` khoảng 3 s với bản ghi 2 s.
+- MP3 (2026-10-20, firmware 0.2.0): 8 định dạng từ 8 kHz mono 24 kbps tới 48 kHz stereo 320 kbps phát `completed`; số frame ghi ra I2S đúng bằng số khung × mẫu/khung; CPU giải mã 1,6–11,5 % thời gian thực, tối đa 4,3 ms/khung; tệp 1,42 MB (59 s, 44,1 kHz stereo 192 kbps) tải và kiểm trong khoảng 2,6 s trên LAN rồi phát liền mạch trong lúc camera chụp 2 burst. Chi tiết `docs/E2E_TEST_RESULTS.md` §9.
+
+Còn chưa kiểm chứng:
+
+- Chạy với Worker production (chưa có token thiết bị production, chưa có ADR-022/024 trên production).
+- Độ trễ mạng qua internet và sai số ước lượng mốc boot ngoài LAN.
+- Vị trí gắn MPU6050: **đã biết** — cố định trong hộp, hộp đeo trên ngực (owner, 2026-10-19, D14, `docs/HARDWARE.md` §5). Chưa biết hướng lắp cảm biến trong hộp và cách đeo; mọi quy tắc IMU phải hiệu chỉnh cho vị trí này (D11).
+- Còi khẩn trên thiết bị thật (không có cảnh báo nào được tạo vì quy tắc hợp nhất chưa duyệt), hành vi khi mất điện giữa chừng, pin.
+- Burst kích hoạt bởi IMU trên thiết bị thật (luật firmware `|a| ≥ 2,5 g` chưa được kích hoạt trong các lần thử).
 - Thời gian CPU của Worker (giới hạn 10 ms/lần gọi trên Free) khi nhận một chunk 8 khung: SHA-256 và kiểm header JPEG chạy trong test cục bộ nhưng chưa đo trên Cloudflare.
 - Khả năng chịu tải free plan với nhịp chụp và nhịp IMU thật; cách firmware ghi số thực (làm tròn hay float32 đầy đủ) quyết định dung lượng IMU gấp khoảng 3 lần.

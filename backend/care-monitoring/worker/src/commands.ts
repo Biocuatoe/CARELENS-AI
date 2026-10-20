@@ -9,9 +9,16 @@
  *
  * - Only the device's own status reports move a command to accepted, started, completed, failed or
  *   rejected, so playback is never assumed; "completed" is the only state that means "played".
- * - Delivery is at-least-once: a delivered command not accepted within ACK_TIMEOUT_SECONDS is handed out
- *   again with the same command_id (the device must treat a repeated id as the same command), up to
- *   max_delivery_attempts, then failed (no_acknowledgement).
+ * - Delivery is at-least-once: a delivered command the device neither reported `received` nor accepted before
+ *   its ack deadline is handed out again with the same command_id (the device must treat a repeated id as the same
+ *   command), up to max_delivery_attempts, then failed (no_acknowledgement). The ack deadline is
+ *   ACK_TIMEOUT_SECONDS, plus ceil(byte_size / AUDIO_DOWNLOAD_MIN_BYTES_PER_SECOND) for commands with audio (ADR-022).
+ * - `received` (ADR-022) is a report, not a status: the command stays `delivered`, received_at is set, it is never
+ *   handed out again, and it fails with download_timeout if not accepted within 30 s + the download allowance.
+ * - For commands with audio, `started` is accepted only after `accepted` (the device verified the file first).
+ * - Reboots: a heartbeat or status report from a different boot than the one that last reported on a command puts
+ *   commands that never started back in the queue (nothing was played) and fails started ones with device_rebooted;
+ *   they never become completed on their own.
  * - A command is delivered only while no other active command of the device has an equal or higher
  *   priority; an emergency (100) therefore reaches a device that is playing a reminder (50) or a voice
  *   message (40) and tells it to preempt.
@@ -26,12 +33,27 @@ import { observeClock } from "./clock";
 import { auditStatement, bumpStreamStatement, requireRecipient, type CaregiverPrincipal, type Ctx, type DevicePrincipal } from "./context";
 import { HttpError, conflict, encodeCursor, decodeCursor, forbidden, invalid, json, limitParam, notFound, readJson } from "./http";
 import { notifyRecipient } from "./realtime";
+import { MP3_CONTRACT } from "./media";
 import { addSeconds, iso, newId } from "./util";
 
 export const PRIORITY = { emergency_buzzer: 100, reminder: 50, play_voice_message: 40 } as const;
 export const ACK_TIMEOUT_SECONDS = 30;
 export const PLAYING_TIMEOUT_SECONDS = 600;
 const ACTIVE = "('delivered', 'accepted', 'started')";
+
+/** SQL: whole seconds (rounded up) a device is granted to download this command's audio at `rate` bytes/s (0 without audio).
+ * The CAST keeps it whole: D1 binds JS numbers as REAL, which would turn the division into a fractional one.
+ * Correlated on device_commands.payload_json, so it can be used inside an UPDATE of that table. */
+function audioAllowanceSql(rate: string): string {
+  return `COALESCE((SELECT CAST((v.byte_size + ${rate} - 1) / ${rate} AS INTEGER) FROM audio_asset_versions v
+    WHERE v.asset_id = json_extract(device_commands.payload_json, '$.voice.voice_message_id')
+      AND v.version = json_extract(device_commands.payload_json, '$.voice.version')), 0)`;
+}
+
+/** SQL: ISO instant `seconds` after the ISO instant `from`, in the same format as iso() ("YYYY-MM-DDTHH:MM:SS.sssZ"). */
+function plusSecondsSql(from: string, seconds: string): string {
+  return `strftime('%Y-%m-%dT%H:%M:%fZ', ${from}, '+' || (${seconds}) || ' seconds')`;
+}
 
 export const BUZZER_PATTERN = { pattern: "repeat_beep", duration_ms: 30_000, beep_on_ms: 500, beep_off_ms: 500 } as const;
 
@@ -61,6 +83,10 @@ export interface CommandRow {
   status_detail: string | null;
   created_at: string;
   updated_at: string;
+  /** Migration 0006 (ADR-022); NULL on rows written by an earlier Worker. */
+  received_at: string | null;
+  device_boot_id: string | null;
+  ack_deadline_at: string | null;
 }
 
 interface AudioVersionRow {
@@ -153,8 +179,9 @@ export function emergencyBuzzerStatements(ctx: Ctx, a: { deviceId: string; recip
   }).statements;
 }
 
-/** Housekeeping for one device or all devices: expire overdue commands, re-queue unacknowledged
- * deliveries, fail commands whose playback was never reported finished. */
+/** Housekeeping for one device or all devices: expire overdue commands, re-queue deliveries the device never
+ * acknowledged, fail received commands whose download deadline passed, fail commands whose playback was never
+ * reported finished. Rows without ack_deadline_at (written before migration 0006) keep the 30 s rule. */
 export function commandHousekeepingStatements(ctx: Ctx, deviceId: string | null): D1PreparedStatement[] {
   const now = ctx.clock.now();
   const db = ctx.env.DB;
@@ -171,9 +198,16 @@ export function commandHousekeepingStatements(ctx: Ctx, deviceId: string | null)
         `UPDATE device_commands SET status = CASE WHEN delivery_attempts >= max_delivery_attempts THEN 'failed' ELSE 'queued' END,
            status_reason = CASE WHEN delivery_attempts >= max_delivery_attempts THEN 'no_acknowledgement' ELSE 'redelivery' END,
            finished_at = CASE WHEN delivery_attempts >= max_delivery_attempts THEN ?1 ELSE NULL END, updated_at = ?1
-         WHERE ${scope} AND status = 'delivered' AND delivered_at <= ?3`,
+         WHERE ${scope} AND status = 'delivered' AND received_at IS NULL
+           AND ((ack_deadline_at IS NULL AND delivered_at <= ?3) OR ack_deadline_at <= ?1)`,
       )
       .bind(iso(now), deviceId, iso(addSeconds(now, -ACK_TIMEOUT_SECONDS))),
+    db
+      .prepare(
+        `UPDATE device_commands SET status = 'failed', status_reason = 'download_timeout', finished_at = ?1, updated_at = ?1
+         WHERE ${scope} AND status = 'delivered' AND received_at IS NOT NULL AND ack_deadline_at <= ?1`,
+      )
+      .bind(iso(now), deviceId),
     db
       .prepare(
         `UPDATE device_commands SET status = 'failed', status_reason = 'no_completion_report', finished_at = ?1, updated_at = ?1
@@ -198,20 +232,52 @@ async function audioVersion(ctx: Ctx, recipientId: string, ref: { voice_message_
     .first<AudioVersionRow>();
 }
 
+/** The codec of a stored version, from its own content_type: MP3 (ADR-025) or the legacy PCM WAV. Never inferred. */
+function codecOf(v: { content_type: string }): { content_type: string; codec: string } {
+  return v.content_type === MP3_CONTRACT.contentType ? { content_type: MP3_CONTRACT.contentType, codec: MP3_CONTRACT.codec } : { content_type: "audio/wav", codec: "pcm_s16le" };
+}
+
 function audioView(row: CommandRow, v: AudioVersionRow): Record<string, unknown> {
+  const codec = codecOf(v);
   return {
     voice_message_id: v.asset_id,
     version: v.version,
-    content_type: "audio/wav",
-    codec: "pcm_s16le",
+    ...codec,
     sample_rate_hz: v.sample_rate_hz,
     channels: v.channels,
-    bits_per_sample: v.bits_per_sample,
+    // PCM only: an MP3 has no sample width before decoding.
+    ...(codec.codec === "pcm_s16le" ? { bits_per_sample: v.bits_per_sample } : {}),
     duration_ms: v.duration_ms,
     byte_size: v.byte_size,
     sha256: v.sha256,
     path: `/api/device/v1/commands/${row.command_id}/audio`,
   };
+}
+
+/** Codecs a device reported in its latest heartbeat (status.audio_codecs, firmware ≥ carelens-fw-0.2.0). Empty when it
+ * never reported any (older firmware): such a device is assumed to play only the legacy WAV. */
+export function deviceAudioCodecs(lastHeartbeatJson: string | null): string[] {
+  if (!lastHeartbeatJson) return [];
+  try {
+    const status = JSON.parse(lastHeartbeatJson) as { audio_codecs?: unknown };
+    return Array.isArray(status.audio_codecs) ? status.audio_codecs.filter((c): c is string => typeof c === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Why this device cannot play this recording, or null. MP3 needs a device that reported the mp3 codec; legacy WAV needs a
+ * rate of the device profile. Checked when a command or reminder is created, so an unplayable file is refused up front. */
+export async function playbackProblem(ctx: Ctx, deviceId: string, v: { content_type: string; sample_rate_hz: number }): Promise<string | null> {
+  if (codecOf(v).codec === MP3_CONTRACT.codec) {
+    const row = await ctx.env.DB.prepare(`SELECT last_heartbeat_json FROM devices WHERE device_id = ?1`).bind(deviceId).first<{ last_heartbeat_json: string | null }>();
+    return deviceAudioCodecs(row?.last_heartbeat_json ?? null).includes(MP3_CONTRACT.codec)
+      ? null
+      : "This device has not reported MP3 playback. Firmware carelens-fw-0.2.0 or later reports audio_codecs in its heartbeat.";
+  }
+  return ctx.config.deviceAudioSampleRates.includes(v.sample_rate_hz)
+    ? null
+    : `The device profile plays ${ctx.config.deviceAudioSampleRates.join("/")} Hz; this recording is ${v.sample_rate_hz} Hz. Upload it again as MP3.`;
 }
 
 /** What the device receives. Times are absolute UTC plus expires_in_ms, which the device should apply to
@@ -266,6 +332,8 @@ export function caregiverView(row: CommandRow): Record<string, unknown> {
     expires_at: row.expires_at,
     delivery_attempts: row.delivery_attempts,
     delivered_at: row.delivered_at,
+    received_at: row.received_at ?? null,
+    download_deadline_at: row.received_at ? row.ack_deadline_at : null,
     accepted_at: row.accepted_at,
     started_at: row.started_at,
     finished_at: row.finished_at,
@@ -274,6 +342,40 @@ export function caregiverView(row: CommandRow): Record<string, unknown> {
     created_at: row.created_at,
     source_type: row.source_type,
   };
+}
+
+/** ADR-022 reboot handling. Commands the device last reported on from another boot than `bootId`: not started yet
+ * (delivered with a receipt, or accepted) go back to the queue, since nothing was played; started ones fail with
+ * device_rebooted and are never completed by assumption. `exceptCommandId` is the command of the report in progress. */
+export async function settleRebootedCommands(ctx: Ctx, deviceId: string, bootId: string, exceptCommandId: string | null): Promise<void> {
+  const now = iso(ctx.clock.now());
+  const db = ctx.env.DB;
+  const [requeued, interrupted] = await db.batch<{ command_id: string; recipient_id: string }>([
+    db
+      .prepare(
+        `UPDATE device_commands SET status = 'queued', status_reason = 'device_rebooted', received_at = NULL, device_boot_id = NULL, ack_deadline_at = NULL, updated_at = ?1
+         WHERE device_id = ?2 AND device_boot_id IS NOT NULL AND device_boot_id <> ?3 AND status IN ('delivered', 'accepted') AND expires_at > ?1
+           AND (?4 IS NULL OR command_id <> ?4)
+         RETURNING command_id, recipient_id`,
+      )
+      .bind(now, deviceId, bootId, exceptCommandId),
+    db
+      .prepare(
+        `UPDATE device_commands SET status = 'failed', status_reason = 'device_rebooted', finished_at = ?1, updated_at = ?1
+         WHERE device_id = ?2 AND device_boot_id IS NOT NULL AND device_boot_id <> ?3 AND status = 'started'
+           AND (?4 IS NULL OR command_id <> ?4)
+         RETURNING command_id, recipient_id`,
+      )
+      .bind(now, deviceId, bootId, exceptCommandId),
+  ]);
+  const rows = [
+    ...(requeued?.results ?? []).map((r) => ({ ...r, status: "queued" })),
+    ...(interrupted?.results ?? []).map((r) => ({ ...r, status: "failed" })),
+  ];
+  if (rows.length === 0) return;
+  const recipients = [...new Set(rows.map((r) => r.recipient_id))];
+  await db.batch([...rows.map((r) => eventStatement(ctx, r.command_id, r.status, "device_rebooted", "system")), ...recipients.map((rid) => bumpStreamStatement(ctx, rid))]);
+  for (const r of rows) ctx.exec.waitUntil(notifyRecipient(ctx.env, r.recipient_id, "command.updated", r.command_id));
 }
 
 /* ------------------------------------------------------------------ device routes */
@@ -285,7 +387,9 @@ export async function deviceNextCommand(ctx: Ctx, device: DevicePrincipal): Prom
     ...commandHousekeepingStatements(ctx, device.deviceId),
     db
       .prepare(
-        `UPDATE device_commands SET status = 'delivered', delivered_at = ?2, delivery_attempts = delivery_attempts + 1, updated_at = ?2
+        `UPDATE device_commands SET status = 'delivered', delivered_at = ?2, delivery_attempts = delivery_attempts + 1, updated_at = ?2,
+           received_at = NULL, device_boot_id = NULL,
+           ack_deadline_at = ${plusSecondsSql("?2", `?3 + ${audioAllowanceSql("?4")}`)}
          WHERE command_id = (
            SELECT command_id FROM device_commands
            WHERE device_id = ?1 AND status = 'queued' AND not_before <= ?2 AND expires_at > ?2
@@ -293,7 +397,7 @@ export async function deviceNextCommand(ctx: Ctx, device: DevicePrincipal): Prom
            ORDER BY priority DESC, not_before, created_at LIMIT 1)
          RETURNING *`,
       )
-      .bind(device.deviceId, now),
+      .bind(device.deviceId, now, ACK_TIMEOUT_SECONDS, ctx.config.audioDownloadMinBytesPerSecond),
     db
       .prepare(`SELECT command_id FROM device_commands WHERE device_id = ?1 AND cancel_requested_at IS NOT NULL AND status IN ${ACTIVE} LIMIT 10`)
       .bind(device.deviceId),
@@ -309,6 +413,7 @@ export async function deviceNextCommand(ctx: Ctx, device: DevicePrincipal): Prom
 }
 
 const ALLOWED_FROM: Record<string, string[]> = {
+  received: ["delivered"],
   accepted: ["delivered"],
   started: ["delivered", "accepted"],
   completed: ["delivered", "accepted", "started"],
@@ -317,6 +422,7 @@ const ALLOWED_FROM: Record<string, string[]> = {
   cancelled: ["delivered", "accepted", "started"],
 };
 const TIME_COLUMN: Record<string, string> = {
+  received: "received_at",
   accepted: "accepted_at",
   started: "started_at",
   completed: "finished_at",
@@ -332,18 +438,32 @@ export async function deviceCommandStatus(ctx: Ctx, device: DevicePrincipal, com
     throw invalid("reason_required", `status ${body.status} requires reason_code (${COMMAND_REASON_CODES.join(", ")}).`);
   }
   await observeClock(ctx, device.deviceId, body.clock);
+  // A report from a new boot settles the device's other commands of the previous boot first; the reported command
+  // itself is excluded so that evidence the device kept across the restart (e.g. a late `completed`) still counts.
+  await settleRebootedCommands(ctx, device.deviceId, body.clock.boot_id, commandId);
   // Settle deadlines first so a report about a stale command is answered with its real (expired) state.
   await ctx.env.DB.batch(commandHousekeepingStatements(ctx, device.deviceId));
   const now = iso(ctx.clock.now());
   const from = ALLOWED_FROM[body.status] ?? [];
   const cancelGuard = body.status === "cancelled" ? "AND cancel_requested_at IS NOT NULL" : "";
-  // accepted/started are refused once the deadline has passed: the device must not begin stale playback.
-  const deadlineGuard = body.status === "accepted" || body.status === "started" ? "AND expires_at > ?2" : "";
+  // received/accepted/started are refused once the deadline has passed: the device must not begin stale playback.
+  const deadlineGuard = ["received", "accepted", "started"].includes(body.status) ? "AND expires_at > ?2" : "";
+  // Commands with audio: started only after accepted (downloaded and verified on the device).
+  const verifiedGuard = body.status === "started" ? "AND (status = 'accepted' OR json_extract(payload_json, '$.voice') IS NULL)" : "";
+  const receivedGuard = body.status === "received" ? "AND received_at IS NULL" : "";
+  const bootColumn = ["received", "accepted", "started"].includes(body.status) ? ", device_boot_id = ?7" : "";
+  // `received` leaves the status at 'delivered', records the receipt once and starts the download deadline.
+  const set =
+    body.status === "received"
+      ? `received_at = ?2, ack_deadline_at = MIN(expires_at, ${plusSecondsSql("?2", `?8 + ${audioAllowanceSql("?9")}`)}), updated_at = ?2`
+      : `status = ?1, ${TIME_COLUMN[body.status]} = ?2, status_reason = ?3, status_detail = ?4, updated_at = ?2`;
   const updated = await ctx.env.DB.prepare(
-    `UPDATE device_commands SET status = ?1, ${TIME_COLUMN[body.status]} = ?2, status_reason = ?3, status_detail = ?4, updated_at = ?2
-     WHERE command_id = ?5 AND device_id = ?6 AND status IN (${from.map((s) => `'${s}'`).join(", ")}) ${cancelGuard} ${deadlineGuard} RETURNING *`,
+    `UPDATE device_commands SET ${set}${bootColumn}
+     WHERE command_id = ?5 AND device_id = ?6 AND status IN (${from.map((s) => `'${s}'`).join(", ")}) ${cancelGuard} ${deadlineGuard} ${verifiedGuard} ${receivedGuard}
+     RETURNING *`,
   )
-    .bind(body.status, now, body.reason_code, body.detail, commandId, device.deviceId)
+    // D1 requires exactly as many bindings as the highest parameter index the statement uses.
+    .bind(...[body.status, now, body.reason_code, body.detail, commandId, device.deviceId, body.clock.boot_id, ACK_TIMEOUT_SECONDS, ctx.config.audioDownloadMinBytesPerSecond].slice(0, body.status === "received" ? 9 : bootColumn ? 7 : 6))
     .first<CommandRow>();
   if (!updated) {
     const current = await ctx.env.DB.prepare(`SELECT * FROM device_commands WHERE command_id = ?1 AND device_id = ?2`)
@@ -351,11 +471,17 @@ export async function deviceCommandStatus(ctx: Ctx, device: DevicePrincipal, com
       .first<CommandRow>();
     if (!current) throw notFound("Command not found.");
     if (current.status === body.status) return json({ command: caregiverView(current), duplicate: true });
+    // A repeated or late receipt is harmless: the device already reported at least that much.
+    if (body.status === "received" && ((current.status === "delivered" && current.received_at) || ["accepted", "started", "completed"].includes(current.status))) {
+      return json({ command: caregiverView(current), duplicate: true });
+    }
     const stop = ["expired", "cancelled", "superseded", "failed", "rejected", "completed"].includes(current.status);
-    throw conflict("invalid_transition", `Command is ${current.status}; cannot become ${body.status}.${stop ? " Do not start or continue playback." : ""}`, {
-      current_status: current.status,
-      stop_playback: stop,
-    });
+    const needsAccept = body.status === "started" && current.status === "delivered";
+    throw conflict(
+      "invalid_transition",
+      `Command is ${current.status}; cannot become ${body.status}.${needsAccept ? " Report accepted (audio downloaded and verified) before started." : ""}${stop ? " Do not start or continue playback." : ""}`,
+      { current_status: current.status, stop_playback: stop },
+    );
   }
   await ctx.env.DB.batch([eventStatement(ctx, commandId, body.status, body.reason_code, "device"), bumpStreamStatement(ctx, updated.recipient_id)]);
   ctx.exec.waitUntil(notifyRecipient(ctx.env, updated.recipient_id, "command.updated", commandId));
@@ -375,7 +501,7 @@ export async function deviceCommandAudio(ctx: Ctx, device: DevicePrincipal, comm
   const version = await audioVersion(ctx, device.recipientId, ref);
   if (!version) throw new HttpError(410, "audio_deleted", "Gone", "The voice message was deleted.");
   const headers: Record<string, string> = {
-    "content-type": "audio/wav",
+    "content-type": codecOf(version).content_type,
     "x-content-sha256": version.sha256,
     "accept-ranges": "bytes",
     "cache-control": "no-store",
@@ -427,15 +553,14 @@ export async function createVoiceCommand(
     .first();
   if (!device) throw notFound("Device not found.");
   const asset = await ctx.env.DB.prepare(
-    `SELECT a.current_version, v.sample_rate_hz FROM audio_assets a JOIN audio_asset_versions v ON v.asset_id = a.asset_id AND v.version = a.current_version
+    `SELECT a.current_version, v.sample_rate_hz, v.content_type FROM audio_assets a JOIN audio_asset_versions v ON v.asset_id = a.asset_id AND v.version = a.current_version
      WHERE a.asset_id = ?1 AND a.recipient_id = ?2 AND a.status = 'active'`,
   )
     .bind(body.voice_message_id, recipientId)
-    .first<{ current_version: number; sample_rate_hz: number }>();
+    .first<{ current_version: number; sample_rate_hz: number; content_type: string }>();
   if (!asset) throw invalid("voice_message_not_found", "voice_message_id is not an active voice message of this recipient.");
-  if (!ctx.config.deviceAudioSampleRates.includes(asset.sample_rate_hz)) {
-    throw invalid("audio_not_playable", `The device profile plays ${ctx.config.deviceAudioSampleRates.join("/")} Hz; this recording is ${asset.sample_rate_hz} Hz. Upload it again.`);
-  }
+  const problem = await playbackProblem(ctx, deviceId, asset);
+  if (problem) throw invalid("audio_not_playable", problem);
   const now = ctx.clock.now();
   const key = `${actor.keyScope}:${body.idempotency_key}`;
   const payload = { voice: { voice_message_id: body.voice_message_id, version: asset.current_version } };

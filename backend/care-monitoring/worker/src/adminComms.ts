@@ -9,16 +9,19 @@
  * audit row in the same batch as the change. Audit details hold ids and enums only, never reminder text, tokens or audio.
  */
 import { z } from "zod";
-import { cancelCommandOf, caregiverView, createVoiceCommand, listCommandsOf, type CommandRow } from "./commands";
+import { cancelCommandOf, caregiverView, createVoiceCommand, listCommandsOf, playbackProblem, type CommandRow } from "./commands";
 import { adminActorId, auditStatement, bumpStreamStatement, type Ctx } from "./context";
 import { HttpError, conflict, invalid, json, notFound, readJson } from "./http";
-import { AUDIO_CONTRACT } from "./media";
+import { AUDIO_CONTRACT, MP3_CONTRACT } from "./media";
 import { checkRefs, checkSchedule, nextOccurrence, reminderView, type ReminderRow } from "./reminders";
 import { listVoiceOf, storeVoice, voiceAudioOf } from "./voice";
 import { addDays, addSeconds, iso, localDate, sha256Hex, weekdayOf, zonedToUtc } from "./util";
 
 export const ADMIN_MUTATIONS_PER_MINUTE = 20;
-const MUTATION_ACTIONS = ["command.create", "command.cancel", "voice.upload", "reminder.create", "reminder.pause", "reminder.resume", "reminder.cancel"];
+const MUTATION_ACTIONS = ["command.create", "command.cancel", "voice.upload", "reminder.create", "reminder.pause", "reminder.resume", "reminder.cancel", "device.speaker_volume"];
+/** Volume range offered for the 8 ohm / 1 W speaker on MAX98357A (fraction of full scale). A conservative software limit, not a
+ * measured power rating; 0.25 is the value of the known-good baseline sketch. Mirrored by migration 0007 and the firmware. */
+export const SPEAKER_VOLUME = { min: 0.05, max: 0.7, default: 0.25, step: 0.05 } as const;
 /** A one-time reminder must be at least this far ahead, so "now" is not accepted as "scheduled". */
 const MIN_LEAD_SECONDS = 30;
 const MAX_LEAD_DAYS = 366;
@@ -59,17 +62,25 @@ async function anyDevice(ctx: Ctx, deviceId: string): Promise<DeviceRef> {
 /** What the admin pages may offer, derived from configuration. Nothing here is a claim about the physical device. */
 export function capabilities(ctx: Ctx): Response {
   return json({
-    tts: { available: false, reason: "no_text_to_speech_service", note: "Máy chủ không có dịch vụ chuyển văn bản thành giọng nói. Chỉ phát được bản ghi WAV đã tải lên." },
+    tts: { available: false, reason: "no_text_to_speech_service", note: "Máy chủ không có dịch vụ chuyển văn bản thành giọng nói. Chỉ phát được bản ghi MP3 đã tải lên." },
+    // Upload contract (ADR-025): MP3 stored and delivered unchanged; the device decodes it. WAV uploads are refused.
     audio: {
-      content_type: AUDIO_CONTRACT.contentType,
-      sample_rates_hz: ctx.config.deviceAudioSampleRates,
-      channels: AUDIO_CONTRACT.channels,
-      bits_per_sample: AUDIO_CONTRACT.bitsPerSample,
-      min_duration_ms: AUDIO_CONTRACT.minDurationMs,
-      max_duration_ms: AUDIO_CONTRACT.maxDurationMs,
-      max_bytes: AUDIO_CONTRACT.maxBytes,
+      content_type: MP3_CONTRACT.contentType,
+      codec: MP3_CONTRACT.codec,
+      sample_rates_hz: MP3_CONTRACT.sampleRates,
+      channels: MP3_CONTRACT.channels,
+      min_duration_ms: MP3_CONTRACT.minDurationMs,
+      max_duration_ms: MP3_CONTRACT.maxDurationMs,
+      max_bytes: MP3_CONTRACT.maxBytes,
+      device_requirement: "audio_codecs_reports_mp3",
+      legacy_wav: { upload: "refused", playback: "supported", sample_rates_hz: ctx.config.deviceAudioSampleRates, max_bytes: AUDIO_CONTRACT.maxBytes },
     },
-    commands: { voice_expiry_seconds: { min: 30, max: 3600 }, mutations_per_minute: ADMIN_MUTATIONS_PER_MINUTE },
+    commands: {
+      voice_expiry_seconds: { min: 30, max: 3600 },
+      mutations_per_minute: ADMIN_MUTATIONS_PER_MINUTE,
+      device_receipt_report: "received",
+      audio_download_min_bytes_per_second: ctx.config.audioDownloadMinBytesPerSecond,
+    },
     reminders: {
       timezone: ctx.config.reportTimezone,
       deadline_minutes: { min: 1, max: 240 },
@@ -77,8 +88,42 @@ export function capabilities(ctx: Ctx): Response {
       execution_evidence: "A reminder is dispatched only if the Worker deployment includes the cron trigger; the first command created for an occurrence is the evidence.",
     },
     report: { timezone: ctx.config.reportTimezone, interval: "[start, end)", imu_raw_retention_hours: ctx.config.imuRawRetentionHours },
+    speaker_volume: { ...SPEAKER_VOLUME, delivery: "heartbeat_response", applied_evidence: "device_heartbeat_status" },
     device_playback: "not_verified_with_hardware",
   });
+}
+
+/* ------------------------------------------------------------------ speaker volume */
+
+const SpeakerVolumeBody = z
+  .object({
+    volume: z
+      .number()
+      .min(SPEAKER_VOLUME.min)
+      .max(SPEAKER_VOLUME.max)
+      .refine((v) => Math.abs(Math.round(v / SPEAKER_VOLUME.step) * SPEAKER_VOLUME.step - v) < 1e-9, "volume must be a multiple of 0.05"),
+    confirm: z.literal(true),
+  })
+  .strict();
+
+/** Sets the volume the device is told to use. Takes effect when the device's next heartbeat (≤ 60 s) carries it; only the
+ * device's own heartbeat report says it was applied. */
+export async function adminSetSpeakerVolume(ctx: Ctx, deviceId: string): Promise<Response> {
+  const body = await readJson(ctx.request, SpeakerVolumeBody);
+  await spendAdminBudget(ctx);
+  const d = await activeDevice(ctx, deviceId);
+  const now = iso(ctx.clock.now());
+  const volume = Math.round(body.volume * 100) / 100;
+  await ctx.env.DB.batch([
+    ctx.env.DB.prepare(`UPDATE devices SET speaker_volume = ?1, speaker_volume_set_at = ?2, speaker_volume_set_by = ?3 WHERE device_id = ?4 AND status = 'active'`).bind(
+      volume,
+      now,
+      createdBy(ctx),
+      d.device_id,
+    ),
+    auditStatement(ctx, { actorType: "admin", actorId: adminActorId(ctx), action: "device.speaker_volume", targetType: "device", targetId: d.device_id, recipientId: d.recipient_id, detail: { device_id: d.device_id, volume } }),
+  ]);
+  return json({ device_id: d.device_id, speaker: { desired_volume: volume, desired_set_at: now, delivery: "next_heartbeat" } });
 }
 
 /* ------------------------------------------------------------------ voice recordings */
@@ -243,11 +288,12 @@ export async function adminCreateReminder(ctx: Ctx, deviceId: string): Promise<R
   await checkRefs(ctx, d.recipient_id, null, body.voice_message_id);
   if (body.voice_message_id) {
     const v = await ctx.env.DB.prepare(
-      `SELECT v.sample_rate_hz FROM audio_assets a JOIN audio_asset_versions v ON v.asset_id = a.asset_id AND v.version = a.current_version WHERE a.asset_id = ?1`,
+      `SELECT v.sample_rate_hz, v.content_type FROM audio_assets a JOIN audio_asset_versions v ON v.asset_id = a.asset_id AND v.version = a.current_version WHERE a.asset_id = ?1`,
     )
       .bind(body.voice_message_id)
-      .first<{ sample_rate_hz: number }>();
-    if (v && !ctx.config.deviceAudioSampleRates.includes(v.sample_rate_hz)) throw invalid("audio_not_playable", `The device profile plays ${ctx.config.deviceAudioSampleRates.join("/")} Hz; this recording is ${v.sample_rate_hz} Hz.`);
+      .first<{ sample_rate_hz: number; content_type: string }>();
+    const problem = v ? await playbackProblem(ctx, d.device_id, v) : null;
+    if (problem) throw invalid("audio_not_playable", problem);
   }
 
   // The id derives from (admin, idempotency key): a double click or a retry finds the row it already made.

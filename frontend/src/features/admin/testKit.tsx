@@ -47,7 +47,17 @@ export const exchangeBody = { token: ADMIN_TOKEN, token_type: "Bearer", expires_
 export const readyBody = (admin = "configured") => ({ status: "ready", capabilities: { google_signin: "configured", ...(admin ? { admin_signin: admin } : {}) } });
 export const capabilitiesBody = {
   tts: { available: false, reason: "no_text_to_speech_service", note: "Máy chủ không có dịch vụ chuyển văn bản thành giọng nói." },
-  audio: { content_type: "audio/wav", sample_rates_hz: [16000], channels: 1, bits_per_sample: 16, min_duration_ms: 500, max_duration_ms: 60000, max_bytes: 2200000 },
+  audio: {
+    content_type: "audio/mpeg",
+    codec: "mp3",
+    sample_rates_hz: [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000],
+    channels: [1, 2],
+    min_duration_ms: 500,
+    max_duration_ms: 60000,
+    max_bytes: 2000000,
+    device_requirement: "audio_codecs_reports_mp3",
+    legacy_wav: { upload: "refused", playback: "supported", sample_rates_hz: [16000], max_bytes: 2200000 },
+  },
   commands: { voice_expiry_seconds: { min: 30, max: 3600 } },
   reminders: { timezone: "Asia/Ho_Chi_Minh", scheduler: "cloudflare_cron_every_minute", execution_evidence: "x" },
   device_playback: "not_verified_with_hardware",

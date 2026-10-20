@@ -1,16 +1,17 @@
 /**
  * Family voice messages: caregiver-recorded audio kept in the private AUDIO bucket.
  *
- * Format contract (media.ts AUDIO_CONTRACT): RIFF/WAVE PCM, mono, 16-bit, a sample rate from the device
- * profile DEVICE_AUDIO_SAMPLE_RATES (default 16 kHz), 0.5–60 s, ≤ 2.2 MB, uploaded as the raw request body.
- * Convert other recordings first, e.g. `ffmpeg -i in.m4a -ac 1 -ar 16000 -sample_fmt s16 out.wav`. Each upload or replacement is a new immutable
- * version; commands pin the version they play. Caregivers with voice.manage upload/replace/delete,
- * anyone with data.read can list and listen; a device can fetch audio only through an active command.
- * Recordings are kept until a caregiver deletes them (retention policy D08 is still open).
+ * Upload format (media.ts MP3_CONTRACT, ADR-025): MP3 (MPEG Layer III), one rate and one channel layout, 0.5–60 s,
+ * ≤ 2 MB, uploaded as the raw request body with Content-Type audio/mpeg. The bytes are stored, served and delivered to
+ * the device unchanged (no transcoding anywhere); the device decodes MP3 itself. WAV uploads are refused (415
+ * mp3_required). Recordings stored before ADR-025 are WAV (content_type audio/wav) and stay playable as WAV.
+ * Each upload or replacement is a new immutable version; commands pin the version they play. Caregivers with
+ * voice.manage upload/replace/delete, anyone with data.read can list and listen; a device can fetch audio only through
+ * an active command. Recordings are kept until a caregiver deletes them (retention policy D08 is still open).
  */
 import { auditStatement, bumpStreamStatement, requireRecipient, type CaregiverPrincipal, type Ctx } from "./context";
 import { HttpError, badRequest, invalid, json, notFound, readBody } from "./http";
-import { AUDIO_CONTRACT, inspectWav } from "./media";
+import { AUDIO_CONTRACT, MP3_CONTRACT, inspectMp3, type Mp3Info } from "./media";
 import { iso, newId, sha256Hex } from "./util";
 
 interface AssetRow {
@@ -49,13 +50,14 @@ function titleParam(ctx: Ctx, required: boolean): string | null {
   return title.trim();
 }
 
-async function readAudio(ctx: Ctx): Promise<{ bytes: Uint8Array; info: Exclude<ReturnType<typeof inspectWav>, string>; sha: string }> {
-  const type = (ctx.request.headers.get("content-type") ?? "").toLowerCase();
-  if (type !== "audio/wav" && type !== "audio/x-wav" && type !== "audio/wave") {
-    throw new HttpError(415, "unsupported_media_type", "Unsupported media type", "Content-Type must be audio/wav (PCM WAV).");
+/** MP3 only. The Content-Type is a declaration; the bytes decide: every frame header is checked (inspectMp3). */
+async function readAudio(ctx: Ctx): Promise<{ bytes: Uint8Array; info: Mp3Info; sha: string }> {
+  const type = (ctx.request.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  if (type !== "audio/mpeg" && type !== "audio/mp3") {
+    throw new HttpError(415, "mp3_required", "Unsupported media type", "Voice messages must be MP3 (Content-Type audio/mpeg). WAV uploads are no longer accepted.");
   }
-  const bytes = await readBody(ctx.request, AUDIO_CONTRACT.maxBytes);
-  const info = inspectWav(bytes, ctx.config.deviceAudioSampleRates);
+  const bytes = await readBody(ctx.request, MP3_CONTRACT.maxBytes);
+  const info = inspectMp3(bytes);
   if (typeof info === "string") throw invalid("invalid_audio", info);
   return { bytes, info, sha: await sha256Hex(bytes) };
 }
@@ -85,12 +87,15 @@ function view(a: AssetRow, v: VersionRow | null): Record<string, unknown> {
   };
 }
 
-function versionStatement(ctx: Ctx, assetId: string, version: number, key: string, info: Exclude<ReturnType<typeof inspectWav>, string>, size: number, sha: string, by: string): D1PreparedStatement {
+// bits_per_sample has no meaning for MP3 and is stored as 0 (the column predates ADR-025; no migration needed).
+function versionStatement(ctx: Ctx, assetId: string, version: number, key: string, info: Mp3Info, size: number, sha: string, by: string): D1PreparedStatement {
   return ctx.env.DB.prepare(
     `INSERT INTO audio_asset_versions (asset_id, version, r2_key, content_type, sample_rate_hz, channels, bits_per_sample, duration_ms, byte_size, sha256, uploaded_by, uploaded_at)
-     VALUES (?1, ?2, ?3, 'audio/wav', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
-  ).bind(assetId, version, key, info.sampleRateHz, info.channels, info.bitsPerSample, info.durationMs, size, sha, by, iso(ctx.clock.now()));
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11)`,
+  ).bind(assetId, version, key, MP3_CONTRACT.contentType, info.sampleRateHz, info.channels, info.durationMs, size, sha, by, iso(ctx.clock.now()));
 }
+
+const objectOptions = (assetId: string, version: number) => ({ httpMetadata: { contentType: MP3_CONTRACT.contentType }, customMetadata: { asset_id: assetId, version: String(version) } });
 
 /** Who stores a recording. `createdBy` is written to audio_assets/audio_asset_versions (free text: a caregiver user id, or
  * "admin:<admin_id>"); `actorType`/`actorId` go to the audit log. */
@@ -106,13 +111,13 @@ export async function uploadVoice(ctx: Ctx, user: CaregiverPrincipal, recipientI
   return storeVoice(ctx, { actorType: "caregiver", actorId: user.userId, createdBy: user.userId }, recipientId);
 }
 
-/** Validates (WAV contract) and stores a new recording of a recipient. Authorization is the caller's job. */
+/** Validates (MP3 contract) and stores a new recording of a recipient, byte for byte. Authorization is the caller's job. */
 export async function storeVoice(ctx: Ctx, actor: VoiceActor, recipientId: string): Promise<Response> {
   const title = titleParam(ctx, true) as string;
   const { bytes, info, sha } = await readAudio(ctx);
   const assetId = newId("vm");
-  const key = `voice/${recipientId}/${assetId}/v1.wav`;
-  await ctx.env.AUDIO.put(key, bytes, { httpMetadata: { contentType: "audio/wav" }, customMetadata: { asset_id: assetId, version: "1" } });
+  const key = `voice/${recipientId}/${assetId}/v1.mp3`;
+  await ctx.env.AUDIO.put(key, bytes, objectOptions(assetId, 1));
   const now = iso(ctx.clock.now());
   try {
     await ctx.env.DB.batch([
@@ -139,8 +144,8 @@ export async function replaceVoice(ctx: Ctx, user: CaregiverPrincipal, recipient
   const title = titleParam(ctx, false);
   const { bytes, info, sha } = await readAudio(ctx);
   const version = asset.current_version + 1;
-  const key = `voice/${recipientId}/${assetId}/v${version}.wav`;
-  await ctx.env.AUDIO.put(key, bytes, { httpMetadata: { contentType: "audio/wav" }, customMetadata: { asset_id: assetId, version: String(version) } });
+  const key = `voice/${recipientId}/${assetId}/v${version}.mp3`;
+  await ctx.env.AUDIO.put(key, bytes, objectOptions(assetId, version));
   const now = iso(ctx.clock.now());
   const res = await ctx.env.DB.batch([
     ctx.env.DB.prepare(`UPDATE audio_assets SET current_version = ?1, title = COALESCE(?2, title), updated_at = ?3 WHERE asset_id = ?4 AND current_version = ?5 AND status = 'active'`).bind(
@@ -180,7 +185,8 @@ export async function listVoiceOf(ctx: Ctx, recipientId: string): Promise<Respon
     .all<AssetRow & VersionRow & { v_version: number }>();
   return json({
     items: rows.results.map((r) => view(r, { ...r, version: r.v_version })),
-    format: { ...AUDIO_CONTRACT, sampleRates: ctx.config.deviceAudioSampleRates },
+    format: MP3_CONTRACT,
+    legacy_format: { ...AUDIO_CONTRACT, sampleRates: ctx.config.deviceAudioSampleRates, upload: "refused", playback: "supported" },
   });
 }
 
@@ -200,7 +206,7 @@ export async function voiceAudioOf(ctx: Ctx, recipientId: string | null, assetId
   if (!row) throw notFound("Voice message not found.");
   const object = await ctx.env.AUDIO.get(row.r2_key);
   if (!object) throw new HttpError(410, "audio_missing", "Gone", "Audio object is missing from storage.");
-  return new Response(object.body, { headers: { "content-type": "audio/wav", "content-length": String(row.byte_size), "cache-control": "private, no-store" } });
+  return new Response(object.body, { headers: { "content-type": row.content_type, "content-length": String(row.byte_size), "cache-control": "private, no-store" } });
 }
 
 export async function deleteVoice(ctx: Ctx, user: CaregiverPrincipal, recipientId: string, assetId: string): Promise<Response> {

@@ -39,8 +39,10 @@ def call(api: str, method: str, path: str, body: dict | None = None) -> tuple[in
     token = os.environ.get("CARELENS_ADMIN_TOKEN", "")
     if not token:
         raise SystemExit("set CARELENS_ADMIN_TOKEN")
+    # Explicit User-Agent: Cloudflare answers urllib's default "Python-urllib/x.y" with 403 (error 1010) on workers.dev.
     req = urllib.request.Request(api.rstrip("/") + path, method=method, data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Authorization": f"Bearer {token}", **({"Content-Type": "application/json"} if body is not None else {})})
+                                 headers={"Authorization": f"Bearer {token}", "User-Agent": "carelens-admin-cli/1",
+                                          **({"Content-Type": "application/json"} if body is not None else {})})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return r.status, json.loads(r.read() or b"null")

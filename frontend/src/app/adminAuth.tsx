@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
 import { AdminApiError, AdminClient, isAdminAuthFailure, type AdminProfile } from "../data/admin/adminClient";
+import { xhrUploader } from "../data/admin/xhrUpload";
 import { InlineError, LoadingState } from "../design-system/feedback";
 import { SoftButton } from "../design-system/primitives";
 
@@ -39,7 +40,8 @@ const MAX_TIMER_MS = 2_147_000_000;
  * The server is the only authority: "signed_in" exists only after GET /api/admin/v1/me has confirmed the session.
  */
 export function AdminAuthProvider({ children, client }: { children: ReactNode; client?: AdminClient }) {
-  const api = useMemo(() => client ?? new AdminClient(), [client]);
+  // The app's own client uploads recordings with byte progress (XMLHttpRequest); an injected client is used as given.
+  const api = useMemo(() => client ?? new AdminClient(undefined, undefined, undefined, typeof XMLHttpRequest === "undefined" ? null : xhrUploader()), [client]);
   const tokenRef = useRef<string | null>(null);
   const inflight = useRef<Promise<void> | null>(null);
   const verifiedAt = useRef(0);

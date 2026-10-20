@@ -66,17 +66,27 @@ route("POST", "/api/device/v1/heartbeat", device(async (ctx, d) => {
   const body = await readJson(ctx.request, DeviceHeartbeatV2, 4 * 1024);
   if (body.device_id !== d.deviceId) throw forbidden("device_mismatch", "device_id does not match the credential.");
   const boot = await observeClock(ctx, d.deviceId, body.clock);
+  // A heartbeat from a new boot settles the commands the device held before it restarted (ADR-022).
+  await commands.settleRebootedCommands(ctx, d.deviceId, body.clock.boot_id, null);
   const now = iso(ctx.clock.now());
-  const [, pending] = await ctx.env.DB.batch([
+  const [, pending, settings] = await ctx.env.DB.batch([
     ctx.env.DB.prepare(
       `UPDATE devices SET firmware_version = COALESCE(?1, firmware_version), last_boot_id = ?2, last_heartbeat_at = ?3, last_heartbeat_json = ?4 WHERE device_id = ?5`,
     ).bind(body.firmware_version, body.clock.boot_id, now, JSON.stringify({ ...body.status, clock_issues: boot.issues }), d.deviceId),
     ctx.env.DB.prepare(`SELECT COUNT(*) AS n FROM device_commands WHERE device_id = ?1 AND status = 'queued' AND not_before <= ?2 AND expires_at > ?2`).bind(d.deviceId, now),
+    ctx.env.DB.prepare(`SELECT speaker_volume FROM devices WHERE device_id = ?1`).bind(d.deviceId),
   ]);
   return json({
     server_time: now,
     pending_commands: (pending?.results?.[0] as { n: number } | undefined)?.n ?? 0,
     clock: { boot_id: boot.bootId, estimated_boot_epoch: iso(new Date(boot.epochMs)), issues: boot.issues },
+    // Settings the admin chose for this device; null = keep the device's own value. The device reports what it applied.
+    config: {
+      speaker_volume: (settings?.results?.[0] as { speaker_volume: number | null } | undefined)?.speaker_volume ?? null,
+      // ADR-025: ask the firmware to list the codecs it plays (status.audio_codecs). Firmware that does not know the flag
+      // ignores it and is treated as WAV-only.
+      report_audio_codecs: true,
+    },
   });
 }));
 route("POST", "/api/device/v1/captures", device((ctx, d) => captures.createCapture(ctx, d)));
@@ -180,6 +190,7 @@ route("GET", "/api/admin/v1/devices/:id/voice-messages", adminOnly((ctx, p) => c
 route("POST", "/api/admin/v1/devices/:id/voice-messages", adminOnly((ctx, p) => comms.adminUploadVoice(ctx, p[0] as string)));
 route("GET", "/api/admin/v1/voice-messages/:id/audio", adminOnly((ctx, p) => comms.adminVoiceAudio(ctx, p[0] as string)));
 route("POST", "/api/admin/v1/devices/:id/voice-commands", adminOnly((ctx, p) => comms.adminCreateVoiceCommand(ctx, p[0] as string)));
+route("PUT", "/api/admin/v1/devices/:id/speaker-volume", adminOnly((ctx, p) => comms.adminSetSpeakerVolume(ctx, p[0] as string)));
 route("GET", "/api/admin/v1/devices/:id/commands", adminOnly((ctx, p) => comms.adminListCommands(ctx, p[0] as string)));
 route("GET", "/api/admin/v1/commands/:id", adminOnly((ctx, p) => comms.adminCommandTimeline(ctx, p[0] as string)));
 route("POST", "/api/admin/v1/commands/:id/cancel", adminOnly((ctx, p) => comms.adminCancelCommand(ctx, p[0] as string)));

@@ -9,7 +9,7 @@ import { Card } from "./AdminParts";
 import { DeviceScope } from "./DeviceScope";
 import { COMMAND_STATUS_LABELS, REASON_LABELS, REMINDER_KIND_LABELS, REMINDER_STATE_LABELS, WEEKDAY_LABELS } from "./labels";
 import { errorMessage, useAdminLoad } from "./useAdminLoad";
-import { newIdempotencyKey } from "./wav";
+import { newIdempotencyKey } from "./idempotency";
 
 const DEADLINES = [5, 15, 30, 60, 120, 240];
 

@@ -152,8 +152,8 @@ def test_live_demo_stream_via_sign_in_and_ticket_matches_the_frontend_contract(w
 
 def test_downstream_voice_message_reaches_the_device_and_only_completes_on_its_report(world):
     port, cg = world["port"], world["caregiver"]
-    wav = sample_device.synthetic_tone_wav(1.5)
-    status, vm = http_json(port, "POST", f"/api/app/v1/recipients/{RECIPIENT}/voice-messages?title=E2E", cg, raw=wav, ctype="audio/wav")
+    mp3 = sample_device.synthetic_silent_mp3(1.5)
+    status, vm = http_json(port, "POST", f"/api/app/v1/recipients/{RECIPIENT}/voice-messages?title=E2E", cg, raw=mp3, ctype="audio/mpeg")
     assert status == 201, vm
     vm_id = vm["voice_message"]["voice_message_id"]
     status, created = http_json(port, "POST", f"/api/app/v1/recipients/{RECIPIENT}/devices/{DEVICE}/commands", cg,
@@ -162,7 +162,7 @@ def test_downstream_voice_message_reaches_the_device_and_only_completes_on_its_r
     command_id = created["command"]["command_id"]
     run = world["device"].play_next_command()
     assert run["command"]["command_id"] == command_id
-    assert run["audio_bytes"] == len(wav)
+    assert run["audio_bytes"] == len(mp3)  # the uploaded MP3 itself, byte for byte
     assert run["acks"] == [("accepted", 200), ("started", 200), ("completed", 200)]
     status, timeline = http_json(port, "GET", f"/api/app/v1/recipients/{RECIPIENT}/commands/{command_id}", cg)
     assert timeline["command"]["played_confirmed_by_device"] is True

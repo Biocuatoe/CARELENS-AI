@@ -126,6 +126,9 @@ def local_backend(variables: dict[str, str]) -> Iterator[dict[str, Any]]:
         "SSE_MAX_LIFETIME_SECONDS": "60",
         # wrangler.jsonc is Google-only for production; these tests sign in with an owner-issued password.
         "PASSWORD_SIGN_IN": "enabled",
+        # wrangler.jsonc carries the production Google client id (public) but this server has no client secret: without
+        # this the server reports Google as misconfigured instead of off.
+        "GOOGLE_CLIENT_ID": "",
         **variables,
     }
     cmd = [NPX, "wrangler", "dev", "--ip", "127.0.0.1", "--port", str(port), "--persist-to", str(tmp), "--test-scheduled", "--show-interactive-dev-session=false"]

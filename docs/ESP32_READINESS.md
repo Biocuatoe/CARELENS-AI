@@ -4,6 +4,8 @@ Phiên bản 2026-10-19. Kiểm bằng đọc mã nguồn, chạy test cục b�
 
 ## 1. Kết luận
 
+**Cập nhật 2026-10-19 (tối):** firmware tích hợp đã có (`firmware/carelens-esp32s3/`, ADR-023) và **đã chạy trên ESP32-S3 thật với backend cục bộ**: heartbeat, lệnh âm thanh đủ vòng đời (nghe xác nhận), IMU thô, burst ảnh → agent → Vision, âm lượng từ dashboard, 9 kịch bản lỗi (`docs/E2E_TEST_RESULTS.md`, `docs/ESP32_INTEGRATION_PROGRESS.md`). Hàng "Kiểm thử trên thiết bị thật" dưới đây vì vậy không còn đúng; các chặn về production (cấp credential, agent nối production) vẫn đúng và nay gom ở `docs/PRODUCTION_ROLLOUT_READINESS.md`. Phần dưới giữ nguyên như lúc viết.
+
 **SẴN SÀNG THỬ GIAO THỨC/FIRMWARE CÓ GIỚI HẠN, KÈM CÁC CHẶN NÊU DƯỚI.**
 
 | Lớp | Trạng thái | Bằng chứng |
@@ -63,7 +65,7 @@ Không có request thiết bị nào gửi vào production, không tạo credent
 | B2 | Agent không xác minh được TLS | Sửa kho chứng chỉ gốc như mục 4 |
 | B3 | Vision server chưa chạy | `powershell -ExecutionPolicy Bypass -File integrations\carelens\local-agent\scripts\start_vision_server.ps1 -Device cuda -Background` |
 | B4 | Không có quy tắc ngã được duyệt (D11) | Không chặn thử đường ống: chỉ ảnh hưởng việc có cảnh báo hay không. Mọi kết quả sẽ là `needs_review`, không phải cảnh báo |
-| B5 | Chưa chốt vị trí gắn MPU6050 và thời hạn lưu dữ liệu (D08) | Chỉ dùng người/vật thử không phải bệnh nhân thật cho tới khi chốt |
+| B5 | Vị trí đã biết (hộp đeo trên ngực, D14) nhưng chưa có hướng lắp cảm biến, quy tắc hiệu chỉnh và thời hạn lưu dữ liệu (D08) | Chỉ dùng người/vật thử không phải bệnh nhân thật cho tới khi chốt |
 
 ## 6. Kế hoạch thử đầu tiên với ESP32-S3 CAM thật
 
@@ -103,7 +105,7 @@ Mỗi bước chỉ làm khi bước trước đạt. Mọi dữ liệu gửi l�
 
 ## 9. Hợp đồng luồng dữ liệu ESP32-S3 (12 bước) và thành phần còn thiếu
 
-Cập nhật 2026-10-19 (A40). Firmware **chưa được nạp** lên bo và **không có mã firmware nào trong repo** (không có `.ino`, `platformio.ini`, `sdkconfig`). Cột "Bằng chứng" chỉ là thiết bị **mô phỏng** đi qua đúng route device v2 trong môi trường test Worker (`test/device-flow.test.ts` trừ khi ghi khác); không bước nào đã được quan sát trên ESP32 thật.
+Cập nhật 2026-10-19 (A40). Firmware **chưa được nạp** lên bo và **không có mã firmware nào trong repo** (không có `.ino`, `platformio.ini`, `sdkconfig`). Có một sketch độc lập ngoài repo đã chạy được trên bo (web server LAN, không gọi backend), dùng làm baseline phần cứng (`docs/HARDWARE.md` §3). Cột "Bằng chứng" chỉ là thiết bị **mô phỏng** đi qua đúng route device v2 trong môi trường test Worker (`test/device-flow.test.ts` trừ khi ghi khác); không bước nào đã được quan sát trên ESP32 thật.
 
 | # | Bước | Route / hợp đồng | Bằng chứng hiện có | Trạng thái |
 | --- | --- | --- | --- | --- |
@@ -131,7 +133,7 @@ Thiết bị mô phỏng chỉ tồn tại trong test (`test/helpers.ts`) và `i
 | Thiếu | Ai / cái gì | Ghi chú |
 | --- | --- | --- |
 | Mã firmware (Wi-Fi, SNTP, TLS, heartbeat, IMU, chụp, tải chunk, hỏi lệnh, phát WAV) | Việc firmware kế tiếp | Việc nhỏ nhất: bản "heartbeat + hỏi lệnh" qua TLS thật rồi mới đến camera/IMU/loa |
-| Sơ đồ chân OV5640, MPU6050, MAX98357A | Owner cung cấp bo cụ thể | **Không đoán chân.** Cần model bo ESP32-S3 CAM chính xác (và nhà sản xuất), vì chân camera/PSRAM khác nhau giữa các bo |
+| Sơ đồ chân OV5640, MPU6050, MAX98357A | Một phần đã có (2026-10-19): owner cung cấp nối dây nguồn, MPU6050 (SDA 47/SCL 21) và MAX98357A (BCLK 41/LRC 42/DIN 1); chân camera lấy từ sketch owner xác nhận đã chạy được trên bo (ngoài repo). Module ESP32-S3-WROOM N16R8 | **Không đoán chân.** Nhà sản xuất và revision của bo mang chưa xác định; không đổi chân so với sketch đã chạy. Chi tiết: `docs/HARDWARE.md` |
 | Kiểm chứng TLS trên ESP32 với `*.workers.dev` | Firmware | Cần gói CA; không dùng `setInsecure` |
 | Bộ giải WAV 16 kHz mono PCM → I2S | Firmware | Hợp đồng âm thanh đã cố định: `DEVICE_AUDIO_SAMPLE_RATES=16000`, thiết bị kiểm sha256 trước khi phát |
 | Triển khai Worker có Phase B + migration `0004`/`0005` | Owner (runbook §16) | Production hiện không có admin API (đã đo: `/ready` không có `admin_signin`, `/api/admin/v1/me` → 404) |

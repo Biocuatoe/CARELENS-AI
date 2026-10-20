@@ -6,6 +6,7 @@
  * Credential material is never selected: `devices.token_sha256` does not appear in any query below, and the credential
  * is reported only as a state (active / revoked) and its version counter.
  */
+import { deviceAudioCodecs } from "./commands";
 import type { Ctx } from "./context";
 import { badRequest, decodeCursor, encodeCursor, invalid, json, limitParam, notFound } from "./http";
 import { addSeconds, isValidDate, iso, localDayPeriod } from "./util";
@@ -29,10 +30,12 @@ interface DeviceRow {
   last_heartbeat_json: string | null;
   created_at: string;
   revoked_at: string | null;
+  speaker_volume: number | null;
+  speaker_volume_set_at: string | null;
 }
 
 const DEVICE_COLUMNS = `device_id, recipient_id, kind, label, credential_version, status, firmware_version, last_seen_at, last_boot_id,
-  last_heartbeat_at, last_heartbeat_json, created_at, revoked_at`;
+  last_heartbeat_at, last_heartbeat_json, created_at, revoked_at, speaker_volume, speaker_volume_set_at`;
 
 function parseJson(text: string | null): unknown {
   if (!text) return null;
@@ -41,6 +44,12 @@ function parseJson(text: string | null): unknown {
   } catch {
     return "unparseable";
   }
+}
+
+function reportedVolume(text: string | null): number | null {
+  const status = parseJson(text);
+  const v = status && typeof status === "object" ? (status as { speaker_volume?: unknown }).speaker_volume : undefined;
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 function ageSeconds(ctx: Ctx, at: string | null): number | null {
@@ -123,6 +132,15 @@ async function deviceViews(ctx: Ctx, deviceId: string | null): Promise<Array<Rec
       last_boot_id: d.last_boot_id,
       // The firmware's own report; the backend does not verify it. Null until the first heartbeat arrives.
       heartbeat: d.last_heartbeat_at ? { at: d.last_heartbeat_at, status: parseJson(d.last_heartbeat_json) } : null,
+      // What the admin set (delivered with the next heartbeat) and what the device itself last reported applying.
+      speaker: {
+        desired_volume: d.speaker_volume,
+        desired_set_at: d.speaker_volume_set_at,
+        reported_volume: reportedVolume(d.last_heartbeat_json),
+        reported_at: reportedVolume(d.last_heartbeat_json) === null ? null : d.last_heartbeat_at,
+      },
+      // ADR-025: codecs the firmware reported in its latest heartbeat; empty = older firmware (legacy WAV only).
+      audio_codecs: deviceAudioCodecs(d.last_heartbeat_json),
       last_capture: lastCapture
         ? { captured_at: lastCapture.captured_at, status: lastCapture.status, failure_code: lastCapture.failure_code, source_mode: lastCapture.source_mode }
         : null,

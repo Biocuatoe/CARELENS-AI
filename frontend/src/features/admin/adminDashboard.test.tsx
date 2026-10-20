@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { json, makeBackend, mountSignedIn, mount, loginHeading, probe, problem, type Call, type Handler } from "./testKit";
+import { capabilitiesBody, json, makeBackend, mountSignedIn, mount, loginHeading, probe, problem, type Call, type Handler } from "./testKit";
+import { LAME_16K_MONO, audioFile, mp3Frame, wav } from "./testAudio";
+
+const capabilitiesBodyWithVolume = { ...capabilitiesBody, speaker_volume: { min: 0.05, max: 0.7, default: 0.25, step: 0.05 } };
 
 vi.mock("../../lib/navigation", () => ({ startFullPageNavigation: vi.fn() }));
 
@@ -33,6 +36,7 @@ const device = (over: Record<string, unknown> = {}) => ({
   last_inference_at: "2026-10-19T02:58:40.000Z",
   commands: { active: { queued: 1 }, last_24h: { completed: 2 } },
   has_simulated_records_7d: true,
+  audio_codecs: ["pcm_s16le", "mp3"],
   ...over,
 });
 const devicesBody = (items: unknown[] = [device()]) => ({ items, server_time: "2026-10-19T03:00:00.000Z", simulated_sources: "accepted" });
@@ -57,7 +61,8 @@ const command = (over: Record<string, unknown> = {}) => ({
   created_by: "admin:adm_test",
   ...over,
 });
-const voiceItem = { voice_message_id: "vm_1", title: "Nhắc uống nước", status: "active", created_by: "admin:adm_test", created_at: "2026-10-19T02:00:00.000Z", audio: { version: 1, sample_rate_hz: 16000, duration_ms: 2000, byte_size: 64044 } };
+const voiceItem = { voice_message_id: "vm_1", title: "Nhắc uống nước", status: "active", created_by: "admin:adm_test", created_at: "2026-10-19T02:00:00.000Z", audio: { version: 1, content_type: "audio/mpeg", sample_rate_hz: 16000, channels: 1, bits_per_sample: 0, duration_ms: 2016, byte_size: 8064 } };
+const legacyWavItem = { voice_message_id: "vm_old", title: "Bản ghi cũ", status: "active", created_by: "admin:adm_test", created_at: "2026-10-18T02:00:00.000Z", audio: { version: 1, content_type: "audio/wav", sample_rate_hz: 16000, channels: 1, bits_per_sample: 16, duration_ms: 2000, byte_size: 64044 } };
 
 const reminder = (over: Record<string, unknown> = {}) => ({
   reminder_id: "rem_1",
@@ -180,6 +185,51 @@ describe("devices", () => {
     expect(screen.getAllByText("Đang chờ thiết bị lấy lệnh").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("link", { name: "Báo cáo theo ngày" })).toHaveAttribute("href", "/admin/reports?device=esp32-test-1");
     expect(writes(backend)).toEqual([]); // looking changes nothing
+  });
+});
+
+describe("speaker volume", () => {
+  const detailPath = "GET /api/admin/v1/devices/esp32-test-1";
+  const putPath = "PUT /api/admin/v1/devices/esp32-test-1/speaker-volume";
+  const caps = { ...capabilitiesBodyWithVolume };
+
+  it("says plainly when the server has no volume setting", async () => {
+    await mountSignedIn("/admin/devices/esp32-test-1", base());
+    expect(await screen.findByText(/chưa hỗ trợ chỉnh âm lượng loa từ xa/)).toBeVisible();
+  });
+
+  it("shows the set value and the device's own report apart, and changes the volume only after confirmation", async () => {
+    let desired: number | null = null;
+    const backend = base({
+      "GET /api/admin/v1/capabilities": ok(caps),
+      [detailPath]: () => json(200, { device: device({ speaker: { desired_volume: desired, desired_set_at: desired === null ? null : "2026-10-19T03:01:00.000Z", reported_volume: 0.25, reported_at: "2026-10-19T02:59:00.000Z" } }), last_boot: null, server_time: "2026-10-19T03:00:00.000Z" }),
+      [putPath]: (call) => {
+        desired = (call.body as { volume: number }).volume;
+        return json(200, { device_id: "esp32-test-1", speaker: { desired_volume: desired, desired_set_at: "2026-10-19T03:01:00.000Z", delivery: "next_heartbeat" } });
+      },
+    });
+    await mountSignedIn("/admin/devices/esp32-test-1", backend);
+    expect(await screen.findByText(/^25% \(lúc/)).toBeVisible();
+    expect(screen.getByText("Chưa đặt (thiết bị dùng mức của nó)")).toBeVisible();
+    await userEvent.selectOptions(screen.getByLabelText("Mức mới"), "0.45");
+    await userEvent.click(screen.getByRole("button", { name: "Đặt âm lượng…" }));
+    expect(find(backend, putPath)).toHaveLength(0); // opening the dialog changes nothing
+    await userEvent.click(within(await screen.findByRole("dialog", { name: "Xác nhận đổi âm lượng loa" })).getByRole("button", { name: "Đặt 45%" }));
+    expect(await screen.findByText(/Đã đặt 45% trên máy chủ/)).toBeVisible();
+    const sent = find(backend, putPath);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.body).toEqual({ volume: 0.45, confirm: true });
+    // Set but not yet reported by the device: shown as waiting, never as applied.
+    expect(await screen.findByText("Đang chờ thiết bị áp dụng mức mới")).toBeVisible();
+  });
+
+  it("offers only the server's range", async () => {
+    await mountSignedIn("/admin/devices/esp32-test-1", base({ "GET /api/admin/v1/capabilities": ok(caps), [detailPath]: ok({ device: device({ speaker: { desired_volume: null, desired_set_at: null, reported_volume: null, reported_at: null } }), last_boot: null }) }));
+    const select = await screen.findByLabelText("Mức mới");
+    const values = within(select).getAllByRole("option").map((o) => (o as HTMLOptionElement).value);
+    expect(values[0]).toBe("0.05");
+    expect(values[values.length - 1]).toBe("0.7");
+    expect(screen.getByText("Thiết bị chưa báo")).toBeVisible();
   });
 });
 
@@ -373,9 +423,120 @@ describe("audio messages", () => {
     expect(screen.getAllByText("Thiết bị báo đã phát xong")).toHaveLength(1);
     expect(screen.getAllByText("Thiết bị đã báo phát xong.")).toHaveLength(1);
     expect(screen.getAllByText(/Chưa có xác nhận phát xong từ thiết bị/)).toHaveLength(9);
-    for (const label of ["Đang chờ thiết bị lấy lệnh", "Đã giao cho thiết bị, chưa được xác nhận", "Thiết bị đã nhận lệnh", "Thiết bị báo đang phát", "Thiết bị báo lỗi khi phát", "Thiết bị từ chối lệnh", "Đã hủy", "Hết hạn trước khi phát", "Bị lần nhắc sau thay thế"]) {
+    for (const label of ["Đang chờ thiết bị lấy lệnh", "Đã giao cho thiết bị, chưa được xác nhận", "Thiết bị đã tải và kiểm tra, chưa phát", "Thiết bị báo đang phát", "Thiết bị báo lỗi khi phát", "Thiết bị từ chối lệnh", "Đã hủy", "Hết hạn trước khi phát", "Bị lần nhắc sau thay thế"]) {
       expect(screen.getAllByText(label).length).toBeGreaterThanOrEqual(1);
     }
+  });
+
+  it("describes a device receipt (ADR-022) as received and still downloading, with its deadline, never as played", async () => {
+    const items = [command({ status: "delivered", received_at: "2026-10-19T03:00:05.000Z", download_deadline_at: "2026-10-19T03:00:38.000Z" })];
+    await mountSignedIn("/admin/messages", base({ "GET /api/admin/v1/devices/esp32-test-1/commands": ok({ items, next_cursor: null }) }));
+    expect(await screen.findByText("Thiết bị đã nhận lệnh, đang tải âm thanh")).toBeVisible();
+    expect(screen.getByText(/phải tải và kiểm tra xong trước/)).toBeVisible();
+    expect(screen.getByText(/Chưa có xác nhận phát xong từ thiết bị/)).toBeVisible();
+    expect(screen.queryByText("Thiết bị báo đã phát xong")).toBeNull();
+  });
+
+  it("names the receipt reasons a newer server reports", async () => {
+    const items = [
+      command({ command_id: "cmd_a", status: "failed", status_reason: "download_timeout" }),
+      command({ command_id: "cmd_b", status: "failed", status_reason: "device_rebooted" }),
+    ];
+    await mountSignedIn("/admin/messages", base({ "GET /api/admin/v1/devices/esp32-test-1/commands": ok({ items, next_cursor: null }) }));
+    expect(await screen.findByText(/Thiết bị không tải xong âm thanh trước hạn/)).toBeVisible();
+    expect(screen.getByText(/Thiết bị khởi động lại khi đang giữ lệnh/)).toBeVisible();
+  });
+
+  it("keeps the same idempotency key after a send with an unknown outcome, so a retry cannot create a second command", async () => {
+    let attempt = 0;
+    const backend = base({
+      [sendPath]: () => (++attempt === 1 ? new Error("connection dropped") : json(200, { command: command(), created: false })),
+      "GET /health": () => new Error("nothing answers either"),
+    });
+    await mountSignedIn("/admin/messages", backend);
+    await chooseRecording();
+    await userEvent.click(screen.getByRole("button", { name: "Gửi tới thiết bị…" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }));
+    expect(await within(screen.getByRole("dialog")).findByText(/Chưa biết máy chủ đã lưu lệnh hay chưa/)).toBeVisible();
+    expect(screen.queryByText("Lệnh đã được máy chủ nhận")).toBeNull();
+    // Closing and opening the dialog again for the same recording and expiry is still the same attempt.
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Không gửi" }));
+    await userEvent.click(screen.getByRole("button", { name: "Gửi tới thiết bị…" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }));
+    expect(await screen.findByText("Lệnh đã được máy chủ nhận")).toBeVisible();
+    expect(screen.getByText(/máy chủ đã có lệnh này từ lần gửi trước/)).toBeVisible();
+    const sent = find(backend, sendPath);
+    expect(sent).toHaveLength(2);
+    const keys = sent.map((c) => (c.body as { idempotency_key: string }).idempotency_key);
+    expect(keys[0]).toBe(keys[1]);
+  });
+
+  it("uses a new idempotency key after a definite refusal", async () => {
+    let attempt = 0;
+    const backend = base({ [sendPath]: () => (++attempt === 1 ? problem(422, "audio_not_playable") : json(201, { command: command(), created: true })) });
+    await mountSignedIn("/admin/messages", backend);
+    await chooseRecording();
+    await userEvent.click(screen.getByRole("button", { name: "Gửi tới thiết bị…" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }));
+    await within(screen.getByRole("dialog")).findByText(/không đúng tốc độ lấy mẫu/);
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Không gửi" }));
+    await userEvent.click(screen.getByRole("button", { name: "Gửi tới thiết bị…" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }));
+    await screen.findByText("Lệnh đã được máy chủ nhận");
+    const keys = find(backend, sendPath).map((c) => (c.body as { idempotency_key: string }).idempotency_key);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it("shows the sent command's current state from the server, not the state it had when it was created", async () => {
+    let sentYet = false;
+    const backend = base({
+      [sendPath]: () => {
+        sentYet = true;
+        return json(201, { command: command(), created: true });
+      },
+      "GET /api/admin/v1/devices/esp32-test-1/commands": () =>
+        json(200, { items: sentYet ? [command({ status: "completed", played_confirmed_by_device: true, finished_at: "2026-10-19T03:00:09.000Z" })] : [], next_cursor: null }),
+    });
+    await mountSignedIn("/admin/messages", backend);
+    await chooseRecording();
+    await userEvent.click(screen.getByRole("button", { name: "Gửi tới thiết bị…" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }));
+    const notice = (await screen.findByText("Lệnh đã được máy chủ nhận")).closest("[role=status]") as HTMLElement;
+    await waitFor(() => expect(within(notice).getByText(/Trạng thái hiện tại: Thiết bị báo đã phát xong/)).toBeVisible());
+    expect(within(notice).getByText(/Thiết bị đã tự báo phát xong/)).toBeVisible();
+  });
+
+  it("refuses a WAV file and a file over the server limit before reading either into memory", async () => {
+    const backend = base();
+    await mountSignedIn("/admin/messages", backend);
+    const input = await screen.findByLabelText(/Tệp âm thanh MP3/);
+    expect(input).toHaveAttribute("accept", ".mp3,audio/mpeg");
+    await waitFor(() => expect(input).toBeEnabled());
+    const big = audioFile(new Uint8Array(2_100_000), "big.mp3", "audio/mpeg");
+    const read = vi.spyOn(big, "arrayBuffer");
+    await userEvent.upload(input, big);
+    expect(await screen.findByText(/lớn hơn giới hạn 2,00 MB/)).toBeVisible();
+    expect(read).not.toHaveBeenCalled();
+    const oldFormat = audioFile(wav(), "nhac.wav", "audio/wav");
+    const readWav = vi.spyOn(oldFormat, "arrayBuffer");
+    // userEvent.upload honours `accept`; a person can still pick "All files", which fireEvent simulates (last: it pins `files`).
+    fireEvent.change(input, { target: { files: [oldFormat] } });
+    expect(await screen.findByText("Đây là tệp WAV. Lời nhắn giờ phải là tệp MP3.")).toBeVisible();
+    expect(readWav).not.toHaveBeenCalled();
+    expect(find(backend, "POST /api/admin/v1/devices/esp32-test-1/voice-messages")).toHaveLength(0);
+  });
+
+  it("labels a recording stored before ADR-025 as WAV, never as MP3, and lists codec, layout and size", async () => {
+    await mountSignedIn("/admin/messages", base({ "GET /api/admin/v1/devices/esp32-test-1/voice-messages": ok({ items: [voiceItem, legacyWavItem] }) }));
+    expect(await screen.findByText(/^MP3 · 2,0 giây · 16000 Hz mono · 8,1 KB/)).toBeVisible();
+    expect(screen.getByText(/^WAV \(định dạng cũ\) · 2,0 giây · 16000 Hz mono · 64,0 KB/)).toBeVisible();
+  });
+
+  it("warns that a device which has not reported MP3 playback cannot receive an MP3 command", async () => {
+    await mountSignedIn("/admin/messages", base({ "GET /api/admin/v1/devices": ok(devicesBody([device({ audio_codecs: [] })])) }));
+    expect(await screen.findByText("Thiết bị chưa báo phát được MP3")).toBeVisible();
+    expect(screen.getByText(/firmware trước carelens-fw-0\.2\.0/)).toBeVisible();
   });
 
   it("never reads 'completed' as played when the flag says otherwise, and treats an unknown status as unknown", async () => {
@@ -404,37 +565,35 @@ describe("audio messages", () => {
     expect(screen.getByRole("button", { name: "Gửi tới thiết bị…" })).toBeDisabled();
   });
 
-  it("checks a recording before upload and uploads a valid one as audio/wav with the session only", async () => {
+  it("checks the bytes of an MP3 before upload, shows what will be sent, and uploads it unchanged as audio/mpeg", async () => {
     const backend = base({
-      "POST /api/admin/v1/devices/esp32-test-1/voice-messages": () => json(201, { voice_message: voiceItem }),
+      "POST /api/admin/v1/devices/esp32-test-1/voice-messages": () => json(201, { voice_message: { ...voiceItem, audio: { ...voiceItem.audio, byte_size: LAME_16K_MONO.length } } }),
     });
     await mountSignedIn("/admin/messages", backend);
-    const input = await screen.findByLabelText(/Tệp âm thanh WAV/);
+    const input = await screen.findByLabelText(/Tệp âm thanh MP3/);
     await waitFor(() => expect(input).toBeEnabled());
-    const wav = (rate: number, channels: number, seconds = 1) => {
-      const data = rate * seconds * 2 * channels;
-      const buf = new Uint8Array(44 + data);
-      const v = new DataView(buf.buffer);
-      const s = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-      s(0, "RIFF"); v.setUint32(4, 36 + data, true); s(8, "WAVE"); s(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
-      v.setUint16(22, channels, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2 * channels, true); v.setUint16(32, 2 * channels, true); v.setUint16(34, 16, true);
-      s(36, "data"); v.setUint32(40, data, true);
-      return new File([buf], "a.wav", { type: "audio/wav" });
-    };
-    await userEvent.upload(input, wav(44100, 1));
-    expect(await screen.findByText(/chỉ phát tốc độ lấy mẫu 16000 Hz; tệp này là 44100 Hz/)).toBeVisible();
+    // A name and a type are not proof: WAV bytes named .mp3, and an MPEG Layer II file, are refused by the frame walk.
+    await userEvent.upload(input, audioFile(wav(), "doi-ten.mp3", "audio/mpeg"));
+    expect(await screen.findByText("Đây là tệp WAV. Lời nhắn giờ phải là tệp MP3.")).toBeVisible();
+    await userEvent.upload(input, audioFile(new Uint8Array([...mp3Frame(44100, 2, 128, 2), ...mp3Frame(44100, 2, 128, 2)]), "layer2.mp3", "audio/mpeg"));
+    expect(await screen.findByText(/Layer I hoặc II/)).toBeVisible();
+    await userEvent.upload(input, audioFile(LAME_16K_MONO.slice(0, LAME_16K_MONO.length - 40), "cut.mp3", "audio/mpeg"));
+    expect(await screen.findByText(/bị cắt cụt/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Tải lên kho riêng tư" })).toBeDisabled();
-    await userEvent.upload(input, wav(16000, 2));
-    expect(await screen.findByText("Cần âm thanh mono (1 kênh).")).toBeVisible();
     expect(find(backend, "POST /api/admin/v1/devices/esp32-test-1/voice-messages")).toHaveLength(0);
 
-    await userEvent.upload(input, wav(16000, 1, 1));
+    await userEvent.upload(input, audioFile(LAME_16K_MONO, "nhac-uong-nuoc.mp3", "audio/mpeg"));
+    const picked = await screen.findByLabelText("Tệp đã chọn");
+    expect(within(picked).getByText("nhac-uong-nuoc.mp3")).toBeVisible();
+    expect(within(picked).getByText("4,3 KB (nguyên vẹn, không chuyển đổi)")).toBeVisible();
+    expect(within(picked).getByText("MP3 · MPEG-2 · 16 kHz · mono · 32 kbps")).toBeVisible();
+    expect(within(picked).getByText("1,1 giây")).toBeVisible();
     await userEvent.type(screen.getByLabelText(/Tên bản ghi/), "Nhắc uống nước");
     await userEvent.click(screen.getByRole("button", { name: "Tải lên kho riêng tư" }));
-    expect(await screen.findByText(/Bản ghi nằm trong kho riêng tư; chưa có gì được gửi tới thiết bị/)).toBeVisible();
+    expect(await screen.findByText(/MP3 4,3 KB, giữ nguyên tệp gốc\)\. Bản ghi nằm trong kho riêng tư; chưa có gì được gửi tới thiết bị/)).toBeVisible();
     const up = find(backend, "POST /api/admin/v1/devices/esp32-test-1/voice-messages");
     expect(up).toHaveLength(1);
-    expect(up[0]!.contentType).toBe("audio/wav");
+    expect(up[0]!.contentType).toBe("audio/mpeg");
     expect(up[0]!.auth).toMatch(/^Bearer clm_/);
     expect(find(backend, sendPathKey())).toHaveLength(0); // uploading never sends a command
   });

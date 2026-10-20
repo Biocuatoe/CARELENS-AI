@@ -37,6 +37,8 @@ export interface Env {
   LEGACY_STREAM_ALLOWED_IPS?: string;
   SSE_MAX_LIFETIME_SECONDS?: string;
   EMERGENCY_COMMAND_TTL_SECONDS?: string;
+  /** ADR-022: the slowest audio download a device is granted after it reported `received` (bytes per second). */
+  AUDIO_DOWNLOAD_MIN_BYTES_PER_SECOND?: string;
   IMU_RAW_RETENTION_HOURS?: string;
   IMU_MAX_BATCH_AGE_SECONDS?: string;
   IMU_STORAGE_SOFT_LIMIT_MB?: string;
@@ -163,6 +165,8 @@ export interface Config {
   legacyStreamAllowedCidrs: string[];
   sseMaxLifetimeSeconds: number;
   emergencyCommandTtlSeconds: number;
+  /** Download deadline of a command with audio = 30 s + ceil(byte_size / this), never past expires_at (ADR-022). */
+  audioDownloadMinBytesPerSecond: number;
   imuRawRetentionHours: number;
   imuMaxBatchAgeSeconds: number;
   /** Raw IMU batches are refused (507) while the D1 database is larger than this (MB = 10^6 bytes); 0 refuses all. */
@@ -330,6 +334,7 @@ export function loadConfig(env: Env): Config {
     legacyStreamAllowedCidrs: cidrs,
     sseMaxLifetimeSeconds: int(env.SSE_MAX_LIFETIME_SECONDS, 300, 30, 3600, "SSE_MAX_LIFETIME_SECONDS"),
     emergencyCommandTtlSeconds: int(env.EMERGENCY_COMMAND_TTL_SECONDS, 300, 30, 3600, "EMERGENCY_COMMAND_TTL_SECONDS"),
+    audioDownloadMinBytesPerSecond: int(env.AUDIO_DOWNLOAD_MIN_BYTES_PER_SECOND, 16_000, 1_000, 1_000_000, "AUDIO_DOWNLOAD_MIN_BYTES_PER_SECOND"),
     imuRawRetentionHours: int(env.IMU_RAW_RETENTION_HOURS, 72, 1, 720, "IMU_RAW_RETENTION_HOURS"),
     imuMaxBatchAgeSeconds: int(env.IMU_MAX_BATCH_AGE_SECONDS, 3600, 60, 86_400, "IMU_MAX_BATCH_AGE_SECONDS"),
     // 400 leaves 100 MB of the Workers Free 500 MB D1 database for events, decisions, alerts and commands.

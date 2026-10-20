@@ -1,4 +1,4 @@
-import type { AdminRole, CommandStatus, ReminderState } from "../../data/admin/adminClient";
+import type { AdminCommand, AdminRole, CommandStatus, ReminderState } from "../../data/admin/adminClient";
 import type { StatusTone } from "../../design-system/feedback";
 
 export const ADMIN_ROLE_LABELS: Record<AdminRole, string> = { owner: "Chủ sở hữu", admin: "Quản trị viên" };
@@ -24,7 +24,7 @@ export const IMU_INGEST_LABELS: Record<string, string> = {
 export const COMMAND_STATUS_LABELS: Record<CommandStatus, { label: string; tone: StatusTone }> = {
   queued: { label: "Đang chờ thiết bị lấy lệnh", tone: "neutral" },
   delivered: { label: "Đã giao cho thiết bị, chưa được xác nhận", tone: "attention" },
-  accepted: { label: "Thiết bị đã nhận lệnh", tone: "neutral" },
+  accepted: { label: "Thiết bị đã tải và kiểm tra, chưa phát", tone: "neutral" },
   started: { label: "Thiết bị báo đang phát", tone: "neutral" },
   completed: { label: "Thiết bị báo đã phát xong", tone: "success" },
   failed: { label: "Thiết bị báo lỗi khi phát", tone: "urgent" },
@@ -34,6 +34,15 @@ export const COMMAND_STATUS_LABELS: Record<CommandStatus, { label: string; tone:
   superseded: { label: "Bị lần nhắc sau thay thế", tone: "inactive" },
   unknown: { label: "Không rõ trạng thái", tone: "unknown" },
 };
+
+/** The state to show for one command. A delivered command whose device reported `received` (ADR-022) is described as such:
+ * the device holds it (and is fetching the audio), which is still not "played". */
+export function commandStateLabel(c: Pick<AdminCommand, "status" | "receivedAt" | "voiceMessageId">): { label: string; tone: StatusTone } {
+  if (c.status === "delivered" && c.receivedAt) {
+    return { label: c.voiceMessageId ? "Thiết bị đã nhận lệnh, đang tải âm thanh" : "Thiết bị đã nhận lệnh, chưa phát", tone: "neutral" };
+  }
+  return COMMAND_STATUS_LABELS[c.status];
+}
 
 export const COMMAND_TYPE_LABELS: Record<string, string> = {
   play_voice_message: "Phát lời nhắn thoại",
@@ -52,6 +61,8 @@ export const REASON_LABELS: Record<string, string> = {
   preempted_by_higher_priority: "Bị lệnh ưu tiên cao hơn chen vào",
   busy: "Thiết bị đang bận",
   cancel_requested: "Theo yêu cầu hủy",
+  device_rebooted: "Thiết bị khởi động lại khi đang giữ lệnh",
+  download_timeout: "Thiết bị không tải xong âm thanh trước hạn",
   other: "Lý do khác",
   deadline_passed: "Quá hạn mà thiết bị chưa nhận",
   no_acknowledgement: "Thiết bị không xác nhận sau số lần giao tối đa",

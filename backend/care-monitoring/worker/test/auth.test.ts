@@ -1,6 +1,7 @@
 /** Authentication, credential separation and per-recipient authorization (four tests per scoped route). */
 import { beforeEach, describe, expect, it } from "vitest";
-import { ADMIN_TOKEN, freshDb, harness, heartbeat, ok, problemCode, provision, type Harness, type World } from "./helpers";
+import { ADMIN_TOKEN, freshDb, harness, heartbeat, mp3Heartbeat, ok, problemCode, provision, type Harness, type World } from "./helpers";
+import { LAME_16K_MONO } from "./audio";
 
 let h: Harness;
 let w: World;
@@ -98,17 +99,8 @@ describe("per-recipient authorization", () => {
   });
 
   it("applies all four authorization cases to every recipient-scoped write route", async () => {
-    const wav = (() => {
-      const data = 16000 * 2;
-      const b = new Uint8Array(44 + data);
-      const v = new DataView(b.buffer);
-      const s = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-      s(0, "RIFF"); v.setUint32(4, 36 + data, true); s(8, "WAVE"); s(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
-      v.setUint16(22, 1, true); v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-      s(36, "data"); v.setUint32(40, data, true);
-      return b;
-    })();
-    const audio = { body: wav, headers: { "content-type": "audio/wav" } };
+    const audio = { body: LAME_16K_MONO, headers: { "content-type": "audio/mpeg" } };
+    await ok(await h.call("POST", "/api/device/v1/heartbeat", { token: w.deviceToken, json: mp3Heartbeat(h, w.deviceId) }));
     const reminder = { device_id: w.deviceId, kind: "water", label: "Uống nước (thử)", voice_message_id: null, times_local: ["08:00"], days_of_week: [1], timezone: "Asia/Ho_Chi_Minh", start_date: "2026-10-01", end_date: null, deadline_minutes: 15 };
     // Real entities owned by recipient A, created by the authorized caregiver.
     const vm = await ok<{ voice_message: { voice_message_id: string } }>(await h.call("POST", `${R()}/voice-messages?title=t`, { token: w.caregiverToken, ...audio }), 201);
@@ -148,13 +140,8 @@ describe("per-recipient authorization", () => {
   });
 
   it("applies the authorization cases to the raw IMU, command timeline and stream-ticket routes", async () => {
-    const wavBytes = new Uint8Array(44 + 32000);
-    const v = new DataView(wavBytes.buffer);
-    const s = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-    s(0, "RIFF"); v.setUint32(4, 36 + 32000, true); s(8, "WAVE"); s(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
-    v.setUint16(22, 1, true); v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-    s(36, "data"); v.setUint32(40, 32000, true);
-    const vm = await ok<{ voice_message: { voice_message_id: string } }>(await h.call("POST", `${R()}/voice-messages?title=t`, { token: w.caregiverToken, body: wavBytes, headers: { "content-type": "audio/wav" } }), 201);
+    await ok(await h.call("POST", "/api/device/v1/heartbeat", { token: w.deviceToken, json: mp3Heartbeat(h, w.deviceId) }));
+    const vm = await ok<{ voice_message: { voice_message_id: string } }>(await h.call("POST", `${R()}/voice-messages?title=t`, { token: w.caregiverToken, body: LAME_16K_MONO, headers: { "content-type": "audio/mpeg" } }), 201);
     const cmd = await ok<{ command: { command_id: string } }>(
       await h.call("POST", `${R()}/devices/${w.deviceId}/commands`, { token: w.caregiverToken, json: { command_type: "play_voice_message", voice_message_id: vm.voice_message.voice_message_id, idempotency_key: "authz-000003", expires_in_seconds: 60 } }),
       201,

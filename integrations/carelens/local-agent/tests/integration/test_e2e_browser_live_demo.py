@@ -56,7 +56,7 @@ def test_frontend_login_and_live_demo_show_real_backend_records():
         dev.upload_capture("cap-browser", frames, "triggered", "trg-browser", first)
         assert agent.run_once(("vision",))["vision_completed"] == 1
         # A voice message the device confirms it played.
-        status, vm = http_json(port, "POST", f"/api/app/v1/recipients/{RECIPIENT}/voice-messages?title=E2E", p["caregiver"], raw=sample_device.synthetic_tone_wav(1.0), ctype="audio/wav")
+        status, vm = http_json(port, "POST", f"/api/app/v1/recipients/{RECIPIENT}/voice-messages?title=E2E", p["caregiver"], raw=sample_device.synthetic_silent_mp3(1.0), ctype="audio/mpeg")
         assert status == 201
         status, _ = http_json(port, "POST", f"/api/app/v1/recipients/{RECIPIENT}/devices/{DEVICE}/commands", p["caregiver"],
                               {"command_type": "play_voice_message", "voice_message_id": vm["voice_message"]["voice_message_id"], "idempotency_key": "browser-voice-0001", "expires_in_seconds": 300})
@@ -93,6 +93,7 @@ def test_frontend_login_and_live_demo_show_real_backend_records():
             )
             print(run.stdout[-3000:].encode("ascii", "replace").decode("ascii"))  # the Windows console may be cp1252
             assert run.returncode == 0, run.stdout[-4000:] + run.stderr[-2000:]
-            assert "1 passed" in run.stdout
+            # Every test in the spec must have run against this backend: none skipped (a missing env var skips them).
+            assert " passed" in run.stdout and " skipped" not in run.stdout and " failed" not in run.stdout
         finally:
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(preview.pid)] if os.name == "nt" else ["kill", str(preview.pid)], capture_output=True)

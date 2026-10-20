@@ -116,7 +116,8 @@ class HarnessDevice:
             "device_id": self.device_id,
             "clock": self.clock.block(),
             "firmware_version": "test-harness-sample-device",
-            "status": {"camera": "ok", "imu": "ok", "speaker": "ok", "wifi_rssi_dbm": -60, "free_heap_bytes": 150_000, "last_error": None},
+            # Like firmware >= carelens-fw-0.2.0 talking to the current Worker (ADR-025): it reports the codecs it plays.
+            "status": {"camera": "ok", "imu": "ok", "speaker": "ok", "wifi_rssi_dbm": -60, "free_heap_bytes": 150_000, "last_error": None, "audio_codecs": ["pcm_s16le", "mp3"]},
         }
         return self._ok("heartbeat", *self.client.call("POST", "/api/device/v1/heartbeat", body), allowed=(200,))
 
@@ -259,11 +260,21 @@ def load_frames(sample_dir: Path, extra_dir: Path | None, mode: str) -> list[byt
 
 
 def synthetic_tone_wav(seconds: float = 1.0, rate: int = 16_000) -> bytes:
-    """A 440 Hz test tone as 16-bit mono PCM WAV (no voice, no person)."""
+    """A 440 Hz test tone as 16-bit mono PCM WAV (no voice, no person). Legacy format: uploads are refused since ADR-025."""
     n = int(seconds * rate)
     pcm = b"".join(struct.pack("<h", int(3000 * math.sin(2 * math.pi * 440 * i / rate))) for i in range(n))
     header = b"RIFF" + struct.pack("<I", 36 + len(pcm)) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16) + b"data" + struct.pack("<I", len(pcm))
     return header + pcm
+
+
+def synthetic_silent_mp3(seconds: float = 1.0) -> bytes:
+    """Silent MP3 (MPEG-2 Layer III, 16 kHz mono, 32 kbps CBR): valid frame headers with an empty payload, built with the
+    standard library only. The Worker walks the frame headers and this harness never decodes, so no encoder is needed;
+    the real device decodes real LAME files (firmware/carelens-esp32s3/test/fixtures/mp3)."""
+    frame_bytes = 72_000 * 32 // 16_000  # 144
+    frame = bytes([0xFF, 0xF3, 0x48, 0xC0]) + bytes(frame_bytes - 4)  # sync, MPEG-2, Layer III, no CRC; 32 kbps, 16 kHz; mono
+    frames = math.ceil(seconds * 16_000 / 576)
+    return frame * frames
 
 
 def main(argv: list[str] | None = None) -> int:

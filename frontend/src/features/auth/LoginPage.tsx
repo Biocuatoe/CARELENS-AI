@@ -249,6 +249,15 @@ export function LoginPage() {
               ) : null}
             </div>
           </SoftSurface>
+
+          {/* Lối vào riêng của khu quản trị. Chỉ là liên kết: đăng nhập ở đây luôn là người xem, quyền quản trị do máy chủ quyết
+              qua luồng Google `mode=admin` bắt đầu từ trang /admin/login. */}
+          <p className="text-sm">
+            Người quản trị hệ thống?{" "}
+            <Link to="/admin/login" className="inline-flex min-h-11 items-center rounded-full font-bold underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2">
+              Đăng nhập quản trị
+            </Link>
+          </p>
         </div>
       </main>
     </div>

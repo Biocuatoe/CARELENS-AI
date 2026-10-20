@@ -268,6 +268,12 @@ export function heartbeat(h: Harness, deviceId: string, clock: Record<string, un
   };
 }
 
+/** A heartbeat of firmware ≥ carelens-fw-0.2.0 after the server asked for its codecs (ADR-025): it plays MP3. */
+export function mp3Heartbeat(h: Harness, deviceId: string): Record<string, unknown> {
+  const hb = heartbeat(h, deviceId) as { status: Record<string, unknown> };
+  return { ...hb, status: { ...hb.status, audio_codecs: ["pcm_s16le", "mp3"] } };
+}
+
 /** Firmware trigger report (imu-event.v2). It is never fall evidence by itself. */
 export function imuEvent(h: Harness, opts: { deviceId: string; triggerId: string; triggeredAt: string; captureId?: string | null; bootId?: string }): Record<string, unknown> {
   return {

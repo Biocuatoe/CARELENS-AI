@@ -20,9 +20,12 @@ const counts = (v: unknown): Record<string, number> => {
 
 export interface AdminCapabilities {
   tts: { available: boolean; note: string | null };
-  audio: { sampleRatesHz: number[]; maxBytes: number | null; minDurationMs: number | null; maxDurationMs: number | null };
+  /** Upload contract. ADR-025: content type audio/mpeg, codec mp3; an older server says audio/wav (then uploads cannot work). */
+  audio: { contentType: string | null; codec: string | null; sampleRatesHz: number[]; channels: number[]; maxBytes: number | null; minDurationMs: number | null; maxDurationMs: number | null };
   reminders: { timezone: string | null; schedulerNote: string | null };
   devicePlayback: string | null;
+  /** Range the server accepts for the speaker volume (fraction of full scale); null on a server without the setting. */
+  speakerVolume: { min: number; max: number; step: number; default: number } | null;
 }
 
 export function parseCapabilities(data: unknown): AdminCapabilities {
@@ -32,10 +35,25 @@ export function parseCapabilities(data: unknown): AdminCapabilities {
   return {
     // Anything but an explicit true means "not available": a missing flag never switches a feature on.
     tts: { available: data.tts.available === true, note: str(data.tts.note) },
-    audio: { sampleRatesHz: rates, maxBytes: num(data.audio.max_bytes), minDurationMs: num(data.audio.min_duration_ms), maxDurationMs: num(data.audio.max_duration_ms) },
+    audio: {
+      contentType: str(data.audio.content_type),
+      codec: str(data.audio.codec),
+      sampleRatesHz: rates,
+      channels: Array.isArray(data.audio.channels) ? data.audio.channels.filter((n): n is number => typeof n === "number") : typeof data.audio.channels === "number" ? [data.audio.channels] : [],
+      maxBytes: num(data.audio.max_bytes),
+      minDurationMs: num(data.audio.min_duration_ms),
+      maxDurationMs: num(data.audio.max_duration_ms),
+    },
     reminders: { timezone: str(reminders.timezone), schedulerNote: str(reminders.execution_evidence) },
     devicePlayback: str(data.device_playback),
+    speakerVolume: parseVolumeRange(data.speaker_volume),
   };
+}
+
+function parseVolumeRange(v: unknown): AdminCapabilities["speakerVolume"] {
+  if (!isRecord(v)) return null;
+  const min = num(v.min), max = num(v.max), step = num(v.step), def = num(v.default);
+  return min !== null && max !== null && step !== null && step > 0 && min <= max ? { min, max, step, default: def ?? min } : null;
 }
 
 /* ------------------------------------------------------------------ devices */
@@ -60,6 +78,10 @@ export interface AdminDevice {
   lastInferenceAt: string | null;
   commands: { active: Record<string, number>; last24h: Record<string, number> };
   hasSimulatedRecords: boolean;
+  /** Speaker volume: what an admin set, and what the device itself last reported applying. Null on an older server. */
+  speaker: { desiredVolume: number | null; desiredSetAt: string | null; reportedVolume: number | null; reportedAt: string | null } | null;
+  /** Codecs the firmware reported in its latest heartbeat (ADR-025). Empty: older firmware or a server that does not ask. */
+  audioCodecs: string[];
 }
 
 export function parseDevice(d: Record<string, unknown>): AdminDevice | null {
@@ -90,7 +112,18 @@ export function parseDevice(d: Record<string, unknown>): AdminDevice | null {
     lastInferenceAt: str(d.last_inference_at),
     commands: { active: counts(isRecord(cmds) ? cmds.active : null), last24h: counts(isRecord(cmds) ? cmds.last_24h : null) },
     hasSimulatedRecords: d.has_simulated_records_7d === true,
+    speaker: isRecord(d.speaker)
+      ? { desiredVolume: num(d.speaker.desired_volume), desiredSetAt: str(d.speaker.desired_set_at), reportedVolume: num(d.speaker.reported_volume), reportedAt: str(d.speaker.reported_at) }
+      : null,
+    audioCodecs: Array.isArray(d.audio_codecs) ? d.audio_codecs.filter((c): c is string => typeof c === "string") : [],
   };
+}
+
+export function parseSpeakerVolumeSet(data: unknown): { desiredVolume: number; desiredSetAt: string | null } {
+  const speaker = isRecord(data) && isRecord(data.speaker) ? data.speaker : null;
+  const v = speaker ? num(speaker.desired_volume) : null;
+  if (!speaker || v === null) throw bad("âm lượng loa");
+  return { desiredVolume: v, desiredSetAt: str(speaker.desired_set_at) };
 }
 
 export interface DeviceList {
@@ -167,8 +200,11 @@ export function parseActivity(data: unknown): ActivityReport {
 export interface VoiceMessage {
   voiceMessageId: string;
   title: string;
+  /** audio/mpeg (ADR-025) or audio/wav for a recording stored before it. */
+  contentType: string | null;
   durationMs: number | null;
   sampleRateHz: number | null;
+  channels: number | null;
   byteSize: number | null;
   createdBy: string | null;
   createdAt: string | null;
@@ -178,7 +214,17 @@ export function parseVoiceMessage(v: Record<string, unknown>): VoiceMessage | nu
   const voiceMessageId = str(v.voice_message_id);
   if (!voiceMessageId) return null;
   const audio = isRecord(v.audio) ? v.audio : {};
-  return { voiceMessageId, title: str(v.title) ?? voiceMessageId, durationMs: num(audio.duration_ms), sampleRateHz: num(audio.sample_rate_hz), byteSize: num(audio.byte_size), createdBy: str(v.created_by), createdAt: str(v.created_at) };
+  return {
+    voiceMessageId,
+    title: str(v.title) ?? voiceMessageId,
+    contentType: str(audio.content_type),
+    durationMs: num(audio.duration_ms),
+    sampleRateHz: num(audio.sample_rate_hz),
+    channels: num(audio.channels),
+    byteSize: num(audio.byte_size),
+    createdBy: str(v.created_by),
+    createdAt: str(v.created_at),
+  };
 }
 
 export function parseVoiceList(data: unknown): VoiceMessage[] {
@@ -211,6 +257,10 @@ export interface AdminCommand {
   deliveryAttempts: number | null;
   createdAt: string | null;
   deliveredAt: string | null;
+  /** When the device reported `received` (ADR-022): it holds the command, nothing played yet. Null on older servers. */
+  receivedAt: string | null;
+  /** Until when the device may finish downloading the audio once it reported `received`. */
+  downloadDeadlineAt: string | null;
   acceptedAt: string | null;
   startedAt: string | null;
   finishedAt: string | null;
@@ -238,6 +288,8 @@ export function parseCommand(c: Record<string, unknown>): AdminCommand | null {
     deliveryAttempts: num(c.delivery_attempts),
     createdAt: str(c.created_at),
     deliveredAt: str(c.delivered_at),
+    receivedAt: str(c.received_at),
+    downloadDeadlineAt: str(c.download_deadline_at),
     acceptedAt: str(c.accepted_at),
     startedAt: str(c.started_at),
     finishedAt: str(c.finished_at),

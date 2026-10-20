@@ -1,54 +1,56 @@
 import { describe, expect, it } from "vitest";
 import { activityCsv, csvCell } from "./csv";
-import { inspectWav, newIdempotencyKey, type WavLimits } from "./wav";
+import { newIdempotencyKey } from "./idempotency";
+import { DEFAULT_MP3_LIMITS, describeMp3, formatBytes, inspectMp3, mimeProblem, type Mp3FileInfo } from "./mp3";
+import { LAME_16K_MONO, mp3, mp3Frame, wav } from "./testAudio";
 import { localDateKey } from "../../lib/time";
 
-const LIMITS: WavLimits = { sampleRatesHz: [16000], maxBytes: 2_200_000, minDurationMs: 500, maxDurationMs: 60_000 };
+const cat = (...parts: Uint8Array[]) => {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  parts.reduce((at, p) => (out.set(p, at), at + p.length), 0);
+  return out;
+};
 
-function wav(opts: { rate?: number; channels?: number; bits?: number; seconds?: number; format?: number; riff?: string } = {}): Uint8Array {
-  const { rate = 16000, channels = 1, bits = 16, seconds = 1, format = 1, riff = "RIFF" } = opts;
-  const data = Math.round(rate * seconds * (bits / 8) * channels);
-  const buf = new Uint8Array(44 + data);
-  const v = new DataView(buf.buffer);
-  const s = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-  s(0, riff);
-  v.setUint32(4, 36 + data, true);
-  s(8, "WAVE");
-  s(12, "fmt ");
-  v.setUint32(16, 16, true);
-  v.setUint16(20, format, true);
-  v.setUint16(22, channels, true);
-  v.setUint32(24, rate, true);
-  v.setUint32(28, rate * (bits / 8) * channels, true);
-  v.setUint16(32, (bits / 8) * channels, true);
-  v.setUint16(34, bits, true);
-  s(36, "data");
-  v.setUint32(40, data, true);
-  return buf;
-}
-
-describe("inspectWav", () => {
-  it("accepts a recording the device can play and reports its length", () => {
-    expect(inspectWav(wav({ seconds: 2 }), LIMITS)).toEqual({ sampleRateHz: 16000, durationMs: 2000 });
+describe("inspectMp3 (ADR-025)", () => {
+  it("reads real LAME output with the Worker's and the firmware's numbers", () => {
+    expect(inspectMp3(LAME_16K_MONO)).toEqual({ mpegVersion: 2, sampleRateHz: 16000, channels: 1, frames: 30, durationMs: 1080, minKbps: 32, maxKbps: 32, hasTags: false });
   });
 
-  it("explains each way a file cannot be played", () => {
+  it("accepts every tested rate and layout, and mixed bitrates", () => {
+    for (const rate of DEFAULT_MP3_LIMITS.sampleRatesHz) {
+      for (const channels of [1, 2] as const) expect(inspectMp3(mp3({ rate, channels })), `${rate}/${channels}`).toMatchObject({ sampleRateHz: rate, channels });
+    }
+    expect(inspectMp3(cat(mp3({ rate: 44100, kbps: 128, seconds: 0.5 }), mp3({ rate: 44100, kbps: 320, seconds: 0.5 })))).toMatchObject({ minKbps: 128, maxKbps: 320 });
+  });
+
+  it("explains each way a file cannot be sent, in Vietnamese", () => {
     const cases: Array<[string, Uint8Array, RegExp]> = [
-      ["not a wav", new TextEncoder().encode("hello world, this is not audio data at all, no way"), /không phải tệp WAV/],
-      ["wrong rate", wav({ rate: 44100 }), /16000 Hz; tệp này là 44100 Hz/],
-      ["stereo", wav({ channels: 2 }), /mono/],
-      ["8-bit", wav({ bits: 8 }), /16-bit/],
-      ["compressed", wav({ format: 3 }), /PCM không nén/],
-      ["too short", wav({ seconds: 0.1 }), /quá ngắn/],
-      ["too long", wav({ seconds: 61 }), /quá dài/],
-      ["too large", new Uint8Array(2_300_000), /quá lớn/],
+      ["a WAV file", wav(), /tệp WAV\. Lời nhắn giờ phải là tệp MP3/],
+      ["not audio", new TextEncoder().encode("hello world, this is not audio data at all, no way"), /không phải MP3/],
+      ["Layer II", cat(mp3Frame(44100, 2, 128, 2), mp3Frame(44100, 2, 128, 2)), /Layer I hoặc II/],
+      ["spliced", cat(mp3({ rate: 16000 }), mp3({ rate: 44100, channels: 2 })), /thay đổi giữa chừng/],
+      ["truncated", LAME_16K_MONO.subarray(0, LAME_16K_MONO.length - 40), /cắt cụt/],
+      ["trailing junk", cat(LAME_16K_MONO, new TextEncoder().encode("junkjunk")), /dữ liệu lạ/],
+      ["too short", mp3({ seconds: 0.3 }), /quá ngắn/],
+      ["too long", mp3({ seconds: 61 }), /quá dài/],
+      ["too large", new Uint8Array(2_100_000), /lớn hơn giới hạn/],
     ];
-    for (const [name, bytes, message] of cases) expect(inspectWav(bytes, LIMITS), name).toMatch(message);
+    for (const [name, bytes, message] of cases) expect(inspectMp3(bytes), name).toMatch(message);
+    expect(inspectMp3(mp3({ rate: 44100 }), { ...DEFAULT_MP3_LIMITS, sampleRatesHz: [16000] })).toMatch(/44100 Hz chưa được kiểm/);
   });
 
-  it("rejects a truncated file instead of reading past its end", () => {
-    const full = wav();
-    expect(inspectWav(full.subarray(0, 100), LIMITS)).toMatch(/cắt cụt/);
+  it("judges the browser's MIME type only as a first hint: WAV and other types are refused, MP3 and unknown pass to the byte check", () => {
+    for (const ok of ["audio/mpeg", "audio/mp3", "AUDIO/MPEG", ""]) expect(mimeProblem(ok), ok).toBeNull();
+    expect(mimeProblem("audio/wav")).toMatch(/tệp WAV/);
+    expect(mimeProblem("audio/x-wav")).toMatch(/tệp WAV/);
+    expect(mimeProblem("audio/ogg")).toMatch(/audio\/ogg; cần tệp MP3/);
+  });
+
+  it("describes a file for the person choosing it", () => {
+    const info = inspectMp3(mp3({ rate: 44100, channels: 2, kbps: 128 })) as Mp3FileInfo;
+    expect(describeMp3(info)).toBe("MP3 · MPEG-1 · 44,1 kHz · stereo · 128 kbps");
+    expect(describeMp3({ ...info, mpegVersion: 25, sampleRateHz: 11025, channels: 1, minKbps: 16, maxKbps: 64 })).toBe("MP3 · MPEG-2.5 · 11,025 kHz · mono · 16–64 kbps (VBR)");
+    expect([formatBytes(900), formatBytes(4320), formatBytes(1_234_567)]).toEqual(["900 B", "4,3 KB", "1,23 MB"]);
   });
 });
 

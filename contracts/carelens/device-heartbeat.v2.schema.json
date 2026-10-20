@@ -136,6 +136,25 @@
             }
           ],
           "description": "Short error code, never free text or secrets."
+        },
+        "speaker_volume": {
+          "description": "Volume the device applies now (fraction of full scale). Sent only to a server whose heartbeat response carries config.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "audio_codecs": {
+          "description": "Audio codecs this firmware plays (ADR-025). Sent only to a server whose heartbeat response has config.report_audio_codecs; an MP3 command needs \"mp3\" here.",
+          "minItems": 1,
+          "maxItems": 4,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "pcm_s16le",
+              "mp3"
+            ]
+          }
         }
       },
       "required": [

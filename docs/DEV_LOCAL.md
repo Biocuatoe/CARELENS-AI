@@ -54,6 +54,16 @@ Không có cấu hình Google thì nút "Đăng nhập bằng Google" báo rõ "
 4. Cho phép một tài khoản Google (không ai được vào tự động): `python backend/care-monitoring/scripts/admin.py --api http://localhost:8787 google-allow --user <user_id của tài khoản ở bước provision> --email <email Google>` (cần `CARELENS_ADMIN_TOKEN`; token cục bộ nằm ở `worker/.wrangler/dev-admin-token.txt`).
 5. Bấm nút Google và đăng nhập bằng đúng email đó. Email khác bị từ chối ("chưa được cấp quyền").
 
+## Thiết bị thật (ESP32) và dashboard admin không cần Google
+
+Đã chạy 2026-10-19. Chỉ trên máy dev và mạng nhà; không đụng Cloudflare.
+
+1. Backend với email admin dev: `python backend/care-monitoring/start_backend.py --dev-admin-email local-dev-admin@carelens.invalid` (truyền `ADMIN_BOOTSTRAP_EMAILS` chỉ cho `wrangler dev` cục bộ).
+2. Dashboard admin: `python backend/care-monitoring/scripts/dev_admin_login.py` ghi một liên kết đăng nhập dùng một lần (10 phút) vào `worker/.wrangler/dev-admin-login-url.txt`; mở liên kết đó trong trình duyệt (frontend dev ở 5173). Phiên admin chỉ trong bộ nhớ: tải lại trang là phải đăng nhập lại.
+3. Thiết bị: `firmware/carelens-esp32s3/README.md` §"Thử đầu-cuối cục bộ" (cấp thiết bị/agent, CA thử nghiệm, proxy TLS trên IP LAN, nạp cấu hình qua UART).
+4. Thử tự động với thiết bị: `frontend/e2e/hardware-device.spec.ts` (biến `E2E_HARDWARE_DEVICE`, `E2E_ADMIN_LOGIN_URL_FILE`, `E2E_TEST_MP3` (MP3 thử, ADR-025), tùy chọn `E2E_FIRMWARE_VERSION`, `E2E_SPEAKER_VOLUME`, `E2E_STEPS`) và `firmware/carelens-esp32s3/tools/e2e_failures.py`.
+5. `wrangler dev` không tự chạy cron: kích hoạt bảo trì bằng `curl "http://127.0.0.1:8787/__scheduled?cron=*+*+*+*+*"` (có nhờ `--test-scheduled`).
+
 ## Kiểm tra
 
 ```powershell

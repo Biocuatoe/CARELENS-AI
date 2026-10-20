@@ -72,10 +72,154 @@ export function unpackFrames(body: Uint8Array, maxFrames: number): Uint8Array[] 
 
 /* ------------------------------------------------------------------ voice audio */
 
-/** Voice message format contract: RIFF/WAVE, PCM (format 1), mono, 16-bit little-endian, 0.5–60 s,
- * ≤ 2.2 MB. Chosen so the future firmware can stream it to an I2S DAC without decoding. The sample rates
- * accepted for upload are the device profile DEVICE_AUDIO_SAMPLE_RATES (default 16000 only), a subset of
- * `sampleRates`: a recording the device cannot play is refused at upload, never accepted silently. */
+/** Voice message upload format (ADR-025): MP3, MPEG-1/2/2.5 Layer III, one sample rate and one channel layout for the
+ * whole stream, CBR or VBR, 0.5–60 s, ≤ 2 MB. Stored, delivered and downloaded unchanged: the device decodes it itself
+ * (firmware ≥ carelens-fw-0.2.0, which reports `audio_codecs` in its heartbeat). The sample rates are those the device's
+ * decoder and I2S output were tested with; validation is a header walk of every frame, mirrored by the firmware
+ * (firmware/carelens-esp32s3/src/mp3.cpp), so a truncated, padded or spliced file is refused here first. */
+export const MP3_CONTRACT = {
+  contentType: "audio/mpeg",
+  codec: "mp3",
+  sampleRates: [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000],
+  channels: [1, 2],
+  minDurationMs: 500,
+  maxDurationMs: 60_000,
+  maxBytes: 2_000_000,
+} as const;
+
+export interface Mp3Info {
+  mpegVersion: 1 | 2 | 25;
+  sampleRateHz: number;
+  channels: 1 | 2;
+  frames: number;
+  pcmFrames: number;
+  durationMs: number;
+  minKbps: number;
+  maxKbps: number;
+  hasId3v2: boolean;
+  hasTailTag: boolean;
+  hasVbrHeader: boolean;
+}
+
+const KBPS_V1 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];
+const KBPS_V2 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0];
+const MP3_RATES: Record<number, readonly number[]> = { 0: [11025, 12000, 8000], 2: [22050, 24000, 16000], 3: [44100, 48000, 32000] };
+
+type Mp3Header = { versionBits: number; rate: number; channels: 1 | 2; kbps: number; bytes: number; samples: number; crc: boolean };
+
+function mp3Header(b: Uint8Array, at: number): Mp3Header | string {
+  const b0 = b[at] ?? 0, b1 = b[at + 1] ?? 0, b2 = b[at + 2] ?? 0, b3 = b[at + 3] ?? 0;
+  if (b0 !== 0xff || (b1 & 0xe0) !== 0xe0) return "mp3_no_frame";
+  const ver = (b1 >> 3) & 3, layer = (b1 >> 1) & 3, br = b2 >> 4, sr = (b2 >> 2) & 3;
+  if (ver === 1 || sr === 3 || br === 15 || layer === 0) return "mp3_bad_header";
+  if (layer !== 1) return "mp3_not_layer3";
+  if (br === 0) return "mp3_free_format";
+  const rate = (MP3_RATES[ver] as readonly number[])[sr] as number;
+  const kbps = (ver === 3 ? KBPS_V1 : KBPS_V2)[br] as number;
+  return {
+    versionBits: ver,
+    rate,
+    channels: b3 >> 6 === 3 ? 1 : 2,
+    kbps,
+    bytes: Math.floor(((ver === 3 ? 144_000 : 72_000) * kbps) / rate) + ((b2 >> 1) & 1),
+    samples: ver === 3 ? 1152 : 576,
+    crc: (b1 & 1) === 0,
+  };
+}
+
+const ascii = (b: Uint8Array, at: number, n: number) => String.fromCharCode(...b.subarray(at, at + n));
+
+/** Same rules and error codes as the firmware's inspectMp3: optional ID3v2 tag first, optional APEv2/ID3v1 tags last,
+ * zero padding tolerated, and every other byte inside a complete Layer III frame of the first frame's version, rate and
+ * channel layout. A Xing/Info/VBRI frame is metadata and not counted. Then the contract's rate and duration limits. */
+export function inspectMp3(bytes: Uint8Array, allowedRates: readonly number[] = MP3_CONTRACT.sampleRates): Mp3Info | string {
+  const len = bytes.length;
+  if (len < 4) return "mp3_too_short";
+  let pos = 0;
+  let hasId3v2 = false;
+  if (len >= 10 && ascii(bytes, 0, 3) === "ID3") {
+    const major = bytes[3] as number, flags = bytes[5] as number;
+    const s = [bytes[6], bytes[7], bytes[8], bytes[9]] as number[];
+    if (major < 2 || major > 4 || s.some((x) => x & 0x80)) return "mp3_bad_id3";
+    const tag = 10 + ((s[0] as number) << 21 | (s[1] as number) << 14 | (s[2] as number) << 7 | (s[3] as number)) + (flags & 0x10 ? 10 : 0);
+    if (tag > len) return "mp3_bad_id3";
+    pos = tag;
+    hasId3v2 = true;
+  }
+  let end = len;
+  let hasTailTag = false;
+  if (end - pos >= 128 && ascii(bytes, end - 128, 3) === "TAG") {
+    end -= 128;
+    hasTailTag = true;
+  }
+  if (end - pos >= 32 && ascii(bytes, end - 32, 8) === "APETAGEX") {
+    const f = end - 32;
+    const size = new DataView(bytes.buffer, bytes.byteOffset + f + 12, 4).getUint32(0, true);
+    const tag = size + (((bytes[f + 23] as number) & 0x80) !== 0 ? 32 : 0);
+    if (tag < 32 || tag > end - pos) return "mp3_trailing_data";
+    end -= tag;
+    hasTailTag = true;
+  }
+  while (pos < end && bytes[pos] === 0) pos++;
+  const allZero = (from: number) => bytes.subarray(from, end).every((x) => x === 0);
+  let first: Mp3Header | null = null;
+  let frames = 0, pcmFrames = 0, minKbps = 0, maxKbps = 0, hasVbrHeader = false;
+  while (pos < end) {
+    if (end - pos < 4) {
+      if (!allZero(pos)) return first ? "mp3_trailing_data" : "mp3_no_frame";
+      break;
+    }
+    const h = mp3Header(bytes, pos);
+    if (typeof h === "string") {
+      if (!first) return h;
+      if (allZero(pos)) break;
+      return h === "mp3_no_frame" ? "mp3_trailing_data" : h;
+    }
+    if (h.bytes > end - pos) return "mp3_truncated_frame";
+    if (!first) {
+      first = h;
+      minKbps = maxKbps = h.kbps;
+      const side = h.versionBits === 3 ? (h.channels === 1 ? 17 : 32) : h.channels === 1 ? 9 : 17;
+      const at = pos + 4 + (h.crc ? 2 : 0) + side;
+      const tag = at + 4 <= pos + h.bytes ? ascii(bytes, at, 4) : "";
+      if (tag === "Xing" || tag === "Info" || (40 <= h.bytes && ascii(bytes, pos + 36, 4) === "VBRI")) {
+        hasVbrHeader = true;
+        pos += h.bytes;
+        continue;
+      }
+    } else if (h.versionBits !== first.versionBits || h.rate !== first.rate || h.channels !== first.channels) {
+      return "mp3_format_changed";
+    }
+    minKbps = Math.min(minKbps, h.kbps);
+    maxKbps = Math.max(maxKbps, h.kbps);
+    frames++;
+    pcmFrames += h.samples;
+    pos += h.bytes;
+  }
+  if (!first || frames === 0) return "mp3_no_frame";
+  if (!allowedRates.includes(first.rate)) return `sample rate ${first.rate} Hz is not one the device was tested with (${allowedRates.join(", ")} Hz)`;
+  const durationMs = Math.floor((pcmFrames * 1000) / first.rate);
+  if (durationMs < MP3_CONTRACT.minDurationMs || durationMs > MP3_CONTRACT.maxDurationMs) {
+    return `duration ${durationMs} ms outside ${MP3_CONTRACT.minDurationMs}–${MP3_CONTRACT.maxDurationMs} ms`;
+  }
+  return {
+    mpegVersion: first.versionBits === 3 ? 1 : first.versionBits === 2 ? 2 : 25,
+    sampleRateHz: first.rate,
+    channels: first.channels,
+    frames,
+    pcmFrames,
+    durationMs,
+    minKbps,
+    maxKbps,
+    hasId3v2,
+    hasTailTag,
+    hasVbrHeader,
+  };
+}
+
+/** Legacy voice message format (before ADR-025): RIFF/WAVE, PCM (format 1), mono, 16-bit little-endian, 0.5–60 s,
+ * ≤ 2.2 MB, a rate of the device profile DEVICE_AUDIO_SAMPLE_RATES. New uploads must be MP3; recordings stored in this
+ * format stay playable (the firmware still plays pcm_s16le) and are delivered with their own codec, never as MP3. */
 export const AUDIO_CONTRACT = {
   contentType: "audio/wav",
   sampleRates: [8000, 16000, 22050, 24000],

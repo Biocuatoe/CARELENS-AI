@@ -101,6 +101,8 @@ export const DEMO_API_BASE: string | null = resolveApiBase(
 /** A Live Demo stream that stayed open this long ended normally (the server closes streams after
  *  SSE_MAX_LIFETIME_SECONDS, 300 s by default) and is reopened at once; a shorter one counts as a failure. */
 const STREAM_HEALTHY_MS = 30_000;
+/** Time limit of one JSON call to the backend (ms). */
+const BACKEND_TIMEOUT_MS = 20_000;
 
 /** Server sign-in held in memory only (never web storage). recipientId is the backend recipient shown as
  *  the frontend persona r_liveshowcase. */
@@ -205,13 +207,35 @@ export class DemoAdapter implements DataAdapter, DemoControls {
     const headers: Record<string, string> = {};
     if (body !== undefined) headers["content-type"] = "application/json";
     if (token) headers.authorization = `Bearer ${token}`;
+    // A request that gets no answer is abandoned after BACKEND_TIMEOUT_MS, so no screen or button waits forever (AUDIT F-1).
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), BACKEND_TIMEOUT_MS);
+    const timedOut = () => new ApiError(504, "api_unavailable", `Máy chủ CareLens không trả lời trong ${BACKEND_TIMEOUT_MS / 1000} giây. Vui lòng thử lại.`);
     let res: Response;
+    let text: string;
     try {
-      res = await fetch(`${this.apiBase}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: "omit", cache: "no-store" });
-    } catch {
-      throw await this.explainNetworkFailure();
+      try {
+        res = await fetch(`${this.apiBase}${path}`, {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body),
+          credentials: "omit",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+      } catch {
+        if (controller.signal.aborted) throw timedOut();
+        throw await this.explainNetworkFailure();
+      }
+      try {
+        text = await res.text();
+      } catch {
+        if (controller.signal.aborted) throw timedOut();
+        throw new ApiError(503, "api_unavailable", "Kết nối tới máy chủ CareLens bị ngắt khi đang nhận phản hồi. Vui lòng thử lại.");
+      }
+    } finally {
+      clearTimeout(timer);
     }
-    const text = await res.text();
     let data: T | null = null;
     try {
       if (text) data = JSON.parse(text) as T;

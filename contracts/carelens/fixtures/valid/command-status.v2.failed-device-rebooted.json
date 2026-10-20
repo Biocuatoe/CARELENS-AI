@@ -1,0 +1,13 @@
+{
+  "schema_version": "command-status.v2",
+  "device_id": "esp32-cam-example",
+  "clock": {
+    "boot_id": "boot-9c01d4e7",
+    "uptime_ms": 4100,
+    "wall_clock_synced": false,
+    "wall_time": null
+  },
+  "status": "failed",
+  "reason_code": "device_rebooted",
+  "detail": null
+}

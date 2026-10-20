@@ -1,0 +1,87 @@
+[
+  {
+    "file": "mpeg25_8k_mono_16k.mp3",
+    "sample_rate": 8000,
+    "channels": 1,
+    "kbps": 16,
+    "source_seconds": 1.0,
+    "tone_hz": 440,
+    "bytes": 2304
+  },
+  {
+    "file": "mpeg2_16k_mono_32k.mp3",
+    "sample_rate": 16000,
+    "channels": 1,
+    "kbps": 32,
+    "source_seconds": 1.0,
+    "tone_hz": 440,
+    "bytes": 4320
+  },
+  {
+    "file": "mpeg2_22k_mono_48k.mp3",
+    "sample_rate": 22050,
+    "channels": 1,
+    "kbps": 48,
+    "source_seconds": 1.0,
+    "tone_hz": 440,
+    "bytes": 6426
+  },
+  {
+    "file": "mpeg2_24k_stereo_64k.mp3",
+    "sample_rate": 24000,
+    "channels": 2,
+    "kbps": 64,
+    "source_seconds": 1.0,
+    "tone_hz": 440,
+    "bytes": 8448
+  },
+  {
+    "file": "mpeg1_32k_stereo_96k.mp3",
+    "sample_rate": 32000,
+    "channels": 2,
+    "kbps": 96,
+    "source_seconds": 1.0,
+    "tone_hz": 440,
+    "bytes": 12528
+  },
+  {
+    "file": "mpeg1_44k_stereo_128k.mp3",
+    "sample_rate": 44100,
+    "channels": 2,
+    "kbps": 128,
+    "source_seconds": 1.5,
+    "tone_hz": 440,
+    "bytes": 24659
+  },
+  {
+    "file": "mpeg1_48k_stereo_320k.mp3",
+    "sample_rate": 48000,
+    "channels": 2,
+    "kbps": 320,
+    "source_seconds": 1.0,
+    "tone_hz": 440,
+    "bytes": 41280
+  },
+  {
+    "file": "mpeg1_44k_mono_vbr.mp3",
+    "sample_rate": 44100,
+    "channels": 1,
+    "kbps": 0,
+    "source_seconds": 1.5,
+    "tone_hz": 440,
+    "bytes": 6789
+  },
+  {
+    "file": "tagged_16k_mono_32k.mp3",
+    "sample_rate": 16000,
+    "channels": 1,
+    "kbps": 32,
+    "source_seconds": 1.0,
+    "tone_hz": 440,
+    "bytes": 4551,
+    "tags": [
+      "id3v2",
+      "id3v1"
+    ]
+  }
+]

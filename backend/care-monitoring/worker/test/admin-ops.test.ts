@@ -26,6 +26,8 @@ import {
   type Harness,
   type World,
 } from "./helpers";
+import { LAME_16K_MONO, insertLegacyWav, mp3, mp3DurationMs, mp3Frame, wav } from "./audio";
+import { MP3_CONTRACT } from "../src/media";
 import { sha256Hex } from "../src/util";
 
 const OWNER = "owner.ops@example.invalid";
@@ -50,37 +52,24 @@ async function adminSession(role: "owner" | "admin", email: string, expiresAt = 
   return { token, adminId: id };
 }
 
-function wav(seconds = 1, rate = 16000, channels = 1): Uint8Array {
-  const data = rate * seconds * 2 * channels;
-  const buf = new Uint8Array(44 + data);
-  const v = new DataView(buf.buffer);
-  const s = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-  s(0, "RIFF");
-  v.setUint32(4, 36 + data, true);
-  s(8, "WAVE");
-  s(12, "fmt ");
-  v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true);
-  v.setUint16(22, channels, true);
-  v.setUint32(24, rate, true);
-  v.setUint32(28, rate * 2 * channels, true);
-  v.setUint16(32, 2 * channels, true);
-  v.setUint16(34, 16, true);
-  s(36, "data");
-  v.setUint32(40, data, true);
-  for (let i = 44; i < buf.length; i += 2) v.setInt16(i, Math.round(Math.sin(i / 20) * 1000), true); // synthetic tone, no voice
-  return buf;
-}
-
 const api = (path: string) => `/api/admin/v1${path}`;
 const get = (path: string, token: string | null = admin) => h.call("GET", api(path), { token });
 const post = (path: string, json: unknown, token: string | null = admin) => h.call("POST", api(path), { token, json });
 
-async function uploadVoice(bytes: Uint8Array = wav(), title = "Lời nhắc thử", token: string | null = admin, deviceId = w.deviceId) {
-  return h.call("POST", api(`/devices/${deviceId}/voice-messages?title=${encodeURIComponent(title)}`), { token, body: bytes, headers: { "content-type": "audio/wav" } });
+async function uploadVoice(bytes: Uint8Array = LAME_16K_MONO, title = "Lời nhắc thử", token: string | null = admin, deviceId = w.deviceId, contentType = "audio/mpeg") {
+  return h.call("POST", api(`/devices/${deviceId}/voice-messages?title=${encodeURIComponent(title)}`), { token, body: bytes, headers: { "content-type": contentType } });
 }
 
+/** The device's heartbeat as firmware ≥ 0.2.0 sends it (ADR-025), or as older firmware does (`codecs` null). */
+async function reportCodecs(codecs: string[] | null) {
+  const hb = heartbeat(h, w.deviceId) as { status: Record<string, unknown> };
+  if (codecs) hb.status.audio_codecs = codecs;
+  await ok(await h.call("POST", "/api/device/v1/heartbeat", { token: w.deviceToken, json: hb }));
+}
+
+/** A recording this device can play: an MP3, after the device reported MP3 playback. */
 async function voiceId(): Promise<string> {
+  await reportCodecs(["pcm_s16le", "mp3"]);
   const r = await ok<{ voice_message: { voice_message_id: string } }>(await uploadVoice(), 201);
   return r.voice_message.voice_message_id;
 }
@@ -166,15 +155,17 @@ describe("authorization of the dashboard API", () => {
   it("accepts a plain admin role for reads and writes the same way (no role string comes from the request)", async () => {
     const plain = await adminSession("admin", "plain.admin@example.invalid");
     expect((await get("/devices", plain.token)).status).toBe(200);
-    expect((await uploadVoice(wav(), "x", plain.token)).status).toBe(201);
+    expect((await uploadVoice(LAME_16K_MONO, "x", plain.token)).status).toBe(201);
   });
 });
 
 describe("capabilities", () => {
   it("states plainly that text-to-speech does not exist and that device playback is unverified", async () => {
-    const c = await ok<{ tts: { available: boolean }; audio: { sample_rates_hz: number[] }; device_playback: string; reminders: { timezone: string } }>(await get("/capabilities"));
+    const c = await ok<{ tts: { available: boolean }; audio: Record<string, any>; device_playback: string; reminders: { timezone: string } }>(await get("/capabilities"));
     expect(c.tts.available).toBe(false);
-    expect(c.audio.sample_rates_hz).toEqual([16000]);
+    // ADR-025: the upload format is MP3 and says so; the legacy WAV format is listed as playback-only.
+    expect(c.audio).toMatchObject({ content_type: "audio/mpeg", codec: "mp3", sample_rates_hz: [...MP3_CONTRACT.sampleRates], max_bytes: 2_000_000, max_duration_ms: 60_000 });
+    expect(c.audio.legacy_wav).toMatchObject({ upload: "refused", playback: "supported", sample_rates_hz: [16000] });
     expect(c.device_playback).toBe("not_verified_with_hardware");
     expect(c.reminders.timezone).toBe("Asia/Ho_Chi_Minh");
   });
@@ -334,16 +325,16 @@ describe("daily activity report", () => {
 
 describe("voice recordings", () => {
   it("stores an admin upload privately, attributes it to the admin, and serves it only to admins", async () => {
-    const res = await uploadVoice(wav(2), "Chào buổi sáng");
+    const res = await uploadVoice(mp3({ seconds: 2 }), "Chào buổi sáng");
     const body = await ok<{ voice_message: { voice_message_id: string; title: string; audio: { sample_rate_hz: number; duration_ms: number } } }>(res, 201);
-    expect(body.voice_message.audio).toMatchObject({ sample_rate_hz: 16000, duration_ms: 2000 });
+    expect(body.voice_message.audio).toMatchObject({ content_type: "audio/mpeg", sample_rate_hz: 16000, duration_ms: mp3DurationMs({ seconds: 2 }) });
     const row = await dbFirst<{ created_by: string; recipient_id: string }>(`SELECT created_by, recipient_id FROM audio_assets WHERE asset_id = ?1`, body.voice_message.voice_message_id);
     expect(row).toEqual({ created_by: `admin:${adminId}`, recipient_id: w.recipientId });
     const preview = await get(`/voice-messages/${body.voice_message.voice_message_id}/audio`);
     expect(preview.status).toBe(200);
-    expect(preview.headers.get("content-type")).toBe("audio/wav");
+    expect(preview.headers.get("content-type")).toBe("audio/mpeg");
     expect(preview.headers.get("cache-control")).toMatch(/no-store/);
-    expect((await preview.arrayBuffer()).byteLength).toBeGreaterThan(44);
+    expect((await preview.arrayBuffer()).byteLength).toBe(mp3({ seconds: 2 }).length);
     expect((await get(`/voice-messages/${body.voice_message.voice_message_id}/audio`, w.caregiverToken)).status).toBe(401);
     // The caregiver of the same recipient also sees it through the existing viewer API (it is the recipient's recording).
     const list = await ok<{ items: Array<{ voice_message_id: string }> }>(await h.call("GET", `/api/app/v1/recipients/${w.recipientId}/voice-messages`, { token: w.caregiverToken }));
@@ -351,14 +342,30 @@ describe("voice recordings", () => {
     expect(await dbAll(`SELECT action, actor_type, actor_id FROM audit_log WHERE action = 'voice.upload'`)).toEqual([{ action: "voice.upload", actor_type: "admin", actor_id: adminId }]);
   });
 
-  it("rejects what the device cannot play: wrong type, wrong rate, stereo, too short, too large, not a WAV", async () => {
+  it("accepts every MP3 sample rate and layout of the contract, unchanged", async () => {
+    for (const rate of MP3_CONTRACT.sampleRates) {
+      for (const channels of [1, 2] as const) {
+        const bytes = mp3({ seconds: 1, rate, channels });
+        const body = await ok<{ voice_message: { audio: Record<string, unknown> } }>(await uploadVoice(bytes, `${rate}-${channels}`), 201);
+        expect(body.voice_message.audio, `${rate} Hz ${channels} ch`).toMatchObject({ sample_rate_hz: rate, channels, byte_size: bytes.length, duration_ms: mp3DurationMs({ seconds: 1, rate }) });
+      }
+    }
+  });
+
+  it("rejects what is not a playable MP3: WAV, other layers, spliced or truncated streams, wrong length, too large, other types", async () => {
+    const layer2 = new Uint8Array([...mp3Frame(44100, 2, 128, 2).bytes, ...mp3Frame(44100, 2, 128, 2).bytes]);
+    const spliced = new Uint8Array([...mp3({ rate: 16000 }), ...mp3({ rate: 44100, channels: 2 })]);
     const cases: Array<[string, Uint8Array, string, number]> = [
-      ["44.1 kHz", wav(1, 44100), "audio/wav", 422],
-      ["stereo", wav(1, 16000, 2), "audio/wav", 422],
-      ["too short", wav(0.1), "audio/wav", 422],
-      ["not a wav", new TextEncoder().encode("ID3 not audio at all, just text of enough length to look like something"), "audio/wav", 422],
-      ["wrong content type", wav(), "audio/mpeg", 415],
-      ["too large", new Uint8Array(2_300_000), "audio/wav", 413],
+      ["WAV upload", wav(), "audio/wav", 415],
+      ["WAV bytes labelled MP3", wav(), "audio/mpeg", 422],
+      ["Layer II", layer2, "audio/mpeg", 422],
+      ["rate changes mid-stream", spliced, "audio/mpeg", 422],
+      ["truncated last frame", LAME_16K_MONO.subarray(0, LAME_16K_MONO.length - 50), "audio/mpeg", 422],
+      ["too short", mp3({ seconds: 0.3 }), "audio/mpeg", 422],
+      ["too long", mp3({ seconds: 61 }), "audio/mpeg", 422],
+      ["not audio", new TextEncoder().encode("ID3 not audio at all, just text of enough length to look like something"), "audio/mpeg", 422],
+      ["octet-stream", LAME_16K_MONO, "application/octet-stream", 415],
+      ["too large", new Uint8Array(2_100_000), "audio/mpeg", 413],
     ];
     for (const [name, bytes, type, status] of cases) {
       const res = await h.call("POST", api(`/devices/${w.deviceId}/voice-messages?title=t`), { token: admin, body: bytes, headers: { "content-type": type } });
@@ -366,11 +373,12 @@ describe("voice recordings", () => {
       await res.arrayBuffer();
     }
     expect(await dbAll(`SELECT 1 FROM audio_assets`)).toEqual([]);
-    expect((await h.call("POST", api(`/devices/${w.deviceId}/voice-messages`), { token: admin, body: wav(), headers: { "content-type": "audio/wav" } })).status).toBe(400);
+    expect((await h.env.AUDIO.list()).objects).toEqual([]); // nothing stored for a refused upload
+    expect((await h.call("POST", api(`/devices/${w.deviceId}/voice-messages`), { token: admin, body: LAME_16K_MONO, headers: { "content-type": "audio/mpeg" } })).status).toBe(400);
   });
 
   it("targets only an active device of the registry", async () => {
-    expect((await uploadVoice(wav(), "x", admin, "esp32-unknown")).status).toBe(404);
+    expect((await uploadVoice(LAME_16K_MONO, "x", admin, "esp32-unknown")).status).toBe(404);
     await ok(await h.call("POST", api(`/devices/${w.deviceId}/revoke`), { token: admin }));
     expect((await uploadVoice()).status).toBe(404);
     expect((await get(`/devices/${w.deviceId}/voice-messages`)).status).toBe(200); // history of a revoked device stays readable
@@ -406,15 +414,20 @@ describe("voice-playback commands", () => {
     expect(theirs.created).toBe(true);
   });
 
-  it("refuses a recording of another recipient, a deleted one, an unplayable rate, an unknown or revoked device", async () => {
+  it("refuses a recording of another recipient, an unknown one, one the device cannot play, an unknown or revoked device", async () => {
     const vm = await voiceId();
-    const foreign = await ok<{ voice_message: { voice_message_id: string } }>(await h.call("POST", `/api/app/v1/recipients/${w.otherRecipientId}/voice-messages?title=x`, { token: w.outsiderToken, body: wav(), headers: { "content-type": "audio/wav" } }), 201);
+    const foreign = await ok<{ voice_message: { voice_message_id: string } }>(await h.call("POST", `/api/app/v1/recipients/${w.otherRecipientId}/voice-messages?title=x`, { token: w.outsiderToken, body: LAME_16K_MONO, headers: { "content-type": "audio/mpeg" } }), 201);
     expect((await post(`/devices/${w.deviceId}/voice-commands`, voiceCommandBody(foreign.voice_message.voice_message_id))).status).toBe(422);
     expect((await post(`/devices/${w.deviceId}/voice-commands`, voiceCommandBody("vm_does_not_exist"))).status).toBe(422);
     expect((await post(`/devices/esp32-unknown/voice-commands`, voiceCommandBody(vm))).status).toBe(404);
-    const strict = await h.call("POST", api(`/devices/${w.deviceId}/voice-commands`), { token: admin, json: voiceCommandBody(vm, "key-rate-0001"), envOverrides: { DEVICE_AUDIO_SAMPLE_RATES: "24000" } });
-    expect(strict.status).toBe(422);
-    expect(await problemCode(strict)).toBe("audio_not_playable");
+    // A legacy WAV at a rate outside the device profile, and an MP3 for firmware that never reported MP3 playback.
+    const legacy = await insertLegacyWav(w.recipientId);
+    const strict = await h.call("POST", api(`/devices/${w.deviceId}/voice-commands`), { token: admin, json: voiceCommandBody(legacy.assetId, "key-rate-0001"), envOverrides: { DEVICE_AUDIO_SAMPLE_RATES: "24000" } });
+    expect([strict.status, await problemCode(strict)]).toEqual([422, "audio_not_playable"]);
+    await reportCodecs(null);
+    const oldFirmware = await post(`/devices/${w.deviceId}/voice-commands`, voiceCommandBody(vm, "key-old-fw-0001"));
+    expect([oldFirmware.status, await problemCode(oldFirmware)]).toEqual([422, "audio_not_playable"]);
+    await reportCodecs(["pcm_s16le", "mp3"]);
     await ok(await h.call("POST", api(`/devices/${w.deviceId}/revoke`), { token: admin }));
     expect((await post(`/devices/${w.deviceId}/voice-commands`, voiceCommandBody(vm, "key-after-revoke"))).status).toBe(404);
   });
@@ -674,7 +687,9 @@ describe("scheduled reminders", () => {
     const body = (await next.json()) as { command: { command_type: string; action: { kind: string; audio: { voice_message_id: string; sample_rate_hz: number; path: string } } } };
     expect(body.command).toMatchObject({ command_type: "reminder", action: { kind: "reminder", audio: { voice_message_id: vm, sample_rate_hz: 16000 } } });
     expect(body.command.action.audio.path).toMatch(/^\/api\/device\/v1\/commands\/cmd_[a-f0-9]+\/audio$/); // authenticated retrieval, no public URL
-    const strict = await h.call("POST", api(`/devices/${w.deviceId}/reminders`), { token: admin, json: once({ idempotency_key: "rem-key-rate-01", voice_message_id: vm }, { local_time: "10:30" }), envOverrides: { DEVICE_AUDIO_SAMPLE_RATES: "24000" } });
+    expect(body.command.action.audio).toMatchObject({ content_type: "audio/mpeg", codec: "mp3" });
+    await reportCodecs(null); // firmware without MP3: a reminder with this recording is refused up front
+    const strict = await h.call("POST", api(`/devices/${w.deviceId}/reminders`), { token: admin, json: once({ idempotency_key: "rem-key-rate-01", voice_message_id: vm }, { local_time: "10:30" }) });
     expect(strict.status).toBe(422);
     expect(await problemCode(strict)).toBe("audio_not_playable");
   });

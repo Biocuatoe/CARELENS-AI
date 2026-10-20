@@ -5,7 +5,8 @@ import { EmptyState, InlineError, LoadingState, Notice, StatusLabel } from "../.
 import { SoftButton } from "../../design-system/primitives";
 import { formatDateTime } from "../../lib/time";
 import { Card, PageTitle, Row, SimulatedBadge, dash, formatAge } from "./AdminParts";
-import { COMMAND_STATUS_LABELS, COMMAND_TYPE_LABELS, COMPONENT_LABELS, GENERIC_STATUS_LABELS, REASON_LABELS, ROW_STATUS_LABELS } from "./labels";
+import { COMMAND_STATUS_LABELS, COMMAND_TYPE_LABELS, COMPONENT_LABELS, GENERIC_STATUS_LABELS, REASON_LABELS, ROW_STATUS_LABELS, commandStateLabel } from "./labels";
+import { SpeakerVolumeCard } from "./SpeakerVolumeCard";
 import { useAdminLoad } from "./useAdminLoad";
 
 const sum = (counts: Record<string, number>) => Object.values(counts).reduce((a, b) => a + b, 0);
@@ -103,7 +104,7 @@ function CommandHistory({ deviceId }: { deviceId: string }) {
   return (
     <ul className="flex flex-col gap-3">
       {state.data.items.map((c) => {
-        const info = COMMAND_STATUS_LABELS[c.status];
+        const info = commandStateLabel(c);
         return (
           <li key={c.commandId} className="rounded-control bg-surface p-3 shadow-inset-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -122,7 +123,8 @@ function CommandHistory({ deviceId }: { deviceId: string }) {
 }
 
 function DeviceDetail({ deviceId }: { deviceId: string }) {
-  const { state, reload } = useAdminLoad((client, token) => client.device(token, deviceId), `device|${deviceId}`);
+  const { state, reload, refresh } = useAdminLoad((client, token) => client.device(token, deviceId), `device|${deviceId}`);
+  const caps = useAdminLoad((client, token) => client.capabilities(token), "capabilities");
   const back = (
     <Link to="/admin/devices" className="inline-flex min-h-11 items-center gap-2 font-bold underline">
       <ArrowLeft className="size-4" aria-hidden />
@@ -189,6 +191,8 @@ function DeviceDetail({ deviceId }: { deviceId: string }) {
             <p>Chưa nhận heartbeat nào từ thiết bị này.</p>
           )}
         </Card>
+
+        <SpeakerVolumeCard device={d} caps={caps.state.status === "ready" ? caps.state.data : null} onChanged={refresh} />
 
         <Card icon={<ListChecks aria-hidden />} title="Hoạt động gần nhất">
           <dl>

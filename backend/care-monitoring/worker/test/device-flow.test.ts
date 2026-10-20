@@ -5,7 +5,8 @@
  * the contract only: nothing here observes a physical camera, IMU, TLS stack or speaker.
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import { TestClock, captureFixture, claim, complete, dbAll, deviceClock, freshDb, harness, heartbeat, imuEvent, manifestNow, mediaObjects, ok, problemCode, provision, sendImu, uploadCapture, visionResult, type Harness, type World } from "./helpers";
+import { TestClock, captureFixture, claim, complete, dbAll, deviceClock, freshDb, harness, heartbeat, imuEvent, manifestNow, mediaObjects, mp3Heartbeat, ok, problemCode, provision, sendImu, uploadCapture, visionResult, type Harness, type World } from "./helpers";
+import { LAME_16K_MONO } from "./audio";
 import { sha256Hex } from "../src/util";
 
 const OWNER = "owner.flow@example.invalid";
@@ -14,29 +15,6 @@ let h: Harness;
 let w: World;
 let clock: TestClock;
 let admin: string;
-
-function wav(): Uint8Array {
-  const rate = 16000;
-  const data = rate * 2;
-  const buf = new Uint8Array(44 + data);
-  const v = new DataView(buf.buffer);
-  const s = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-  s(0, "RIFF");
-  v.setUint32(4, 36 + data, true);
-  s(8, "WAVE");
-  s(12, "fmt ");
-  v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true);
-  v.setUint16(22, 1, true);
-  v.setUint32(24, rate, true);
-  v.setUint32(28, rate * 2, true);
-  v.setUint16(32, 2, true);
-  v.setUint16(34, 16, true);
-  s(36, "data");
-  v.setUint32(40, data, true);
-  for (let i = 44; i < buf.length; i += 2) v.setInt16(i, Math.round(Math.sin(i / 20) * 1000), true);
-  return buf;
-}
 
 beforeEach(async () => {
   await freshDb();
@@ -87,9 +65,10 @@ describe("ESP32 data flow (simulated device)", () => {
     expect(await dbAll(`SELECT 1 FROM alerts`)).toEqual([]); // no approved rule exists: an IMU trigger is never a verdict by itself
     expect(JSON.stringify(report)).not.toMatch(/data:image|base64|media\/|r2_key/);
 
-    // 10. admin creates an authorized command through the admin API
+    // 10. admin uploads an MP3 and creates an authorized command through the admin API (the firmware reported MP3 playback)
+    await ok(await dev("/heartbeat", mp3Heartbeat(h, id)));
     const upload = await ok<{ voice_message: { voice_message_id: string } }>(
-      await h.call("POST", `/api/admin/v1/devices/${id}/voice-messages?title=${encodeURIComponent("Thử")}`, { token: admin, body: wav(), headers: { "content-type": "audio/wav" } }),
+      await h.call("POST", `/api/admin/v1/devices/${id}/voice-messages?title=${encodeURIComponent("Thử")}`, { token: admin, body: LAME_16K_MONO, headers: { "content-type": "audio/mpeg" } }),
       201,
     );
     const created = await ok<{ command: { command_id: string; status: string } }>(
@@ -107,8 +86,10 @@ describe("ESP32 data flow (simulated device)", () => {
     const next = await ok<{ command: { command_id: string; action: { kind: string; audio: { path: string; sha256: string; byte_size: number } } } }>(await dev("/commands/next", undefined, "GET"));
     expect(next.command).toMatchObject({ command_id: created.command.command_id, action: { kind: "voice" } });
     const audio = await h.call("GET", next.command.action.audio.path, { token: w.deviceToken });
-    expect(audio.status).toBe(200);
-    expect(await sha256Hex(new Uint8Array(await audio.arrayBuffer()))).toBe(next.command.action.audio.sha256);
+    expect([audio.status, audio.headers.get("content-type")]).toEqual([200, "audio/mpeg"]);
+    const downloaded = new Uint8Array(await audio.arrayBuffer());
+    expect(await sha256Hex(downloaded)).toBe(next.command.action.audio.sha256);
+    expect(await sha256Hex(downloaded)).toBe(await sha256Hex(LAME_16K_MONO)); // the uploaded MP3 itself reaches the device
     // The admin session and another device's credential cannot fetch this audio or acknowledge this command.
     expect((await h.call("GET", next.command.action.audio.path, { token: admin })).status).toBe(401);
     expect((await h.call("GET", next.command.action.audio.path, { token: w.otherDeviceToken })).status).toBe(404);
@@ -149,9 +130,9 @@ describe("ESP32 data flow (simulated device)", () => {
 
   it("a device that stops talking is reported as not connected, and its stale queued command expires instead of replaying", async () => {
     const id = w.deviceId;
-    await ok(await h.call("POST", "/api/device/v1/heartbeat", { token: w.deviceToken, json: heartbeat(h, id) }));
+    await ok(await h.call("POST", "/api/device/v1/heartbeat", { token: w.deviceToken, json: mp3Heartbeat(h, id) }));
     const up = await ok<{ voice_message: { voice_message_id: string } }>(
-      await h.call("POST", `/api/admin/v1/devices/${id}/voice-messages?title=t`, { token: admin, body: wav(), headers: { "content-type": "audio/wav" } }),
+      await h.call("POST", `/api/admin/v1/devices/${id}/voice-messages?title=t`, { token: admin, body: LAME_16K_MONO, headers: { "content-type": "audio/mpeg" } }),
       201,
     );
     await ok(await h.call("POST", `/api/admin/v1/devices/${id}/voice-commands`, { token: admin, json: { voice_message_id: up.voice_message.voice_message_id, idempotency_key: "flow-key-0002", expires_in_seconds: 60, confirm: true } }), 201);

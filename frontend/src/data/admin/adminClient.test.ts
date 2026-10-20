@@ -111,6 +111,18 @@ describe("AdminClient", () => {
     expect(calls).toBe(1);
   });
 
+  it("gives up on a request that gets no answer within its time limit and says the outcome is unknown", async () => {
+    const hang = vi.fn((_input: RequestInfo | URL, init: RequestInit = {}) =>
+      new Promise<Response>((_resolve, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))),
+    );
+    const client = new AdminClient(BASE, hang as unknown as typeof fetch, { request: 30, upload: 60 });
+    const error = await client.me(TOKEN).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AdminApiError);
+    expect((error as AdminApiError).code).toBe("timeout");
+    expect((error as AdminApiError).message).toMatch(/Chưa biết thao tác đã được thực hiện hay chưa/);
+    expect(hang).toHaveBeenCalledTimes(1); // no /health probe: a timeout is not a refused origin
+  });
+
   it("refuses to call anywhere when the build has no API base", async () => {
     const error = await new AdminClient(null).me(TOKEN).catch((e: unknown) => e);
     expect(error).toMatchObject({ code: "no_backend" });

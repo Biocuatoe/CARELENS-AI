@@ -150,6 +150,18 @@ export const DeviceHeartbeatV2 = z
         wifi_rssi_dbm: z.number().int().min(-127).max(0).nullable(),
         free_heap_bytes: z.number().int().min(0).nullable(),
         last_error: z.string().max(120).regex(/^[a-z0-9_:.-]*$/).nullable().describe("Short error code, never free text or secrets."),
+        speaker_volume: z
+          .number()
+          .min(0)
+          .max(1)
+          .optional()
+          .describe("Volume the device applies now (fraction of full scale). Sent only to a server whose heartbeat response carries config."),
+        audio_codecs: z
+          .array(z.enum(["pcm_s16le", "mp3"]))
+          .min(1)
+          .max(4)
+          .optional()
+          .describe("Audio codecs this firmware plays (ADR-025). Sent only to a server whose heartbeat response has config.report_audio_codecs; an MP3 command needs \"mp3\" here."),
       })
       .strict(),
   })
@@ -166,6 +178,8 @@ export const COMMAND_REASON_CODES = [
   "preempted_by_higher_priority",
   "busy",
   "cancel_requested",
+  "device_rebooted",
+  "download_timeout",
   "other",
 ] as const;
 
@@ -174,13 +188,13 @@ export const CommandStatusV2 = z
     schema_version: z.literal("command-status.v2"),
     device_id: DeviceId,
     clock: DeviceClock,
-    status: z.enum(["accepted", "started", "completed", "failed", "rejected", "cancelled"]),
+    status: z.enum(["received", "accepted", "started", "completed", "failed", "rejected", "cancelled"]),
     reason_code: z.enum(COMMAND_REASON_CODES).nullable(),
     detail: z.string().max(200).nullable(),
   })
   .strict()
   .describe(
-    "Device acknowledgement of a delivered command: accepted (stored, audio verified), started (sound began), completed (played to the end), failed/rejected (reason_code required), cancelled (only after the backend asked). Playback is recorded as done only from this report.",
+    "Device acknowledgement of a delivered command: received (stored on the device, nothing played; optional, ADR-022), accepted (stored, audio downloaded and SHA-256 verified), started (sound began; for commands with audio only after accepted), completed (played to the end), failed/rejected (reason_code required), cancelled (only after the backend asked). Playback is recorded as done only from this report.",
   );
 
 /* ------------------------------------------------------------------ local agent → backend */

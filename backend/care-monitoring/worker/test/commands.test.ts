@@ -10,6 +10,7 @@ import {
   deviceClock,
   freshDb,
   harness,
+  heartbeat,
   imuEvent,
   ok,
   problemCode,
@@ -21,35 +22,21 @@ import {
   type Harness,
   type World,
 } from "./helpers";
+import { LAME_16K_MONO, LAME_16K_MONO_TAGGED, insertLegacyWav, mp3, mp3DurationMs, wav } from "./audio";
 
 let h: Harness;
 let w: World;
 const R = () => `/api/app/v1/recipients/${w.recipientId}`;
 
-function wav(seconds = 1, rate = 16000): Uint8Array {
-  const data = rate * seconds * 2;
-  const buf = new Uint8Array(44 + data);
-  const v = new DataView(buf.buffer);
-  const s = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-  s(0, "RIFF");
-  v.setUint32(4, 36 + data, true);
-  s(8, "WAVE");
-  s(12, "fmt ");
-  v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true);
-  v.setUint16(22, 1, true);
-  v.setUint32(24, rate, true);
-  v.setUint32(28, rate * 2, true);
-  v.setUint16(32, 2, true);
-  v.setUint16(34, 16, true);
-  s(36, "data");
-  v.setUint32(40, data, true);
-  for (let i = 44; i < buf.length; i += 2) v.setInt16(i, Math.round(Math.sin(i / 20) * 1000), true); // synthetic tone, no voice
-  return buf;
+async function uploadVoice(token = w.caregiverToken, body: Uint8Array = LAME_16K_MONO, contentType = "audio/mpeg") {
+  return h.call("POST", `${R()}/voice-messages?title=${encodeURIComponent("Lời nhắc thử")}`, { token, body, headers: { "content-type": contentType } });
 }
 
-async function uploadVoice(token = w.caregiverToken, body: Uint8Array = wav()) {
-  return h.call("POST", `${R()}/voice-messages?title=${encodeURIComponent("Lời nhắc thử")}`, { token, body, headers: { "content-type": "audio/wav" } });
+/** A heartbeat as firmware ≥ 0.2.0 sends it once the server asks: it lists the codecs it plays (ADR-025). */
+async function reportCodecs(codecs: string[] | null, token = w.deviceToken, deviceId = w.deviceId) {
+  const hb = heartbeat(h, deviceId) as { status: Record<string, unknown> };
+  if (codecs) hb.status.audio_codecs = codecs;
+  return h.call("POST", "/api/device/v1/heartbeat", { token, json: hb });
 }
 
 type DeviceCommand = { command_id: string; command_type: string; preempts_lower_priority: boolean; expires_in_ms: number; action: Record<string, any> };
@@ -81,31 +68,90 @@ beforeEach(async () => {
   h = harness(undefined, { FUSION_POLICY_JSON: TEST_TRIAL_POLICY });
   h.clock.set("2026-10-19T01:00:00.000Z"); // 08:00 local
   w = await provision(h);
+  await ok(await reportCodecs(["pcm_s16le", "mp3"]));
 });
 
 describe("voice messages", () => {
-  it("stores validated WAV audio privately with versions; viewers may listen but not upload", async () => {
+  it("stores validated MP3 audio privately and unchanged, with versions; refuses WAV; viewers may listen but not upload", async () => {
     expect((await uploadVoice(w.viewerToken)).status).toBe(403);
     expect((await uploadVoice(w.outsiderToken)).status).toBe(404);
     expect(await problemCode(await uploadVoice(w.caregiverToken, new TextEncoder().encode("not audio")))).toBe("invalid_audio");
-    // The device profile plays 16 kHz only (DEVICE_AUDIO_SAMPLE_RATES default): 8 kHz is refused, not accepted silently.
-    expect(await problemCode(await uploadVoice(w.caregiverToken, wav(1, 8000)))).toBe("invalid_audio");
-    const created = await ok<{ voice_message: { voice_message_id: string; audio: { duration_ms: number; version: number; sha256: string } } }>(await uploadVoice(), 201);
-    expect(created.voice_message.audio).toMatchObject({ duration_ms: 1000, version: 1, sha256: await sha256(wav()) });
+    // ADR-025: WAV is no longer an upload format, whatever it contains; a WAV body labelled audio/mpeg fails the frame walk.
+    const refused = await uploadVoice(w.caregiverToken, wav(), "audio/wav");
+    expect([refused.status, await problemCode(refused)]).toEqual([415, "mp3_required"]);
+    expect(await problemCode(await uploadVoice(w.caregiverToken, wav()))).toBe("invalid_audio");
+    expect(await problemCode(await uploadVoice(w.caregiverToken, mp3({ seconds: 0.3 })))).toBe("invalid_audio"); // < 0.5 s
+    expect(await problemCode(await uploadVoice(w.caregiverToken, mp3({ seconds: 61 })))).toBe("invalid_audio"); // > 60 s
+    expect(await problemCode(await uploadVoice(w.caregiverToken, LAME_16K_MONO.subarray(0, LAME_16K_MONO.length - 50)))).toBe("invalid_audio"); // truncated
+    const created = await ok<{ voice_message: { voice_message_id: string; audio: Record<string, unknown> } }>(await uploadVoice(), 201);
+    expect(created.voice_message.audio).toMatchObject({
+      content_type: "audio/mpeg",
+      sample_rate_hz: 16000,
+      channels: 1,
+      bits_per_sample: 0,
+      duration_ms: 1080,
+      byte_size: LAME_16K_MONO.length,
+      version: 1,
+      sha256: await sha256(LAME_16K_MONO),
+    });
     const id = created.voice_message.voice_message_id;
     const listen = await h.call("GET", `${R()}/voice-messages/${id}/audio`, { token: w.viewerToken });
-    expect([listen.status, listen.headers.get("content-type"), listen.headers.get("cache-control")]).toEqual([200, "audio/wav", "private, no-store"]);
-    expect((await listen.arrayBuffer()).byteLength).toBe(44 + 32000);
+    expect([listen.status, listen.headers.get("content-type"), listen.headers.get("cache-control")]).toEqual([200, "audio/mpeg", "private, no-store"]);
+    expect(await sha256(new Uint8Array(await listen.arrayBuffer()))).toBe(await sha256(LAME_16K_MONO)); // byte for byte, no transcoding
     expect((await h.call("GET", `/api/app/v1/recipients/${w.otherRecipientId}/voice-messages/${id}/audio`, { token: w.outsiderToken })).status).toBe(404);
-    const replaced = await ok<{ voice_message: { current_version: number } }>(
-      await h.call("PUT", `${R()}/voice-messages/${id}/audio`, { token: w.caregiverToken, body: wav(2), headers: { "content-type": "audio/wav" } }),
+    const replaced = await ok<{ voice_message: { current_version: number; audio: Record<string, unknown> } }>(
+      await h.call("PUT", `${R()}/voice-messages/${id}/audio`, { token: w.caregiverToken, body: mp3({ seconds: 2, rate: 44100, channels: 2 }), headers: { "content-type": "audio/mpeg" } }),
     );
     expect(replaced.voice_message.current_version).toBe(2);
+    expect(replaced.voice_message.audio).toMatchObject({ sample_rate_hz: 44100, channels: 2, duration_ms: mp3DurationMs({ seconds: 2, rate: 44100 }) });
     const keys = (await h.env.AUDIO.list()).objects.map((o) => o.key).sort();
-    expect(keys).toEqual([`voice/${w.recipientId}/${id}/v1.wav`, `voice/${w.recipientId}/${id}/v2.wav`]);
+    expect(keys).toEqual([`voice/${w.recipientId}/${id}/v1.mp3`, `voice/${w.recipientId}/${id}/v2.mp3`]);
+    const tagged = await ok<{ voice_message: { audio: Record<string, unknown> } }>(await uploadVoice(w.caregiverToken, LAME_16K_MONO_TAGGED), 201);
+    expect(tagged.voice_message.audio).toMatchObject({ duration_ms: 1080, byte_size: LAME_16K_MONO_TAGGED.length }); // ID3 tags kept, not counted
   });
 
-  it("delivers audio only for the active command, with integrity metadata and byte ranges", async () => {
+  it("refuses an MP3 command for a device whose firmware has not reported MP3 playback", async () => {
+    const vm = await ok<{ voice_message: { voice_message_id: string } }>(await uploadVoice(), 201);
+    const create = (key: string) =>
+      h.call("POST", `${R()}/devices/${w.deviceId}/commands`, {
+        token: w.caregiverToken,
+        json: { command_type: "play_voice_message", voice_message_id: vm.voice_message.voice_message_id, idempotency_key: key, expires_in_seconds: 300 },
+      });
+    await ok(await reportCodecs(null)); // a heartbeat from firmware before ADR-025: no audio_codecs
+    const refused = await create("mp3-gate-1");
+    expect([refused.status, await problemCode(refused)]).toEqual([422, "audio_not_playable"]);
+    expect(await dbAll(`SELECT command_id FROM device_commands`)).toEqual([]);
+    await ok(await reportCodecs(["pcm_s16le", "mp3"]));
+    await ok(await create("mp3-gate-1"), 201);
+  });
+
+  it("keeps a recording stored before ADR-025 as WAV end to end, never labelled MP3", async () => {
+    const legacy = await insertLegacyWav(w.recipientId);
+    const created = await ok<{ command: { command_id: string } }>(
+      await h.call("POST", `${R()}/devices/${w.deviceId}/commands`, {
+        token: w.caregiverToken,
+        json: { command_type: "play_voice_message", voice_message_id: legacy.assetId, idempotency_key: "legacy-wav-1", expires_in_seconds: 300 },
+      }),
+      201,
+    );
+    const delivered = (await next())!.command!;
+    expect(delivered.action.audio).toMatchObject({ content_type: "audio/wav", codec: "pcm_s16le", bits_per_sample: 16, byte_size: legacy.bytes.length });
+    const audio = await h.call("GET", `/api/device/v1/commands/${created.command.command_id}/audio`, { token: w.deviceToken });
+    expect(audio.headers.get("content-type")).toBe("audio/wav");
+    expect(await sha256(new Uint8Array(await audio.arrayBuffer()))).toBe(await sha256(legacy.bytes));
+    const listen = await h.call("GET", `${R()}/voice-messages/${legacy.assetId}/audio`, { token: w.viewerToken });
+    expect(listen.headers.get("content-type")).toBe("audio/wav");
+  });
+
+  it("asks the firmware for its codecs in the heartbeat response and accepts only known codec names", async () => {
+    const res = await ok<{ config: { report_audio_codecs: boolean } }>(await reportCodecs(["pcm_s16le", "mp3"]));
+    expect(res.config.report_audio_codecs).toBe(true);
+    expect(await problemCode(await reportCodecs(["aac"]))).toBe("invalid_payload");
+    const stored = await dbFirst<{ last_heartbeat_json: string }>(`SELECT last_heartbeat_json FROM devices WHERE device_id = ?1`, w.deviceId);
+    expect(JSON.parse(stored!.last_heartbeat_json).audio_codecs).toEqual(["pcm_s16le", "mp3"]);
+  });
+
+  it("delivers the MP3 unchanged, only for the active command, with integrity metadata and byte ranges", async () => {
     const vm = await ok<{ voice_message: { voice_message_id: string } }>(await uploadVoice(), 201);
     const create = (key: string) =>
       h.call("POST", `${R()}/devices/${w.deviceId}/commands`, {
@@ -118,13 +164,19 @@ describe("voice messages", () => {
     const audioPath = `/api/device/v1/commands/${id}/audio`;
     expect((await h.call("GET", audioPath, { token: w.deviceToken })).status).toBe(404); // queued, not delivered
     const delivered = (await next())!.command!;
-    expect(delivered.action).toMatchObject({ kind: "voice", audio: { path: audioPath, content_type: "audio/wav", codec: "pcm_s16le", sample_rate_hz: 16000, byte_size: 32044 } });
+    expect(delivered.action).toMatchObject({
+      kind: "voice",
+      audio: { path: audioPath, content_type: "audio/mpeg", codec: "mp3", sample_rate_hz: 16000, channels: 1, duration_ms: 1080, byte_size: LAME_16K_MONO.length },
+    });
+    expect(delivered.action.audio).not.toHaveProperty("bits_per_sample");
     expect(delivered.expires_in_ms).toBe(300_000);
     const full = await h.call("GET", audioPath, { token: w.deviceToken });
+    expect(full.headers.get("content-type")).toBe("audio/mpeg");
     const bytes = new Uint8Array(await full.arrayBuffer());
     expect(await sha256(bytes)).toBe(delivered.action.audio.sha256); // the device can verify what it plays
+    expect(await sha256(bytes)).toBe(await sha256(LAME_16K_MONO)); // the uploaded file itself, not a transcoded copy
     const part = await h.call("GET", audioPath, { token: w.deviceToken, headers: { range: "bytes=0-1023" } });
-    expect([part.status, part.headers.get("content-range"), (await part.arrayBuffer()).byteLength]).toEqual([206, "bytes 0-1023/32044", 1024]);
+    expect([part.status, part.headers.get("content-range"), (await part.arrayBuffer()).byteLength]).toEqual([206, `bytes 0-1023/${LAME_16K_MONO.length}`, 1024]);
     expect((await h.call("GET", audioPath, { token: w.deviceToken, headers: { range: "bytes=99999-" } })).status).toBe(416);
     expect((await h.call("GET", audioPath, { token: w.otherDeviceToken })).status).toBe(404);
     await ok(await status(id, "accepted"));
@@ -166,9 +218,10 @@ describe("command state machine", () => {
 
   it("re-delivers an unacknowledged command with the same id, then fails it after the attempt limit", async () => {
     const { command } = await voiceCommand("sm-000002");
+    // ADR-022: the ack deadline of a command with audio is 30 s + ceil(32 044 B / 16 000 B/s) = 33 s.
     for (let i = 0; i < 3; i++) {
       expect((await next())?.command?.command_id).toBe(command.command_id);
-      h.clock.advance(31);
+      h.clock.advance(34);
     }
     expect(await next()).toBeNull();
     expect(await dbFirst(`SELECT status, status_reason FROM device_commands WHERE command_id = ?1`, command.command_id)).toEqual({ status: "failed", status_reason: "no_acknowledgement" });
@@ -190,6 +243,7 @@ describe("command state machine", () => {
   it("delivers an emergency buzzer while a lower-priority command is playing", async () => {
     const { command } = await voiceCommand("sm-000004");
     await next();
+    await ok(await status(command.command_id, "accepted")); // audio downloaded and verified (required before started, ADR-022)
     await ok(await status(command.command_id, "started"));
     expect(await next()).toBeNull(); // nothing of equal or lower priority while playing
     await sendImu(h, w.deviceToken, w.deviceId, { from: "2026-10-19T00:59:50.000Z", until: "2026-10-19T01:00:00.000Z", impacts: ["2026-10-19T00:59:57.000Z"] });
@@ -215,6 +269,7 @@ describe("command state machine", () => {
 
     const onDevice = await voiceCommand("sm-000008");
     await next();
+    await ok(await status(onDevice.command.command_id, "accepted"));
     await ok(await status(onDevice.command.command_id, "started"));
     const req = await h.call("POST", `${R()}/commands/${onDevice.command.command_id}/cancel`, { token: w.caregiverToken });
     expect(req.status).toBe(202);

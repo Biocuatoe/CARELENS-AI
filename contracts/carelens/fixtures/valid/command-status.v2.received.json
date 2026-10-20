@@ -1,0 +1,13 @@
+{
+  "schema_version": "command-status.v2",
+  "device_id": "esp32-cam-example",
+  "clock": {
+    "boot_id": "boot-7f3a91c2",
+    "uptime_ms": 3700000,
+    "wall_clock_synced": false,
+    "wall_time": null
+  },
+  "status": "received",
+  "reason_code": null,
+  "detail": null
+}

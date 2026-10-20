@@ -10,7 +10,7 @@ Phiên bản 2026-10-19 (đợt 3). Trạng thái: **đã triển khai backend v
 | R2 | `carelens-capture-media` (xóa sau 1 ngày), `carelens-voice-audio`; r2.dev tắt, không custom domain |
 | Vercel | team `dayone7`, project `carelens-ai`, Root Directory `frontend`, nối GitHub `Biocuatoe/CARELENS-AI` nhánh `main` (tự deploy khi push) |
 | Frontend | `https://carelens-ai-eta.vercel.app` (`carelens-ai.vercel.app` đã có người dùng) |
-| Đăng nhập | Chỉ Google (A38): `PASSWORD_SIGN_IN=disabled`, `GOOGLE_OPEN_VIEWER_RECIPIENT_ID=rcp-showcase`. `GOOGLE_CLIENT_ID` và secret `GOOGLE_CLIENT_SECRET` đã đặt, Worker bản `b2e7726f`; `/ready` báo `google_signin: configured`, Google chấp nhận client và redirect URI (tới trang chọn tài khoản). **Chưa có lần đăng nhập Google thật nào hoàn tất** |
+| Đăng nhập | Chỉ Google (A38): `PASSWORD_SIGN_IN=disabled`, `GOOGLE_OPEN_VIEWER_RECIPIENT_ID=rcp-showcase`. `GOOGLE_CLIENT_ID` và secret `GOOGLE_CLIENT_SECRET` đã đặt, Worker bản `b2e7726f`; `/ready` báo `google_signin: configured`, Google chấp nhận client và redirect URI (tới trang chọn tài khoản). `docs/ESP32_READINESS.md` §1 ghi đã có một lần đăng nhập người xem thật thành công (đọc audit production); chưa đối chiếu lại trong đợt 2026-10-19 tối |
 | Chưa làm | `ADMIN_TOKEN_SHA256` (admin API báo 503), agent cục bộ, thiết bị |
 
 Ghi chú mạng: ở mạng của máy dev, `curl`/Node mặc định (TLS 1.3 với khóa post-quantum) bắt tay lỗi tới `*.workers.dev`; `curl.exe --tls-max 1.2`, `openssl` và Chromium đều chạy. Dùng `--tls-max 1.2` cho các lệnh `curl` dưới đây nếu gặp lỗi 35. Lệnh chạy trong PowerShell trên Windows trừ khi ghi khác. `<…>` là chỗ điền giá trị thật; không dán giá trị bí mật vào tài liệu, chat hay commit.
@@ -273,18 +273,42 @@ Không làm, không tuyên bố đã đạt trong đợt này:
 - Độ trễ đầu-cuối thật, mất mạng, khởi động lại.
 - Chốt hoặc sửa ADR-017, ADR-019, D10, D11, A30, A33 theo bằng chứng thiết bị.
 
-## 16. Phát hành bảng điều khiển admin (Phase B + 0004 + 0005) — chờ owner duyệt từng bước
+## 16. Phát hành bảng điều khiển admin (Phase B + 0004 + 0005) và ADR-022/024 (0006 + 0007) — chờ owner duyệt từng bước
 
 **Hiện trạng đã đo (2026-10-19, chỉ đọc):** `GET /ready` của Worker production **không có** `capabilities.admin_signin` và `GET /api/admin/v1/me` trả 404, tức Worker production chưa có Phase B. Việc secret `ADMIN_BOOTSTRAP_EMAILS` đã được đặt (owner báo) **chưa làm** đăng nhập admin chạy: cần cả migration và bản Worker mới. Trong lúc đó trang `/admin/login` sẽ báo "Máy chủ này chưa hỗ trợ đăng nhập quản trị" thay vì hiện nút không dùng được.
 
-Không bước nào dưới đây đã được chạy. Mỗi bước cần owner đồng ý riêng.
+Không bước nào dưới đây đã được chạy. Mỗi bước cần owner đồng ý riêng. **Owner chưa duyệt** (2026-10-19: "không deploy Worker mới, không áp 0004/0005 lên production cho tới khi tôi duyệt rõ ràng").
+
+**Lệch thứ tự đã xảy ra (đo chỉ đọc 2026-10-19):** frontend production đã có khu `/admin` (header A40, bundle chứa `voice-commands`, `admin/login`) vì Vercel tự deploy khi push `main`, trong khi Worker production chưa có route admin mới (`/api/admin/v1/me` → 404, `GET /api/admin/v1/devices` → 405). Giao diện báo "máy chủ chưa hỗ trợ đăng nhập quản trị", không hỏng. Bước 7 dưới đây vì vậy chỉ còn là kiểm lại frontend sau khi Worker mới lên.
+
+### 16.1 Kiểm tương thích migration (diễn tập cục bộ 2026-10-19)
+
+Script `wrangler d1 migrations apply --local` trên một D1 cục bộ (Miniflare) dựng đúng trạng thái production (0001–0003) và có dữ liệu tổng hợp (hồ sơ, thiết bị, nhắc lịch, OAuth state đang chờ), rồi áp 0004 + 0005:
+
+| Kiểm | Kết quả |
+| --- | --- |
+| Áp 0004 + 0005 lên DB có dữ liệu | Đạt; `d1_migrations` có đủ 5 mục |
+| Dữ liệu cũ | Giữ nguyên (đếm hàng trước/sau như nhau) |
+| `oauth_states.purpose` của hàng cũ | `viewer` (giá trị mặc định) |
+| `reminder_schedules.paused_at` của hàng cũ | `NULL` (đang chạy) |
+| Bảng/chỉ mục mới | `admins`, `admin_sessions`, `admin_login_exchanges`, 4 chỉ mục mới |
+| Lệnh INSERT kiểu Worker cũ (không có `purpose`) sau migration | Chạy, nhận `viewer` → **Worker cũ chạy được trên schema mới**, nên quay lại mã Worker không cần đảo migration |
+| CHECK `purpose` với giá trị lạ | Bị từ chối |
+
+Giới hạn: đây là SQLite cục bộ của Miniflare, không phải D1 production. Hành vi `ALTER TABLE … ADD COLUMN … NOT NULL DEFAULT … CHECK` trên D1 thật chưa kiểm.
+
+**Thứ tự bắt buộc và lý do:** migration trước Worker. Worker mới trên DB chưa có 0004/0005: route admin lỗi 500 (thiếu bảng `admins`), và bước nhắc lịch của cron lỗi `no such column: paused_at` mỗi phút — vì `runMaintenance` chạy tuần tự, lỗi này cũng chặn tạo job báo cáo ngày và dọn dữ liệu hết hạn chạy sau nó (`src/maintenance.ts`).
+
+**Giới hạn quay lại:** mã Worker quay lại được bằng `wrangler rollback` (dữ liệu không đổi). Migration không có bản đảo; D1 Time Travel ghi đè **toàn bộ** DB về một thời điểm, mất mọi ghi sau đó (đăng nhập, audit, sự kiện). Secret (`ADMIN_BOOTSTRAP_EMAILS`) đổi riêng, có hiệu lực ngay.
+
+**ADR-022 và ADR-024 (đã triển khai cục bộ 2026-10-19, chưa duyệt):** thêm `0006_command_receipts.sql` (3 cột `device_commands`) và `0007_device_speaker_volume.sql` (3 cột `devices`, có CHECK), cả hai chỉ cộng thêm, áp sau 0005 và trước Worker mới. Diễn tập cục bộ: mã Worker ở HEAD (trước thay đổi) chạy toàn bộ 254 test của nó trên schema 0001–0007 và đạt, nên Worker cũ chạy được trên schema mới. Worker mới trên schema thiếu 0006/0007 sẽ lỗi (thiếu cột `ack_deadline_at`, `speaker_volume`). Kế hoạch đầy đủ, rủi ro và giới hạn quay lại: `docs/PRODUCTION_ROLLOUT_READINESS.md`.
 
 | # | Bước | Lệnh (PowerShell, từ `backend/care-monitoring/worker`) | Kỳ vọng | Quay lại |
 | --- | --- | --- | --- | --- |
-| 0 | Xem trước | `npx wrangler d1 migrations list care_monitoring --remote` | chờ áp: `0004_admin_auth.sql`, `0005_admin_ops.sql` (kèm các file chưa áp khác nếu có) | — |
+| 0 | Xem trước | `npx wrangler d1 migrations list care_monitoring --remote` | chờ áp: `0004_admin_auth.sql`, `0005_admin_ops.sql`, `0006_command_receipts.sql`, `0007_device_speaker_volume.sql` | — |
 | 1 | Sao lưu mốc thời gian D1 | `npx wrangler d1 time-travel info care_monitoring` | in ra thời điểm khôi phục được; ghi lại | — |
 | 2 | Kiểm secret (không in giá trị) | `npx wrangler secret list` | có `ADMIN_BOOTSTRAP_EMAILS`, `GOOGLE_CLIENT_SECRET`; **không** có `ADMIN_TOKEN_SHA256` | — |
-| 3 | Áp migration **trước** Worker | `npm run db:migrate:remote` | `0004` và `0005` đạt. Cột `reminder_schedules.paused_at`, bảng `admins`, `admin_sessions`, `admin_login_exchanges` tồn tại | Migration không có bản đảo: sửa bằng migration mới hoặc Time Travel (ghi đè DB) |
+| 3 | Áp migration **trước** Worker | `npm run db:migrate:remote` | `0004`–`0007` đạt. Cột `reminder_schedules.paused_at`, `device_commands.received_at/device_boot_id/ack_deadline_at`, `devices.speaker_volume`, bảng `admins`, `admin_sessions`, `admin_login_exchanges` tồn tại | Migration không có bản đảo: sửa bằng migration mới hoặc Time Travel (ghi đè DB) |
 | 4 | Kiểm bundle | `npm run deploy:dry-run` | thành công, không đổi gì | — |
 | 5 | Deploy Worker | `npm run deploy` | `GET /ready` → `"status":"ready"`, `admin_signin":"configured"`, `simulated_sources":"rejected"` | `npx wrangler rollback <version-id>` (mã, không phải dữ liệu) |
 | 6 | Kiểm không đổi hành vi cũ | `curl.exe --tls-max 1.2 -s -i https://<worker>/api/admin/v1/me` | 401 (không còn 404) | — |
@@ -302,4 +326,4 @@ Chỉ sau khi owner đồng ý riêng và có thiết bị thật:
 | 11 | Gửi một lệnh âm thanh thử | Chỉ khi firmware đã nạp và trả lời được `commands/next`. Kết luận "đã phát" chỉ khi thiết bị tự báo `completed` |
 | 12 | Một nhắc lịch thử | Chọn giờ cách vài phút. Bằng chứng cron chạy: xuất hiện lệnh `reminder` cho lần hẹn đó; không có lệnh nghĩa là cron chưa chạy hoặc thiết bị bị coi là ngoại tuyến quá hạn |
 
-**Đã kiểm cục bộ, không thay cho các bước trên:** test Worker trong runtime Workers (287), `deploy:dry-run`, test giao diện và Playwright với Worker giả. Chưa có bằng chứng nào từ Google thật, D1 production, cron production hay phần cứng.
+**Đã kiểm cục bộ, không thay cho các bước trên:** test Worker trong runtime Workers (309 sau ADR-022/024), `deploy:dry-run`, test giao diện và Playwright với Worker giả, và (2026-10-19) firmware ESP32-S3 thật qua HTTPS với backend cục bộ (`docs/E2E_TEST_RESULTS.md`). Chưa có bằng chứng nào từ Google thật, D1 production hay cron production. Bước 10–11 với firmware tích hợp: `firmware/carelens-esp32s3/README.md` (nạp `api` = URL Worker, không nạp `ca` để dùng bộ chứng chỉ ESP-IDF).

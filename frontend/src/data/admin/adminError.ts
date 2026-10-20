@@ -10,6 +10,7 @@ export type AdminErrorCode =
   | "not_found" // 404: the thing is gone, or an older server does not have this API yet
   | "conflict" // 409
   | "unavailable" // network failure or other 5xx
+  | "timeout" // no answer within the client time limit: the outcome of a mutation is unknown
   | "origin_blocked" // server answers but refuses this page's origin (CORS)
   | "no_backend" // this build has no VITE_API_BASE_URL
   | "invalid_response"; // 2xx with a body that does not match the contract

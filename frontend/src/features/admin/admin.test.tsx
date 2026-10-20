@@ -31,6 +31,20 @@ describe("admin login", () => {
     expect(probe()).toBe("viewer:signed_out admin:signed_out");
   });
 
+  it("is reachable from the viewer sign-in page by a plain link that starts no flow and grants nothing", async () => {
+    const backend = makeBackend();
+    const { router } = await mount("/login", backend);
+    const link = await screen.findByRole("link", { name: "Đăng nhập quản trị" });
+    expect(link).toHaveAttribute("href", "/admin/login");
+    await userEvent.click(link);
+    expect(await googleButton()).toBeVisible();
+    expect(router.state.location.pathname).toBe("/admin/login");
+    // Following the link is navigation only: no Google flow, no admin call, no session of either kind.
+    expect(startFullPageNavigation).not.toHaveBeenCalled();
+    expect(backend.adminCalls()).toEqual([]);
+    expect(probe()).toBe("viewer:signed_out admin:signed_out");
+  });
+
   it("exchanges the one-time code once, removes it from the address bar, and only then shows the admin area", async () => {
     const backend = makeBackend();
     await mount("/admin/login", backend, { hash: `#admin_code=${CODE}` });
@@ -214,9 +228,11 @@ describe("protected /admin", () => {
   it("signs out and returns to the login with an explanation when the server answers 401 to an admin call", async () => {
     const backend = makeBackend({ "GET /api/admin/v1/status": () => problem(401, "invalid_credential") });
     const { router } = await mount("/admin/login", backend, { hash: `#admin_code=${CODE}` });
+    // The login page renders twice (before the exchange, and again after the 401 signed the session out): wait for the
+    // explanation, which only the second one shows, before checking the heading, or the first heading may be detached.
+    expect(await screen.findByText(/Phiên quản trị đã hết hạn hoặc không còn hợp lệ/)).toBeVisible();
     expect(await loginHeading()).toBeVisible();
     await waitFor(() => expect(router.state.location.pathname).toBe("/admin/login"));
-    expect(await screen.findByText(/Phiên quản trị đã hết hạn hoặc không còn hợp lệ/)).toBeVisible();
     expect(probe()).toBe("viewer:signed_out admin:signed_out");
     // The expired session is gone: asking for /admin again goes back to the login and sends nothing.
     const before = backend.adminCalls().length;

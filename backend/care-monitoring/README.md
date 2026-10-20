@@ -62,7 +62,7 @@ npm run deploy:dry-run      # đóng gói, không cần tài khoản
 | Báo cáo ngày | Cron `15 17 * * *` UTC = 00:15 Asia/Ho_Chi_Minh, bù mỗi 10 phút. Số liệu do backend tính; đầu ra LLM bị từ chối nếu nêu id/khoảng trống lạ hoặc số không có trong đầu vào. Chỉ lưu khi có bộ đếm suy luận thật từ Ollama |
 | Lệnh thiết bị | `emergency_buzzer` (100), `reminder` (50), `play_voice_message` (40). `queued → delivered → accepted → started → completed`; `failed`/`rejected` (mã lý do), `expired`, `cancelled` (thiết bị xác nhận), `superseded`. "Đã phát" chỉ khi thiết bị báo `completed`. Giao lại cùng id nếu không `accepted` trong 30 s. Hết hạn thì không bao giờ phát lại |
 | Nhắc thuốc/nước | Lịch ở backend theo múi giờ; mỗi lần đến hạn một lệnh idempotent; lần mới hơn thay lần cũ chưa được nhận; hết `deadline_minutes` thì hết hạn |
-| Lời nhắn thoại | WAV PCM mono 16-bit, tần số theo `DEVICE_AUDIO_SAMPLE_RATES` (A31), R2 `AUDIO` khóa bất biến theo phiên bản. Thiết bị chỉ tải qua lệnh đang hoạt động (hỗ trợ `Range`), kèm `sha256` để tự kiểm |
+| Lời nhắn thoại | MP3 (ADR-025): tải lên `audio/mpeg`, Layer III 8–48 kHz mono/stereo, 0,5–60 s, ≤ 2 MB, kiểm mọi tiêu đề khung; lưu và giao nguyên tệp, thiết bị tự giải mã; WAV bị từ chối khi tải lên (`415 mp3_required`), bản ghi WAV cũ vẫn phát. R2 `AUDIO` khóa bất biến theo phiên bản. Thiết bị chỉ tải qua lệnh đang hoạt động (hỗ trợ `Range`), kèm `sha256` để tự kiểm; lệnh MP3 chỉ tạo được cho thiết bị đã báo `audio_codecs` có `mp3` |
 | Người dùng web | Đăng nhập bằng thông tin do owner cấp (ADR-018) → token phiên `clc_…` (12 h, chỉ trong bộ nhớ trình duyệt); vé stream `cls_…` dùng một lần cho `/api/demo/stream`. Quyền theo grant (`caregiver` / `viewer`): không grant 404, thiếu quyền 403 |
 | Live Demo | `/api/demo/stream` (SSE `state_update`) cho persona "Demo trực tiếp": quyết định, uống nước/thuốc, vòng đời lệnh, dòng trạng thái hệ thống, cảnh báo có phiên bản. Không vé → rỗng, trừ danh sách IP phát triển |
 | Vận hành | `GET /api/admin/v1/status`: hàng đợi và tuổi job, lỗi 24 h theo mã, lần suy luận thành công gần nhất, agent, thiết bị, IMU, lệnh, quyết định. `GET /ready`: năng lực thật |
@@ -82,7 +82,7 @@ Biến thường nằm trong `worker/wrangler.jsonc` (`vars`), secret đặt b�
 | `FRAMES_PER_CHUNK`, `CADENCE_TOLERANCE_MS`, `MAX_NORMAL_CAPTURES_PER_HOUR`, `MAX_TRIGGERED_CAPTURES_PER_HOUR` | var | Upload và hạn mức (A30) |
 | `IMU_RAW_RETENTION_HOURS`, `IMU_MAX_BATCH_AGE_SECONDS` | var | Lưu IMU thô và tuổi tối đa của lô (A33) |
 | `IMU_STORAGE_SOFT_LIMIT_MB` | var | Từ chối lô IMU thô (507 `imu_storage_budget_exceeded`) khi DB D1 lớn hơn mức này (mặc định 400 cho Free 500 MB; 0 = không nhận IMU thô). Cảnh báo, burst, lệnh không bị ảnh hưởng |
-| `DEVICE_AUDIO_SAMPLE_RATES` | var | Tần số WAV thiết bị phát được (mặc định `16000`) |
+| `DEVICE_AUDIO_SAMPLE_RATES` | var | Tần số của bản ghi **WAV cũ** thiết bị phát được (mặc định `16000`). Tần số MP3 cố định trong `media.ts MP3_CONTRACT` (đã kiểm trên thiết bị) |
 | `SESSION_TTL_HOURS` | var | Đời phiên đăng nhập web (mặc định 12) |
 | `LOGIN_PBKDF2_ITERATIONS` | var | Số vòng PBKDF2 cho mật khẩu do owner chọn (mặc định và tối đa 100000, tối thiểu 1000). Hạ xuống nếu lần đăng nhập vượt giới hạn CPU của gói Free; băm đã lưu giữ số vòng riêng nên không hỏng |
 | `DEVICE_ONLINE_WINDOW_SECONDS` | var | Thiết bị coi là đang kết nối nếu liên lạc trong khoảng này |

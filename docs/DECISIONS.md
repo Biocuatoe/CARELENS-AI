@@ -33,6 +33,9 @@ Không sửa nội dung mục đã Accepted. Tạo mục mới ghi `Supersedes`.
 | D11 | Quy tắc ứng viên hình ảnh và IMU thô cho nghi ngã (cần hiệu chỉnh trên thiết bị) | Open | 2026-10-19 |
 | D12 | Truy cập Live Demo `/api/demo/stream` của frontend | Proposed (đăng nhập + vé stream, ADR-018; một tài khoản giám khảo dùng chung) | 2026-10-19 |
 | D13 | Lệnh npm ở gốc (`-w @istartup/web`) không chạy vì glob workspace `frontend/*` | Proposed (đã sửa glob thành `frontend`, chờ owner duyệt) | 2026-10-19 |
+| D14 | Thiết bị đeo trên ngực: mọi linh kiện trong một hộp, MPU6050 cố định trong hộp, camera nhìn từ ngực ra — hệ quả cho hiệu chỉnh ngã, riêng tư và an toàn | Open | 2026-10-19 |
+| D15 | Hợp đồng lệnh không có trạng thái "thiết bị đã nhận" tách khỏi "đã tải và kiểm âm thanh"; hạn ACK 30 s và khởi động lại giữa lệnh | Proposed (ADR-022 đã triển khai cục bộ và kiểm trên thiết bị thật; chưa lên production) | 2026-10-19 |
+| D16 | Cảm biến IMU trong hộp trả `WHO_AM_I = 0x70`, không phải 0x68 của MPU6050 | Open | 2026-10-19 |
 | ADR-001 | Neumorphism cho landing và app | Accepted | 2026-09-14 |
 | ADR-002 | Modular monolith: React SPA + FastAPI + PostgreSQL | Accepted | 2026-09-14 |
 | ADR-003 | Monorepo với npm workspaces và uv workspace | Accepted | 2026-09-14 |
@@ -53,6 +56,11 @@ Không sửa nội dung mục đã Accepted. Tạo mục mới ghi `Supersedes`.
 | ADR-018 | Đăng nhập web bằng thông tin do owner cấp và vé stream dùng một lần cho Live Demo | Proposed | 2026-10-19 |
 | ADR-019 | Hợp đồng thiết bị v2: đồng hồ boot/uptime, lô IMU thô, xác nhận lệnh đủ vòng đời | Proposed | 2026-10-19 |
 | ADR-020 | Danh tính admin: đăng nhập Google riêng (`mode=admin`), danh sách bootstrap bằng secret, phiên `clm_` tách khỏi người xem | Proposed | 2026-10-19 |
+| ADR-021 | Công cụ build firmware: PlatformIO + pioarduino `55.03.38-1` (Arduino-ESP32 core 3.3.8), board `esp32-s3-devkitc1-n16r8` với cờ tương đương Arduino IDE | Proposed (đã nạp và chạy trên bo thật; bản Arduino IDE cũ dùng core 3.3.12) | 2026-10-19 |
+| ADR-022 | Xác nhận lệnh `received` bổ sung, hạn tải âm thanh theo kích thước, đóng lệnh khi thiết bị khởi động lại (tương thích ngược) | Proposed (triển khai cục bộ + migration 0006, kiểm trên thiết bị thật; chưa lên production) | 2026-10-19 |
+| ADR-023 | Firmware tích hợp trong repo (`firmware/carelens-esp32s3/`): bí mật nạp vào NVS qua UART, log UART0, không web server trên thiết bị, CA thử nghiệm cục bộ cho E2E | Proposed (đã kiểm trên bo thật với backend cục bộ) | 2026-10-19 |
+| ADR-024 | Âm lượng loa đặt từ dashboard, gửi qua phản hồi heartbeat, "đã áp dụng" chỉ theo báo cáo của thiết bị (migration 0007) | Proposed (theo yêu cầu người dùng 2026-10-19; đã kiểm trên thiết bị thật) | 2026-10-19 |
+| ADR-025 | Lời nhắn thoại là MP3 từ đầu đến cuối: tải lên MP3, lưu và giao nguyên tệp, ESP32 tự giải mã (dr_mp3); WAV chỉ còn để phát bản ghi cũ; thiết bị báo codec qua heartbeat | Proposed (theo yêu cầu người dùng 2026-10-20; đã kiểm trên thiết bị thật với backend cục bộ; chưa lên production) | 2026-10-20 |
 | A01 | Múi giờ hiển thị mặc định Asia/Ho_Chi_Minh | Proposed | 2026-09-14 |
 | A02 | Type contract viết tay ở web cho tới khi có OpenAPI | Proposed | 2026-09-14 |
 | A03 | Diễn giải trạng thái hover và pressed của nút primary | Proposed | 2026-09-14 |
@@ -75,6 +83,7 @@ Không sửa nội dung mục đã Accepted. Tạo mục mới ghi `Supersedes`.
 | A38 | Bản deploy chỉ đăng nhập bằng Google; mọi tài khoản Google đã xác minh được xem (chỉ xem) đúng một hồ sơ trình diễn | Proposed | 2026-10-19 |
 | A39 | Khu quản trị `/admin` (giao diện Phase B-UI): phiên admin tách khỏi người xem, chỉ đọc, không có dữ liệu giả | Proposed | 2026-10-19 |
 | A40 | Bảng điều khiển admin có API thật: thiết bị, báo cáo ngày, gửi âm thanh, nhắc lịch, nhật ký; header bảo mật Vercel; migration 0005 | Proposed | 2026-10-19 |
+| A41 | XCLK camera 20 MHz thay vì 10 MHz của baseline để burst đạt nhịp 125 ± 40 ms | Proposed (đo trên bo thật; nhiệt chưa đo) | 2026-10-19 |
 
 ## Vấn đề sản phẩm chưa chốt (từ plan §3)
 
@@ -95,6 +104,9 @@ Owner của D01–D09 chưa được gán. Không dùng D02–D06 để chặn p
 | D11 | Gói mô hình trả `NOT_CALIBRATED`, không có ngưỡng ngã đã hiệu chỉnh trên thiết bị. Ngưỡng demo −0,3296 thuộc điểm video của demo, không áp cho API. Chưa có ngưỡng gia tốc/con quay nào được kiểm chứng cho cách gắn MPU6050 và người đeo | `fusion-rules.v2` mặc định: `vision_candidate_rule: null`, `imu_candidate_rule: null`, không có công tắc cảnh báo đơn nguồn (đã bỏ). Kích hoạt firmware chỉ mở quyết định `needs_review` / `not_enough_data` / `processing_failed`, không tạo cảnh báo. Backend lưu điểm thô và IMU thô (72 h) để hiệu chỉnh | Owner cung cấp **cả hai** quy tắc đã hiệu chỉnh trên dữ liệu ESP32 thật (24 khung và cách gộp 40 khung; ngưỡng IMU theo đúng vị trí gắn) kèm `approved_by`, `evidence_ref`; kiểm lại `alignment_tolerance_ms`, `imu_min_coverage_ratio`, `imu_max_gap_ms` trên bản ghi thật | Chưa gán |
 | D12 | `EventSource` không gửi được header nên `/api/demo/stream` cũ không kiểm được quyền theo hồ sơ; giám khảo cần xem Live Demo sau khi đăng nhập | **Proposed (ADR-018):** biểu mẫu đăng nhập hiện có gọi `POST /api/app/v1/session` bằng thông tin owner cấp; frontend lấy vé `cls_` dùng một lần (60 s) cho mỗi lần mở stream; giám khảo nhận grant `viewer` (chỉ đọc). Không vé → không có dữ liệu, trừ danh sách IP chỉ dùng cho phát triển cục bộ | Owner xác nhận cách cấp tài khoản cho giám khảo. **Mặc định (owner nêu 2026-10-19):** một tài khoản giám khảo dùng chung, grant `viewer` chỉ trên hồ sơ trình diễn, mật khẩu do máy chủ sinh, chia sẻ ngoài kênh; nhiều giám khảo đăng nhập cùng lúc (mỗi lần đăng nhập là một phiên); không đăng ký, không khôi phục mật khẩu; sau buổi trình diễn thu hồi grant và đổi mật khẩu (`docs/DEPLOYMENT_RUNBOOK.md` §8.1). Câu "Bản demo chưa có máy chủ xác thực…" trong `LoginPage.tsx` đã sửa 2026-10-19 theo yêu cầu owner (chỉ đổi hai câu chữ, giữ bố cục) | Chưa gán |
 | D13 | `package.json` gốc khai báo `"workspaces": ["frontend/*", "backend/*"]` (có từ commit `e9d9b67`), nên `npm run build|test|lint|typecheck` ở gốc báo "No workspaces found: --workspace=@istartup/web". `package-lock.json` gốc còn từ thời `apps/web` (45 phiên bản khác, thiếu `three`) | **Proposed, đã sửa 2026-10-19 theo yêu cầu owner:** chỉ đổi `"frontend/*"` thành `"frontend"` (giữ các thay đổi chưa commit khác của owner trong `package.json`); `package-lock.json` gốc dựng lại từ `frontend/package-lock.json` rồi chuẩn hóa bằng `npm install --package-lock-only` — 0 khác biệt `version`/`resolved`/`integrity` so với bản frontend đã kiểm, không nâng cấp gói. Lệnh gốc chạy được; `cd frontend && npm ci` trong bản sao sạch cài theo workspace gốc (đường của Vercel) và build thành công. Từ đây `npm install` (gốc hoặc trong `frontend/`) dùng lockfile gốc; `frontend/package-lock.json` chỉ còn cho `frontend/Dockerfile` cũ (đang hỏng vì trỏ `apps/web`) | Owner duyệt thay đổi; quyết định giữ hay bỏ `frontend/package-lock.json`, `frontend/Dockerfile`, `cloudbuild-web.yaml` | Chưa gán |
+| D14 | Owner xác nhận (phiên Claude Code 2026-10-19; câu trả lời đầu "không đeo trên người" đã được owner sửa trong cùng phiên): mọi linh kiện nằm trong **một hộp, hộp đeo trên ngực** người được chăm sóc; MPU6050 cố định trong hộp. Hệ quả: (1) IMU đo chuyển động thân trên qua hộp và dây đeo; tín hiệu phụ thuộc độ chặt dây, vị trí trên ngực và hướng lắp cảm biến trong hộp (trục nào thẳng đứng khi đứng: chưa biết). IMU một mình vẫn không xác nhận được ngã. (2) Camera nhìn từ ngực ra: thấy môi trường, tay, đồ vật trước mặt và người khác, **không thấy tư thế của chính người đeo** (liên quan D02). Gói mô hình ngã R3D-18 chưa được kiểm chứng trên video góc nhìn người đeo (khi ngã, cảnh lật và nhòe). (3) Hai nguồn trên cùng thiết bị, cùng đồng hồ → căn thời gian thuận lợi, nhưng chưa có quy tắc nào được hiệu chỉnh cho vị trí đeo ngực. (4) Camera đeo trên người quay cả người xung quanh (riêng tư người thứ ba). (5) Thiết bị áp sát người: nhiệt của OV5640/ESP32, pin LiPo và âm lượng loa cần đo an toàn | Giữ chính sách mặc định (không quy tắc, không cảnh báo nghi ngã, D11). Không tự đặt ngưỡng IMU hay hình ảnh. Dải đo ±2 g mặc định của sketch có thể bão hòa khi va chạm (backend đã gắn cờ chạm dải đo); dải đo của firmware chọn theo bản ghi thử, không đoán. Chỉ người thử đã đồng ý, không bệnh nhân thật (ESP32_READINESS §6). Chi tiết: `docs/HARDWARE.md` §5 | Owner: (a) xác nhận hướng lắp MPU6050 trong hộp và cách đeo (dây, vị trí trên ngực); (b) cung cấp bản ghi thật có nhãn (ngã giả lập an toàn, sinh hoạt thường) để hiệu chỉnh cả hai quy tắc cho vị trí đeo ngực (D11); (c) quyết định cách xử lý người xung quanh trong khung hình (D10, D08); (d) đo nhiệt bề mặt hộp khi chụp liên tục trước khi đeo lâu | Chưa gán |
+| D15 | Người dùng (2026-10-19) muốn phân biệt: backend nhận lệnh · thiết bị nhận lệnh · `started` (đã tải, đã kiểm SHA-256, loa thật sự bắt đầu phát) · `completed` (phát xong, có ACK hợp lệ), **giữ nguyên ngữ nghĩa hiện có, không định nghĩa lại `accepted`**. Hợp đồng hiện tại (`docs/DEVICE_API.md` §8.2): "backend nhận" = `queued`; `delivered` do **máy chủ** ghi khi trả lệnh trong phản hồi 200, không phải xác nhận của thiết bị; `accepted` của thiết bị = đã lưu lệnh **và** (với âm thanh) đã tải và kiểm SHA-256. Không có báo cáo "đã nhận, đang tải". Hạn ACK 30 s đếm từ `delivered` tới `accepted` nên gồm cả thời gian tải (rủi ro R-1 của `docs/AUDIT_INVENTORY_2026-10-19.md`); thiết bị khởi động lại khi lệnh ở `accepted`/`started` không được máy chủ phát hiện (R-2). `device_commands.status` có CHECK cố định: thêm giá trị trạng thái mới cần dựng lại bảng | Cục bộ (2026-10-19): ADR-022 đã triển khai (migration 0006) và kiểm trên thiết bị thật; production vẫn chạy hành vi cũ tới khi owner duyệt triển khai. Firmware gửi `received` khi nhận lệnh (bỏ qua nếu máy chủ cũ trả 422), `accepted` chỉ sau khi tải đủ và kiểm SHA-256, gửi `started` chỉ khi loa thật sự bắt đầu phát, `completed` chỉ khi phát hết, kiểm hạn bằng đồng hồ đơn điệu trước khi phát | Owner duyệt ADR-022 (hoặc một phần); đo thời gian tải WAV thật qua HTTPS trên ESP32 để chốt tốc độ tối thiểu dùng cho hạn tải | Chưa gán |
+| D16 | Cảm biến IMU trong hộp trả `WHO_AM_I = 0x70` (đo bằng firmware tích hợp 2026-10-19); MPU6050 thật trả 0x68, 0x70 thường gặp ở MPU6500 hoặc chip tương thích bán dưới tên MPU6050. Các thanh ghi dùng (PWR_MGMT_1, SMPLRT_DIV, CONFIG, GYRO_CONFIG, ACCEL_CONFIG, dữ liệu 0x3B–0x48) đọc lại đúng; đứng yên \|a\| ≈ 1,00 g ở ±8 g; 50 Hz, 0 lỗi đọc | Dùng như MPU6050 (cùng bản đồ thanh ghi cho các phần dùng); contract vẫn ghi `sensor: "mpu6050"`. Quy tắc IMU (D11) phải hiệu chỉnh trên chính cảm biến này | Owner xác định linh kiện thật (ký hiệu trên chip/nhà bán); quyết định có thêm `sensor: "mpu6500"` vào contract | Chưa gán |
 
 ## Quyết định kỹ thuật
 
@@ -415,7 +427,112 @@ Owner của D01–D09 chưa được gán. Không dùng D02–D06 để chặn p
 - **Điều kiện giải quyết:** Owner chấp nhận thiết kế, đặt secret `ADMIN_BOOTSTRAP_EMAILS` bằng `wrangler secret put`, áp migration `0004`, và một lần đăng nhập admin thật thành công.
 - **Owner:** Chưa gán
 
+### ADR-021 — Công cụ build firmware: PlatformIO + pioarduino (Arduino-ESP32 core 3.3.8)
+
+- **Trạng thái:** Proposed · 2026-10-19 · Hướng công cụ do người dùng chọn trong phiên Claude Code 2026-10-19 ("PlatformIO trong VS Code, Arduino framework, core 3.x, nếu sketch và cấu hình board đã kiểm build được"); phiên bản, board và cờ do coding agent đề xuất và kiểm.
+- **Bối cảnh:** Sketch baseline (`docs/HARDWARE.md` §3) viết cho Arduino core 3.x (`ESP_I2S.h`). PlatformIO Core 6.1.19 trên máy có nền chính thức chỉ kèm core 2.0.17. Arduino15 có core 3.3.8 nhưng không có `arduino-cli`.
+- **Lựa chọn:** nền pioarduino `55.03.38-1` (ghim URL; SHA-256 zip khớp digest GitHub), kéo Arduino-ESP32 3.3.8 và ESP-IDF libs 5.5.4 từ bản phát hành chính thức; board `esp32-s3-devkitc1-n16r8` cộng phân vùng `app3M_fat9M_16MB.csv` và cờ `ARDUINO_USB_MODE=1`, `ARDUINO_USB_CDC_ON_BOOT=1`, MSC/DFU = 0, `CORE_DEBUG_LEVEL=0`. Thư mục core PlatformIO trên D: (`PLATFORMIO_CORE_DIR`), không đổi cấu hình hệ thống.
+- **Đã kiểm chứng (2026-10-19, PC dev, chưa nạp):** bản sao `.cpp` của sketch (chỉ thêm `#include <Arduino.h>` và thay chuỗi SSID/mật khẩu bằng placeholder) build đạt; macro biên dịch, biến thể SDK `qio_opi`, ELF bootloader `qio_80m`, header ảnh (DIO/80m/16MB), bảng phân vùng và giới hạn kích thước khớp cấu hình Arduino IDE ghi trong sketch. Bằng chứng và lệnh: `docs/FIRMWARE_TOOLCHAIN.md` §3.
+- **Hệ quả:** (1) Mã `.ino` có chuỗi raw không qua được bộ tiền xử lý của PlatformIO: firmware mới viết thẳng `.cpp`. (2) Không build từ Git Bash/MSYS (trình cài công cụ từ chối). (3) Tương đương lúc **chạy** trên bo chưa kiểm: cần owner nạp bản baseline build bằng PlatformIO và so với bản nạp bằng Arduino IDE (`docs/FIRMWARE_TOOLCHAIN.md` §8). (4) Phụ thuộc bản nền cộng đồng; nâng phiên bản phải kiểm lại bảng ở §3.
+- **Điều kiện giải quyết:** owner xác nhận hướng này, xác nhận phiên bản core đã dùng cho bản nạp chạy được (nếu khác 3.3.8 thì đối chiếu), và một lần chạy baseline build bằng PlatformIO trên bo thật.
+- **Cập nhật 2026-10-19 (đã kiểm chứng trên bo thật):** baseline build bằng PlatformIO đã nạp qua COM6 và chạy (Wi-Fi, camera, IMU, phát WAV; `BASELINE_FLASH_TEST_REPORT.md`); firmware tích hợp (ADR-023) build và chạy bằng cùng cấu hình. Ảnh app cũ trong bản sao lưu flash chứa đường dẫn `__FILE__` `Arduino15\packages\esp32\hardware\esp32\3.3.12\…` và `tools\esp32s3-libs\3.3.12`, header ảnh ghi ESP-IDF v5.5.5: bản nạp bằng Arduino IDE trước đây dùng **core 3.3.12**; Arduino15 trên PC này chỉ có 3.3.8. Chưa thấy khác biệt hành vi nào do chênh core (vấn đề `/beep` tái hiện y hệt trên firmware mới, nguyên nhân là âm lượng/loa, xem `docs/HARDWARE.md`).
+- **Owner:** Chưa gán
+
+### ADR-022 — Xác nhận `received` bổ sung, hạn tải âm thanh theo kích thước, đóng lệnh khi thiết bị khởi động lại
+
+- **Trạng thái:** Proposed · 2026-10-19 · Đề xuất bởi coding agent cho D15. **Chưa triển khai.** Người dùng yêu cầu đề xuất trước khi đổi hành vi API.
+- **Bối cảnh (đọc từ mã, `backend/care-monitoring/worker/src/commands.ts`):**
+
+  | Khái niệm người dùng nêu | Trạng thái hiện có | Ai ghi | Hạn hiện tại |
+  | --- | --- | --- | --- |
+  | Backend nhận lệnh | `queued` (201 `created:true`) | máy chủ | `expires_at` = tạo + `expires_in_seconds` (30–3600 s) |
+  | Lệnh được trao cho thiết bị | `delivered` (khi `GET /commands/next` trả 200) | máy chủ | chưa `accepted` sau `ACK_TIMEOUT_SECONDS` = 30 s → giao lại cùng `command_id`, tối đa 3 lượt → `failed no_acknowledgement` |
+  | Thiết bị nhận lệnh | **không có** | — | — |
+  | Đã tải và kiểm SHA-256 | `accepted` (báo cáo của thiết bị) | thiết bị | phải trước `expires_at` |
+  | Loa bắt đầu phát | `started` | thiết bị | phải trước `expires_at`; quá 600 s không kết thúc → `failed no_completion_report` |
+  | Phát xong | `completed` (`played_confirmed_by_device = true`) | thiết bị | — |
+
+  Giới hạn âm thanh thật: WAV PCM 16-bit mono 16 kHz, 0,5–60 s → tối đa 1 920 044 byte (trần máy chủ 2 200 000). Cron dọn hạn chạy mỗi phút; `GET /commands/next` và báo cáo trạng thái cũng dọn hạn cho đúng thiết bị đó. Thời gian tải trên ESP32 **chưa đo**.
+- **Phương án:**
+  1. Giữ nguyên, chỉ tăng `ACK_TIMEOUT_SECONDS` cho mọi lệnh: đơn giản nhưng làm chậm phát hiện phản hồi bị mất (giao lại muộn) cho cả còi khẩn.
+  2. Thêm trạng thái `received` vào `device_commands.status`: cần dựng lại bảng (CHECK của SQLite không sửa tại chỗ) và làm client cũ gặp trạng thái lạ.
+  3. **(Đề xuất)** Thêm *báo cáo* `received` nhưng không thêm *trạng thái*: cột `status` vẫn `delivered`, máy chủ ghi `received_at`, `device_boot_id` và một dòng `received` trong `device_command_events` (cột `status` của bảng này không có CHECK).
+- **Nội dung đề xuất (phương án 3):**
+  1. `command-status.v2` nhận thêm giá trị `received` (cộng thêm vào enum; thiết bị không gửi vẫn hợp lệ). Chỉ từ `delivered`. Gửi lại khi đã `received`/`accepted`/`started`/`completed` → 200 `duplicate:true`, không lùi trạng thái.
+  2. Khi đã có `received_at`: máy chủ **không giao lại** lệnh đó. Hạn tải = `received_at + 30 s + ceil(byte_size / AUDIO_DOWNLOAD_MIN_BYTES_PER_SECOND)`, không vượt `expires_at`; mặc định đề xuất 16 000 B/s (WAV tối đa ≈ 150 s, gấp đôi thời lượng phát), chốt lại sau khi đo trên ESP32. Quá hạn mà chưa `accepted`/`started` → `failed` `download_timeout` (không giao lại, tránh phát trùng hoặc muộn).
+  3. Thiết bị không gửi `received`: với lệnh có âm thanh, hạn giao lại tính bằng cùng công thức từ `delivered_at` thay cho 30 s cố định; còi và nhắc lịch không có âm thanh giữ 30 s.
+  4. `started` nghĩa là **loa đã thật sự bắt đầu phát** sau khi tải đủ và kiểm SHA-256 (đúng định nghĩa người dùng). Thiết bị phải kiểm hạn bằng đồng hồ đơn điệu (`uptime lúc nhận + expires_in_ms`) **trước** khi phát, gửi `started` ngay khi mẫu I2S đầu tiên được ghi, và dừng ngay nếu nhận 409 `stop_playback`. Câu "Không bắt đầu phát khi `accepted`/`started` bị từ chối" của `DEVICE_API.md` §8.2 mục 5 được sửa cho khớp. Tùy chọn 4a: máy chủ chỉ nhận `started` của lệnh có âm thanh sau `accepted`.
+  5. Khởi động lại: máy chủ lưu `boot_id` của báo cáo `received`/`accepted`/`started`. Khi heartbeat hoặc báo cáo trạng thái mang `boot_id` khác: lệnh chưa `started` và chưa hết hạn → trở lại `queued` (`status_reason = device_rebooted`; chưa phát nên không thể phát trùng); lệnh `started` → `failed` `device_rebooted` (không bao giờ tự thành `completed`). Firmware gửi heartbeat ngay sau khi khởi động, trước `commands/next`.
+  6. Migration `0006` chỉ cộng thêm: `device_commands.received_at TEXT`, `device_commands.device_boot_id TEXT`. Không dựng lại bảng; Worker cũ bỏ qua hai cột.
+  7. Giao diện: hiện "Thiết bị đã nhận lệnh, đang tải âm thanh" khi có `received_at`; nhãn cho `download_timeout`, `device_rebooted`. Không đổi giá trị `status` nên frontend cũ vẫn hiển thị đúng như hiện nay.
+- **Ma trận tương thích:**
+
+  | Thành phần | Ảnh hưởng |
+  | --- | --- |
+  | Thiết bị theo hợp đồng hiện tại (không gửi `received`) | Vẫn chạy; lệnh có âm thanh chờ lâu hơn trước khi bị giao lại |
+  | Thiết bị gửi `received` | Phát hiện phản hồi mất sau 30 s, có thời gian tải riêng |
+  | Frontend production hiện tại | Không đổi giá trị trạng thái; trường mới bị bỏ qua; mã lý do mới hiện nguyên mã cho tới khi thêm nhãn |
+  | Agent cục bộ | Không ảnh hưởng |
+  | DB | `0006` cộng thêm, áp sau `0004`/`0005`, trước Worker mới |
+  | Schema `contracts/` | `command-status.v2` thêm một giá trị enum; thêm fixture hợp lệ `command-status.v2.received.json` |
+- **Test cần thêm khi triển khai:** `received` trùng và sai thứ tự; không giao lại sau `received`; tải quá hạn → `download_timeout`; thiết bị không gửi `received` với WAV lớn không bị giao lại trước hạn theo kích thước; khởi động lại khi `accepted` → `queued` rồi giao lại; khởi động lại khi `started` → `failed device_rebooted`; lệnh hết hạn không bao giờ `started`; hai `GET /commands/next` đồng thời không giao hai lệnh; hành vi cũ của còi/nhắc lịch không đổi.
+- **Điều kiện giải quyết:** Owner duyệt toàn bộ hoặc từng mục (1–7); sau đó Prompt 2 triển khai cùng test. Đo thời gian tải WAV trên ESP32 thật (Prompt 4/7) để chốt tốc độ tối thiểu.
+- **Triển khai cục bộ 2026-10-19** (người dùng yêu cầu "tự quyết định kỹ thuật từ mã hiện có, giữ cổng phê duyệt production"; trạng thái vẫn Proposed tới khi owner duyệt):
+  - Mục 1–7 và 4a đã có trong `worker/src/commands.ts`, `index.ts` (heartbeat), `contracts.ts` (`received`, `device_rebooted`, `download_timeout`), migration `0006_command_receipts.sql` (3 cột cộng thêm: `received_at`, `device_boot_id`, `ack_deadline_at`). Biến `AUDIO_DOWNLOAD_MIN_BYTES_PER_SECOND` (mặc định 16 000).
+  - Khác đề xuất ở hai chỗ: (a) hạn giao lại tính sẵn lúc giao vào cột `ack_deadline_at` (một câu SQL, không cần batch thứ hai); (b) báo cáo trạng thái từ boot mới **loại trừ chính lệnh đang được báo** khỏi việc đóng do khởi động lại, để `completed` mà thiết bị lưu qua lần khởi động lại vẫn được ghi nhận.
+  - Hai test cũ (còi khẩn, hủy lệnh) báo `started` từ `delivered` cho lời nhắn có âm thanh; đã thêm bước `accepted` theo mục 4a. Test giao lại dùng hạn 30 s + 3 s cho WAV 32 044 byte.
+  - Kiểm chứng: `test/command-receipts.test.ts` (17 test) + toàn bộ Worker 309/309; thiết bị thật đi đủ `delivered → received → accepted → started → completed`, và 9 kịch bản lỗi (`docs/E2E_TEST_RESULTS.md`). Tải WAV 63 724 byte qua HTTPS trên ESP32 mất khoảng 100 ms trên LAN (một Range 206); tốc độ tối thiểu 16 000 B/s chưa được đo qua internet.
+- **Owner:** Chưa gán
+
+### ADR-023 — Firmware tích hợp: bí mật trong NVS qua UART, log UART0, không web server, CA thử nghiệm cục bộ
+
+- **Trạng thái:** Proposed · 2026-10-19 · coding agent, theo nhiệm vụ "firmware tích hợp backend và kiểm trên thiết bị thật" của người dùng.
+- **Bối cảnh:** Sketch baseline viết cứng SSID/mật khẩu, mở camera trên LAN không xác thực, có AP dự phòng mật khẩu yếu, tràn bộ đệm khi phát WAV mono (FW-1) và in log ra cổng USB gốc không cắm vào PC.
+- **Lựa chọn:**
+  - Dự án `firmware/carelens-esp32s3/` trong repo, cấu hình build và chân lấy nguyên từ baseline (ADR-021, `docs/HARDWARE.md`).
+  - Không bí mật nào trong mã hay `.bin`: Wi-Fi, URL API, `device_id`, token `cld_`, CA tùy chọn được nạp vào NVS qua console UART0 (`tools/provision.py`); console không in lại giá trị, chỉ in độ dài. NVS không mã hóa (cần flash encryption, chưa bật).
+  - Log chẩn đoán ra `Serial0` (UART0 → CH343 → COM6), giữ `ARDUINO_USB_CDC_ON_BOOT=1` như baseline.
+  - Không web server, không AP dự phòng, chỉ HTTPS ra ngoài. Chứng chỉ luôn được kiểm (CA đã nạp hoặc bộ chứng chỉ ESP-IDF), SNTP trước request đầu.
+  - Thử E2E cục bộ: CA thử nghiệm riêng, chứng chỉ máy chủ theo IP LAN, proxy TLS chỉ trên IP LAN và chỉ chuyển tiếp `/api/device/v1/*` (`tools/local_tls_proxy.py`). Đây là xác minh thật bằng CA riêng, không phải tắt kiểm chứng; CA không bao giờ dùng ngoài mạng nhà.
+  - Lời chào "Xin chào." nhúng trong flash (Piper, giọng `vi_VN-vais1000-medium`, CC BY 4.0), một lần mỗi lần khởi động, bỏ qua sau brownout hoặc 2 lần khởi động ngắn liên tiếp.
+- **Hệ quả:** Muốn đổi Wi-Fi hay token phải cắm cáp UART. Ai cầm được bo đọc được NVS. Trên production, thiết bị dùng bộ chứng chỉ ESP-IDF (`tlscheck` tới `workers.dev` đã đạt 200 với xác minh đầy đủ).
+- **Đã kiểm chứng (2026-10-19, bo thật + backend cục bộ):** host test 94/94, selftest trên bo 8/8, lời chào nghe rõ (người dùng xác nhận), heartbeat/IMU/burst/lệnh âm thanh, 9 kịch bản lỗi (`docs/E2E_TEST_RESULTS.md`).
+- **Điều kiện giải quyết:** owner chấp nhận cách nạp bí mật và vị trí dự án; quyết định có bật flash encryption + NVS encryption không.
+- **Owner:** Chưa gán
+
+### ADR-024 — Âm lượng loa từ dashboard, gửi qua phản hồi heartbeat
+
+- **Trạng thái:** Proposed · 2026-10-19 · theo yêu cầu người dùng ("loa đang bị bé quá, bổ sung nút chỉnh âm lượng trong admin dashboard").
+- **Lựa chọn:** `PUT /api/admin/v1/devices/{id}/speaker-volume` `{volume, confirm: true}` (0,05–0,70, bước 0,05; audit `device.speaker_volume`; tính vào hạn mức 20 thay đổi/phút). Lưu ở `devices.speaker_volume` (migration `0007`, cộng thêm, có CHECK). Phản hồi heartbeat mang `config.speaker_volume`; thiết bị áp dụng, lưu NVS, và báo `status.speaker_volume` ở heartbeat kế (chỉ khi máy chủ có gửi `config`, nên firmware mới vẫn chạy với Worker cũ). Dashboard hiện riêng "mức đặt trên máy chủ" và "thiết bị báo đang dùng"; chờ thiết bị báo mới coi là đã áp dụng.
+- **Vì sao không dùng lệnh:** `device_commands.command_type` có CHECK cố định; thêm loại lệnh phải dựng lại bảng. Âm lượng là thiết lập, không phải hành động có vòng đời phát.
+- **Giới hạn 0,70:** giới hạn phần mềm thận trọng cho loa 8 Ω 1 W trên MAX98357A (GAIN không nối, 9 dB), **không phải số đo công suất**. Ở 0,70 người dùng nghe "rõ, đủ to"; ở 0,25 và 0,45 "vẫn nhỏ".
+- **Đã kiểm chứng (2026-10-19):** `test/speaker-volume.test.ts` (5 test), test UI (3 test), Playwright với thiết bị thật: đặt 45% rồi 70% trên dashboard, thiết bị tự báo đúng mức trong vòng một heartbeat.
+- **Owner:** Chưa gán
+
+### ADR-025 — Lời nhắn thoại MP3 từ đầu đến cuối, giải mã trên ESP32
+
+- **Trạng thái:** Proposed · 2026-10-20 · theo yêu cầu người dùng ("FULL MP3 AUDIO PIPELINE MIGRATION": tải MP3, không chuyển sang WAV ở frontend hay backend, ESP32 tự giải mã MP3). Thay hợp đồng WAV-only trước đó (`media.ts AUDIO_CONTRACT`, A31).
+- **Trước đây:** chỉ nhận WAV PCM mono 16-bit 16 kHz (`DEVICE_AUDIO_SAMPLE_RATES`), vì firmware chỉ đẩy PCM thẳng ra I2S. Tệp MP3 hay stereo bị từ chối ở trình duyệt ("Cần âm thanh mono") và người dùng không có cách gửi tệp thường gặp.
+- **Lựa chọn:**
+  - **Tải lên:** chỉ `audio/mpeg` (MPEG-1/2/2.5 Layer III; 8; 11,025; 12; 16; 22,05; 24; 32; 44,1 hoặc 48 kHz; mono hoặc stereo; CBR hoặc VBR; 0,5–60 s; ≤ 2 000 000 byte). WAV bị từ chối `415 mp3_required`. Máy chủ duyệt **mọi tiêu đề khung** (`inspectMp3`): một tần số, một kiểu kênh, khung đủ, chỉ cho phép thẻ ID3v2 ở đầu, APEv2/ID3v1 ở cuối và đệm 0; không dựa vào tên hay kiểu tệp. Trình duyệt làm cùng phép duyệt để báo lỗi sớm; tệp không được giải mã hay đổi gì.
+  - **Lưu và giao:** tệp lưu nguyên vẹn (R2 `…/vN.mp3`, `content_type audio/mpeg`, `bits_per_sample = 0` vì MP3 không có độ sâu mẫu trước khi giải mã; **không cần migration**, các cột hiện có đủ). Lệnh mang `content_type: audio/mpeg`, `codec: mp3`, `sample_rate_hz`, `channels`, `duration_ms`, `byte_size`, `sha256`; route tải trả đúng các byte đã tải lên, có Range.
+  - **Firmware (`carelens-fw-0.2.0`):** tải cả tệp vào PSRAM (≤ 2 MB), kiểm SHA-256, chạy lại cùng phép duyệt khung và so với siêu dữ liệu của máy chủ, rồi **giải mã từng khung** bằng dr_mp3 v0.7.4 (mackron/dr_libs, public domain/MIT-0, dựa trên minimp3; vendored nguyên vẹn, `src/third_party/dr_mp3`) qua API "push" cấp thấp. Trạng thái giải mã (~23 KB, gồm vùng scratch) và một khung PCM (4,6 KB) nằm trong PSRAM, cấp một lần; RAM nội giữ cho Wi-Fi/TLS (`CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC`). I2S đổi theo tần số của tệp; mỗi khung chia khối 256 frame qua `pcmToStereo` có sẵn; cờ dừng được xét giữa các khối; thời gian phát tối đa = độ dài tệp + 5 s.
+  - **Tương thích:** phản hồi heartbeat có `config.report_audio_codecs: true`; firmware 0.2.0 trả `status.audio_codecs: ["pcm_s16le","mp3"]` (trường tùy chọn, chỉ gửi khi máy chủ hỏi, nên firmware mới vẫn chạy với Worker cũ). Máy chủ **từ chối tạo** lệnh hoặc nhắc lịch (admin) có MP3 cho thiết bị chưa báo `mp3` (`422 audio_not_playable`). Nhắc lịch do người chăm sóc tạo không kiểm trước; nếu cron gửi MP3 tới firmware cũ, firmware báo `rejected audio_format_unsupported` (đúng sự thật, không phát sai).
+  - **Bản ghi WAV cũ:** giữ nguyên `content_type audio/wav` và được giao với `codec: pcm_s16le`; firmware 0.2.0 vẫn phát WAV. Không bao giờ dán nhãn MP3 cho WAV. Lệnh WAV đang chờ vẫn phát được; lệnh đã bắt đầu trước khi khởi động lại vẫn thành `failed device_rebooted` (ADR-022).
+  - **Lời chào khởi động:** chuyển sang MP3 (`assets/greeting_vi_xin_chao_16k.mp3`, LAME 48 kbps, 4 104 byte thay vì 18 924 byte WAV; WAV giữ làm bản gốc), phát qua cùng bộ giải mã. Âm khác (bíp, còi, chuông nhắc, quét tần) là sóng tổng hợp, không phải tệp.
+- **Vì sao không dùng thư viện khác:** libhelix (RPSL, có điều kiện công bố sửa đổi), `esp_audio_codec` của Espressif (phải chuyển sang build hybrid ESP-IDF, đổi toolchain đã kiểm), libmad (GPL). dr_mp3 được bảo trì (sửa lỗi gần nhất 2026-08-31), chỉ C chuẩn, cho phép đặt toàn bộ trạng thái vào bộ nhớ do mình cấp.
+- **Đã kiểm chứng (2026-10-20, backend cục bộ, thiết bị thật, `docs/E2E_TEST_RESULTS.md` §9):** host test firmware 662/662 (giải mã đủ 9 tệp LAME mọi họ tần số, tần số tone đúng, 300 bản hỏng không làm vượt biên); trên bo: selftest 10/10, 8 định dạng phát `completed` với số frame ghi ra I2S đúng bằng số khung × mẫu/khung, CPU giải mã 1,6–11,5 % thời gian thực; đoạn 59 s 1,42 MB phát liền mạch trong lúc camera chụp 2 burst và IMU không mất mẫu (người dùng nghe xác nhận); hủy, khởi động lại, hỏng dữ liệu, mất một Range, rớt Wi-Fi, gửi trùng; không rò PSRAM. Người dùng nghe đủ lời chào MP3 và lời nhắn.
+- **Giới hạn:** chưa lên production (Worker, frontend; firmware đã nạp trên bo). Chỉ thử Chromium cho phần trình duyệt. Chưa đo nhiệt khi phát dài. Người dùng thấy bản WAV "hơi rè" còn MP3 thì không; chuỗi số không cắt đỉnh (đo), nguyên nhân chưa xác định.
+- **Owner:** Chưa gán
+
 ## Giả định tạm
+
+### A41 — XCLK camera 20 MHz
+
+- **Trạng thái:** Proposed · 2026-10-19 · đo trên bo thật.
+- **Bối cảnh:** Baseline hạ XCLK xuống 10 MHz để cảm biến mát hơn khi stream liên tục. Đo trên bo: ở 10 MHz mỗi khung VGA cách 90 ms, nên burst chỉ chọn được khung cách 180 ms (ngoài 125 ± 40 ms, máy chủ ghi `out_of_tolerance`). Ở 20 MHz khung cách khoảng 45 ms, burst đạt 135–136 ms (`cadence_status: ok`).
+- **Lựa chọn:** mặc định 20 MHz trong firmware tích hợp; thiết lập NVS `camxclk=10` quay về baseline. Cảm biến ở chế độ ngủ giữa các burst (3–5 s), không stream liên tục như baseline.
+- **Chưa đo:** nhiệt độ cảm biến và vỏ hộp ở 20 MHz. Không được coi là an toàn nhiệt khi chưa đo.
 
 ### A01 — Múi giờ hiển thị mặc định Asia/Ho_Chi_Minh
 

@@ -48,6 +48,7 @@ def stale_migrations() -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Run the care-monitoring Worker locally (wrangler dev).")
     ap.add_argument("--reset-local-db", action="store_true", help="delete the local development D1 database and recreate it from the migrations")
+    ap.add_argument("--dev-admin-email", help="LOCAL only: admin sign-in bootstrap e-mail (ADMIN_BOOTSTRAP_EMAILS) for scripts/dev_admin_login.py")
     args = ap.parse_args(argv)
     npx = shutil.which("npx") or shutil.which("npx.cmd")
     if npx is None:
@@ -71,6 +72,9 @@ def main(argv: list[str] | None = None) -> int:
     # The deployed Worker is Google-only (PASSWORD_SIGN_IN=disabled in wrangler.jsonc); local development keeps the
     # owner-issued passwords that dev_setup.py provisions.
     extra: list[str] = ["--var", "PASSWORD_SIGN_IN:enabled"]
+    if args.dev_admin_email:
+        # wrangler dev binds 127.0.0.1 only; production takes this value from a Worker secret, never from here.
+        extra += ["--var", f"ADMIN_BOOTSTRAP_EMAILS:{args.dev_admin_email.strip().lower()}"]
     if not (WORKER / ".dev.vars").is_file():
         print("[start_backend] worker/.dev.vars not found: copy .dev.vars.example (admin API stays disabled until ADMIN_TOKEN_SHA256 is set)", file=sys.stderr)
         # Local only (wrangler dev binds 127.0.0.1): let the Vite dev/preview servers open the stream.

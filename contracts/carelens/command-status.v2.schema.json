@@ -61,6 +61,7 @@
     "status": {
       "type": "string",
       "enum": [
+        "received",
         "accepted",
         "started",
         "completed",
@@ -83,6 +84,8 @@
             "preempted_by_higher_priority",
             "busy",
             "cancel_requested",
+            "device_rebooted",
+            "download_timeout",
             "other"
           ]
         },
@@ -112,5 +115,5 @@
     "detail"
   ],
   "additionalProperties": false,
-  "description": "Device acknowledgement of a delivered command: accepted (stored, audio verified), started (sound began), completed (played to the end), failed/rejected (reason_code required), cancelled (only after the backend asked). Playback is recorded as done only from this report."
+  "description": "Device acknowledgement of a delivered command: received (stored on the device, nothing played; optional, ADR-022), accepted (stored, audio downloaded and SHA-256 verified), started (sound began; for commands with audio only after accepted), completed (played to the end), failed/rejected (reason_code required), cancelled (only after the backend asked). Playback is recorded as done only from this report."
 }

@@ -30,9 +30,12 @@ import {
   parseDeviceList,
   parseReminderList,
   parseReminderResult,
+  parseSpeakerVolumeSet,
   parseVoiceList,
   parseVoiceUpload,
+  type VoiceMessage,
 } from "./adminModels";
+import type { Uploader } from "./xhrUpload";
 export { AdminApiError, isAdminApiError, isAdminAuthFailure, type AdminErrorCode };
 export * from "./adminModels";
 
@@ -225,6 +228,10 @@ export class AdminClient {
   constructor(
     private readonly apiBase: string | null = DEMO_API_BASE,
     private readonly fetchImpl: typeof fetch = (...args) => fetch(...args),
+    /** Time limits (ms): JSON calls, and uploads of a recording (up to 2 MB). A hung request never keeps a button busy. */
+    private readonly timeouts: { request: number; upload: number } = { request: 20_000, upload: 120_000 },
+    /** Upload with byte progress (XMLHttpRequest in the app). Null: uploads go through fetch and report no progress. */
+    private readonly uploader: Uploader | null = null,
   ) {}
 
   /** Where the browser is sent to start the admin Google flow (a full-page navigation; never fetched). */
@@ -240,20 +247,37 @@ export class AdminClient {
     if (opts.body !== undefined) headers["content-type"] = "application/json";
     if (opts.raw) headers["content-type"] = opts.raw.contentType;
     if (opts.token) headers.authorization = `Bearer ${opts.token}`;
+    const limit = opts.raw ? this.timeouts.upload : this.timeouts.request;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), limit);
+    const timedOut = () =>
+      new AdminApiError(504, "timeout", `Máy chủ không trả lời trong ${Math.round(limit / 1000)} giây. Chưa biết thao tác đã được thực hiện hay chưa.`);
     let res: Response;
+    let text: string;
     try {
-      res = await this.fetchImpl(`${this.apiBase}${path}`, {
-        method,
-        headers,
-        body: opts.raw ? opts.raw.body : opts.body === undefined ? undefined : JSON.stringify(opts.body),
-        credentials: "omit",
-        cache: "no-store",
-      });
-    } catch {
-      throw await this.explainNetworkFailure();
+      try {
+        res = await this.fetchImpl(`${this.apiBase}${path}`, {
+          method,
+          headers,
+          body: opts.raw ? opts.raw.body : opts.body === undefined ? undefined : JSON.stringify(opts.body),
+          credentials: "omit",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+      } catch {
+        if (controller.signal.aborted) throw timedOut();
+        throw await this.explainNetworkFailure();
+      }
+      try {
+        if (opts.binary && res.status === 200) return { status: 200, data: null, problemCode: null, blob: await res.blob() };
+        text = await res.text();
+      } catch {
+        if (controller.signal.aborted) throw timedOut();
+        throw new AdminApiError(503, "unavailable", "Kết nối tới máy chủ bị ngắt khi đang nhận phản hồi. Vui lòng thử lại.");
+      }
+    } finally {
+      clearTimeout(timer);
     }
-    if (opts.binary && res.status === 200) return { status: 200, data: null, problemCode: null, blob: await res.blob() };
-    const text = await res.text();
     let data: unknown = null;
     try {
       if (text) data = JSON.parse(text);
@@ -359,8 +383,31 @@ export class AdminClient {
     return this.call("GET", `/api/admin/v1/devices/${seg(deviceId)}/voice-messages`, { token }).then((r) => this.expect(r, [200], parseVoiceList));
   }
 
-  uploadVoice(token: string, deviceId: string, title: string, wav: Blob) {
-    return this.call("POST", `/api/admin/v1/devices/${seg(deviceId)}/voice-messages?title=${seg(title)}`, { token, raw: { body: wav, contentType: "audio/wav" } }).then((r) => this.expect(r, [201], parseVoiceUpload));
+  /** Uploads an MP3 byte for byte (ADR-025: no conversion anywhere; the device decodes it). `onProgress` gets bytes sent and
+   * total when the client has an uploader; through fetch there is no progress to report. */
+  async uploadVoice(token: string, deviceId: string, title: string, mp3: Blob, onProgress?: (sent: number, total: number) => void): Promise<VoiceMessage> {
+    const path = `/api/admin/v1/devices/${seg(deviceId)}/voice-messages?title=${seg(title)}`;
+    if (!this.uploader || !this.apiBase) {
+      return this.expect(await this.call("POST", path, { token, raw: { body: mp3, contentType: "audio/mpeg" } }), [201], parseVoiceUpload);
+    }
+    const outcome = await this.uploader({
+      url: `${this.apiBase}${path}`,
+      headers: { "content-type": "audio/mpeg", authorization: `Bearer ${token}` },
+      body: mp3,
+      timeoutMs: this.timeouts.upload,
+      onProgress,
+    });
+    if (outcome.kind === "timeout") {
+      throw new AdminApiError(504, "timeout", `Máy chủ không trả lời trong ${Math.round(this.timeouts.upload / 1000)} giây. Chưa biết thao tác đã được thực hiện hay chưa.`);
+    }
+    if (outcome.kind === "network") throw await this.explainNetworkFailure();
+    let data: unknown = null;
+    try {
+      if (outcome.text) data = JSON.parse(outcome.text);
+    } catch {
+      // Not JSON (a proxy page): the status code decides.
+    }
+    return this.expect({ status: outcome.status, data, problemCode: isRecord(data) ? str(data.code) : null }, [201], parseVoiceUpload);
   }
 
   /** The recording as a Blob for the admin's own browser to play. There is no shareable URL for it. */
@@ -383,6 +430,13 @@ export class AdminClient {
 
   commandTimeline(token: string, commandId: string) {
     return this.call("GET", `/api/admin/v1/commands/${seg(commandId)}`, { token }).then((r) => this.expect(r, [200], parseCommandTimeline));
+  }
+
+  /** Always sends `confirm: true`. The device applies the value at its next heartbeat; only its own report says it did. */
+  setSpeakerVolume(token: string, deviceId: string, volume: number) {
+    return this.call("PUT", `/api/admin/v1/devices/${seg(deviceId)}/speaker-volume`, { token, body: { volume, confirm: true } }).then((r) =>
+      this.expect(r, [200], parseSpeakerVolumeSet),
+    );
   }
 
   cancelCommand(token: string, commandId: string) {

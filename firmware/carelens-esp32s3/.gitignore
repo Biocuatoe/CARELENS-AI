@@ -1,0 +1,7 @@
+.pio/
+.vscode/
+# Local provisioning secrets and test certificates never belong in the repository.
+secrets/
+*.local.json
+*.pem
+*.key

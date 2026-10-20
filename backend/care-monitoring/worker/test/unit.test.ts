@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { checkCadence } from "../src/captures";
 import { ConfigError, DEFAULT_FUSION_POLICY, ipInCidrs, loadConfig, type Env, type FusionPolicy } from "../src/env";
 import { decide, evaluateImu, type ImuEvidence, type ImuSample, type ImuWindowData, type TriggerInfo, type VisionEvidence, type VisionState } from "../src/fusion";
-import { inspectJpeg, inspectWav, unpackFrames } from "../src/media";
+import { inspectJpeg, inspectMp3, inspectWav, unpackFrames } from "../src/media";
+import { LAME_16K_MONO, LAME_16K_MONO_TAGGED, mp3, mp3Frame } from "./audio";
 import { dueOccurrences } from "../src/reminders";
 import { latestDueReportDate, validateReportOutput, type ReportInput } from "../src/reports";
 import { localDayPeriod, zonedToUtc } from "../src/util";
@@ -47,7 +48,66 @@ describe("frame packing", () => {
   });
 });
 
-describe("WAV contract", () => {
+describe("MP3 contract (ADR-025)", () => {
+  const cat = (...parts: Uint8Array[]) => {
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let at = 0;
+    for (const p of parts) {
+      out.set(p, at);
+      at += p.length;
+    }
+    return out;
+  };
+  it("reads real LAME output exactly as the firmware does (frames, samples, duration)", () => {
+    expect(inspectMp3(LAME_16K_MONO)).toEqual({
+      mpegVersion: 2,
+      sampleRateHz: 16000,
+      channels: 1,
+      frames: 30,
+      pcmFrames: 30 * 576,
+      durationMs: 1080, // the firmware host test reports the same 1080 ms for this file
+      minKbps: 32,
+      maxKbps: 32,
+      hasId3v2: false,
+      hasTailTag: false,
+      hasVbrHeader: false,
+    });
+    expect(inspectMp3(LAME_16K_MONO_TAGGED)).toMatchObject({ frames: 30, durationMs: 1080, hasId3v2: true, hasTailTag: true });
+  });
+  it("accepts every rate family and layout, CBR or mixed bitrates, and zero padding at the end", () => {
+    for (const rate of [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000]) {
+      for (const channels of [1, 2] as const) expect(inspectMp3(mp3({ rate, channels })), `${rate}/${channels}`).toMatchObject({ sampleRateHz: rate, channels });
+    }
+    const vbr = cat(mp3({ rate: 44100, kbps: 128, seconds: 0.5 }), mp3({ rate: 44100, kbps: 320, seconds: 0.5 }));
+    expect(inspectMp3(vbr)).toMatchObject({ minKbps: 128, maxKbps: 320 });
+    expect(inspectMp3(cat(LAME_16K_MONO, new Uint8Array(300)))).toMatchObject({ durationMs: 1080 });
+  });
+  it("treats a Xing/Info frame as metadata, not audio", () => {
+    const info = mp3Frame(44100, 2, 128).bytes;
+    info.set(new TextEncoder().encode("Info"), 4 + 32);
+    const plain = inspectMp3(mp3({ rate: 44100, channels: 2 })) as { frames: number };
+    expect(inspectMp3(cat(info, mp3({ rate: 44100, channels: 2 })))).toMatchObject({ hasVbrHeader: true, frames: plain.frames });
+  });
+  it("refuses with the firmware's codes: no frames, wrong layer, free format, reserved values, splices, truncation, trailing data", () => {
+    expect(inspectMp3(new Uint8Array(2))).toBe("mp3_too_short");
+    expect(inspectMp3(new TextEncoder().encode("RIFF....WAVEfmt "))).toBe("mp3_no_frame");
+    expect(inspectMp3(cat(mp3Frame(44100, 2, 128, 2).bytes, mp3Frame(44100, 2, 128, 2).bytes))).toBe("mp3_not_layer3");
+    expect(inspectMp3(new Uint8Array([0xff, 0xfb, 0x00, 0x00, 0, 0, 0, 0]))).toBe("mp3_free_format");
+    expect(inspectMp3(new Uint8Array([0xff, 0xeb, 0x90, 0x00, 0, 0, 0, 0]))).toBe("mp3_bad_header");
+    expect(inspectMp3(cat(mp3({ rate: 16000 }), mp3({ rate: 22050 })))).toBe("mp3_format_changed");
+    expect(inspectMp3(cat(mp3({ rate: 44100, channels: 1 }), mp3({ rate: 44100, channels: 2 })))).toBe("mp3_format_changed");
+    expect(inspectMp3(LAME_16K_MONO.subarray(0, LAME_16K_MONO.length - 40))).toBe("mp3_truncated_frame");
+    expect(inspectMp3(cat(LAME_16K_MONO, new TextEncoder().encode("junkjunk")))).toBe("mp3_trailing_data");
+    expect(inspectMp3(cat(new Uint8Array([0x49, 0x44, 0x33, 3, 0, 0, 0x7f, 0x7f, 0x7f, 0x7f]), LAME_16K_MONO))).toBe("mp3_bad_id3");
+  });
+  it("applies the contract's duration and sample-rate limits after the walk", () => {
+    expect(inspectMp3(mp3({ seconds: 0.3 }))).toMatch(/^duration /);
+    expect(inspectMp3(mp3({ seconds: 61 }))).toMatch(/^duration /);
+    expect(inspectMp3(mp3({ rate: 44100 }), [16000])).toMatch(/^sample rate 44100 Hz/);
+  });
+});
+
+describe("WAV contract (legacy recordings)", () => {
   function wav(rate: number, channels: number, bits: number, seconds: number): Uint8Array {
     const data = Math.round(rate * seconds) * channels * (bits / 8);
     const buf = new Uint8Array(44 + data);

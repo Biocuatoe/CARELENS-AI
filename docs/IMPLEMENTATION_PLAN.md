@@ -562,6 +562,8 @@ Hoàn thành khi: người khác có thể chạy demo theo README và thực hi
 - [ ] Thử thông báo trên thiết bị đích với người nhận/kênh đã được cấu hình hợp lệ.
 - [ ] Hoàn thiện chính sách dữ liệu thật và ghi rõ năng lực chưa kiểm chứng.
 
+Tiến độ 2026-10-19 (chưa tick mục nào vì chưa mục nào đủ): thiết bị CareLens thật (`firmware/carelens-esp32s3/`) chạy với backend **cục bộ**; mất Wi-Fi, lệnh hết hạn khi offline, gửi lại IMU và burst sau lỗi đã thử trên thiết bị (`docs/E2E_TEST_RESULTS.md` §4). Chưa thử đổi người dùng thiết bị, chưa chạy với production, chưa có thông báo thật.
+
 Hoàn thành khi: có bằng chứng tích hợp kỹ thuật. Pilot với người dùng thật là quyết định riêng, không tự động bắt đầu khi test phần mềm pass.
 
 ## 13. Bộ nghiệm thu trọng tâm

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { AdminApiError, AdminClient } from "./adminClient";
 import { parseActivity, parseCapabilities, parseCommand, parseDeviceList, parseReminder } from "./adminModels";
+import { xhrUploader } from "./xhrUpload";
 
 const BASE = "https://api.test";
 const TOKEN = "clm_synthetic-test-token-not-real";
@@ -61,14 +62,85 @@ describe("dashboard requests", () => {
     expect(body).toEqual({ idempotency_key: "rem-key-0001", kind: "water", label: "Uống nước", voice_message_id: null, deadline_minutes: 15, schedule: { type: "once", local_date: "2026-10-20", local_time: "08:30" }, confirm: true });
   });
 
-  it("uploads a recording as the raw audio/wav body, with the title only in the query", async () => {
-    const { client, seen } = fake(() => json(201, { voice_message: { voice_message_id: "vm_9", title: "Lời nhắc", audio: { duration_ms: 1000, sample_rate_hz: 16000, byte_size: 10 } } }));
-    const wav = new Blob([new Uint8Array([1, 2, 3])], { type: "audio/wav" });
-    const out = await client.uploadVoice(TOKEN, "esp32-1", "Lời nhắc & thử", wav);
+  it("uploads an MP3 as the raw audio/mpeg body, unchanged, with the title only in the query", async () => {
+    const { client, seen } = fake(() => json(201, { voice_message: { voice_message_id: "vm_9", title: "Lời nhắc", audio: { content_type: "audio/mpeg", duration_ms: 1080, sample_rate_hz: 16000, channels: 1, byte_size: 3 } } }));
+    const mp3 = new Blob([new Uint8Array([0xff, 0xf3, 0x44])], { type: "audio/mpeg" });
+    const out = await client.uploadVoice(TOKEN, "esp32-1", "Lời nhắc & thử", mp3);
     expect(seen[0]!.url).toBe(`${BASE}/api/admin/v1/devices/esp32-1/voice-messages?title=${encodeURIComponent("Lời nhắc & thử")}`);
-    expect(headersOf(seen[0]!.init)["content-type"]).toBe("audio/wav");
-    expect(seen[0]!.init.body).toBe(wav);
-    expect(out).toMatchObject({ voiceMessageId: "vm_9", durationMs: 1000 });
+    expect(headersOf(seen[0]!.init)["content-type"]).toBe("audio/mpeg");
+    expect(seen[0]!.init.body).toBe(mp3); // the same Blob: nothing converted or re-encoded
+    expect(out).toMatchObject({ voiceMessageId: "vm_9", contentType: "audio/mpeg", durationMs: 1080, channels: 1 });
+  });
+
+  it("with an uploader, reports byte progress and maps a timeout or a lost connection like the fetch path", async () => {
+    const mp3 = new Blob([new Uint8Array(1000)], { type: "audio/mpeg" });
+    const progress: Array<[number, number]> = [];
+    const seenReqs: Array<{ url: string; headers: Record<string, string>; body: Blob }> = [];
+    const ok = new AdminClient(BASE, vi.fn() as unknown as typeof fetch, undefined, async (req) => {
+      seenReqs.push(req);
+      req.onProgress?.(500, 1000);
+      req.onProgress?.(1000, 1000);
+      return { kind: "response", status: 201, text: JSON.stringify({ voice_message: { voice_message_id: "vm_x", title: "t", audio: { content_type: "audio/mpeg", byte_size: 1000 } } }) };
+    });
+    const out = await ok.uploadVoice(TOKEN, "esp32-1", "t", mp3, (s, t) => progress.push([s, t]));
+    expect(progress).toEqual([[500, 1000], [1000, 1000]]);
+    expect(seenReqs[0]).toMatchObject({ url: `${BASE}/api/admin/v1/devices/esp32-1/voice-messages?title=t`, headers: { "content-type": "audio/mpeg", authorization: `Bearer ${TOKEN}` } });
+    expect(seenReqs[0]!.body).toBe(mp3);
+    expect(out.byteSize).toBe(1000);
+    const timedOut = new AdminClient(BASE, vi.fn() as unknown as typeof fetch, undefined, async () => ({ kind: "timeout" }));
+    await expect(timedOut.uploadVoice(TOKEN, "esp32-1", "t", mp3)).rejects.toMatchObject({ code: "timeout" });
+    const refused = new AdminClient(BASE, vi.fn() as unknown as typeof fetch, undefined, async () => ({ kind: "response", status: 415, text: JSON.stringify({ code: "mp3_required", request_id: "r" }) }));
+    await expect(refused.uploadVoice(TOKEN, "esp32-1", "t", mp3)).rejects.toBeInstanceOf(AdminApiError);
+    const lost = new AdminClient(BASE, vi.fn(async () => { throw new TypeError("offline"); }) as unknown as typeof fetch, undefined, async () => ({ kind: "network" }));
+    await expect(lost.uploadVoice(TOKEN, "esp32-1", "t", mp3)).rejects.toMatchObject({ code: "unavailable" });
+  });
+
+  it("xhrUploader sends no cookies, a time limit and the headers, and turns XHR events into outcomes", async () => {
+    class FakeXhr {
+      static last: FakeXhr;
+      opened: unknown[] = [];
+      headers: Record<string, string> = {};
+      withCredentials = true;
+      timeout = 0;
+      status = 0;
+      responseText = "";
+      upload: { onprogress: ((e: ProgressEvent) => void) | null } = { onprogress: null };
+      onload: (() => void) | null = null;
+      ontimeout: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onabort: (() => void) | null = null;
+      sent: unknown = null;
+      constructor() {
+        FakeXhr.last = this;
+      }
+      open(...args: unknown[]) {
+        this.opened = args;
+      }
+      setRequestHeader(k: string, v: string) {
+        this.headers[k] = v;
+      }
+      send(body: unknown) {
+        this.sent = body;
+      }
+    }
+    const upload = xhrUploader(() => new FakeXhr() as unknown as XMLHttpRequest);
+    const body = new Blob([new Uint8Array(10)]);
+    const seen: Array<[number, number]> = [];
+    const pending = upload({ url: `${BASE}/x`, headers: { "content-type": "audio/mpeg" }, body, timeoutMs: 1234, onProgress: (s, t) => seen.push([s, t]) });
+    const x = FakeXhr.last;
+    expect([x.opened[0], x.opened[1], x.withCredentials, x.timeout, x.headers["content-type"], x.sent]).toEqual(["POST", `${BASE}/x`, false, 1234, "audio/mpeg", body]);
+    x.upload.onprogress?.({ loaded: 4, total: 10, lengthComputable: true } as ProgressEvent);
+    x.status = 201;
+    x.responseText = "{}";
+    x.onload?.();
+    expect(await pending).toEqual({ kind: "response", status: 201, text: "{}" });
+    expect(seen).toEqual([[4, 10]]);
+    const t = upload({ url: "u", headers: {}, body, timeoutMs: 1 });
+    FakeXhr.last.ontimeout?.();
+    expect(await t).toEqual({ kind: "timeout" });
+    const n = upload({ url: "u", headers: {}, body, timeoutMs: 1 });
+    FakeXhr.last.onerror?.();
+    expect(await n).toEqual({ kind: "network" });
   });
 
   it("fetches a recording as a blob for local playback", async () => {

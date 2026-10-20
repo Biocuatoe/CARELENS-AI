@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { BACKEND } from "./helpers";
 
@@ -24,6 +27,7 @@ const DEVICE = {
   created_at: "2026-10-18T02:00:00.000Z",
   revoked_at: null,
   credential: { state: "active", version: 1 },
+  audio_codecs: ["pcm_s16le", "mp3"],
   last_seen_at: new Date().toISOString(),
   last_contact_age_seconds: 5,
   connected: true,
@@ -37,33 +41,17 @@ const DEVICE = {
   has_simulated_records_7d: true,
 };
 
-function wavBytes(): number[] {
-  const samples = 800;
-  const bytes = new Uint8Array(44 + samples * 2);
-  const v = new DataView(bytes.buffer);
-  const w = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-  w(0, "RIFF");
-  v.setUint32(4, 36 + samples * 2, true);
-  w(8, "WAVE");
-  w(12, "fmt ");
-  v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true);
-  v.setUint16(22, 1, true);
-  v.setUint32(24, 16000, true);
-  v.setUint32(28, 32000, true);
-  v.setUint16(32, 2, true);
-  v.setUint16(34, 16, true);
-  w(36, "data");
-  v.setUint32(40, samples * 2, true);
-  return [...bytes];
-}
+// A real MP3 made by LAME (synthetic 440 Hz tone, no voice): the firmware's test fixture, so Chromium can really load it.
+const MP3_FIXTURE = fileURLToPath(new URL("../../firmware/carelens-esp32s3/test/fixtures/mp3/mpeg2_16k_mono_32k.mp3", import.meta.url));
+const MP3_BYTES = readFileSync(MP3_FIXTURE);
 
 interface Seen {
   posts: string[];
+  uploads: Array<{ contentType: string | null; sha256: string; bytes: number }>;
 }
 
 async function mockBackend(page: Page): Promise<Seen> {
-  const seen: Seen = { posts: [] };
+  const seen: Seen = { posts: [], uploads: [] };
   await page.route(`${BACKEND}/**`, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -82,7 +70,7 @@ async function mockBackend(page: Page): Promise<Seen> {
       case "GET /api/admin/v1/capabilities":
         return json(route, 200, {
           tts: { available: false, reason: "no_text_to_speech_service", note: "Máy chủ không có dịch vụ chuyển văn bản thành giọng nói." },
-          audio: { sample_rates_hz: [16000], max_bytes: 2200000, min_duration_ms: 500, max_duration_ms: 60000 },
+          audio: { content_type: "audio/mpeg", codec: "mp3", sample_rates_hz: [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000], channels: [1, 2], max_bytes: 2000000, min_duration_ms: 500, max_duration_ms: 60000 },
           reminders: { timezone: "Asia/Ho_Chi_Minh" },
           device_playback: "not_verified_with_hardware",
         });
@@ -102,9 +90,14 @@ async function mockBackend(page: Page): Promise<Seen> {
           entries: [{ at: "2026-10-19T02:58:00.000Z", source: "events", kind: "imu_trigger", ref_id: "=1+1", source_mode: "simulated", status: "imu_trigger_reported", detail: { label: "=cmd|' /C calc'!A0" } }],
         });
       case "GET /api/admin/v1/devices/esp32-e2e-1/voice-messages":
-        return json(route, 200, { items: [{ voice_message_id: "vm_e2e", title: "Nhắc e2e", status: "active", created_by: "admin:adm_e2e", created_at: new Date().toISOString(), audio: { version: 1, sample_rate_hz: 16000, duration_ms: 100, byte_size: 1644 } }] });
+        return json(route, 200, { items: [{ voice_message_id: "vm_e2e", title: "Nhắc e2e", status: "active", created_by: "admin:adm_e2e", created_at: new Date().toISOString(), audio: { version: 1, content_type: "audio/mpeg", sample_rate_hz: 16000, channels: 1, duration_ms: 1080, byte_size: MP3_BYTES.length } }] });
       case "GET /api/admin/v1/voice-messages/vm_e2e/audio":
-        return route.fulfill({ status: 200, headers: { ...CORS, "content-type": "audio/wav" }, body: Buffer.from(wavBytes()) });
+        return route.fulfill({ status: 200, headers: { ...CORS, "content-type": "audio/mpeg" }, body: MP3_BYTES });
+      case "POST /api/admin/v1/devices/esp32-e2e-1/voice-messages": {
+        const body = request.postDataBuffer() ?? Buffer.alloc(0);
+        seen.uploads.push({ contentType: request.headers()["content-type"] ?? null, sha256: createHash("sha256").update(body).digest("hex"), bytes: body.length });
+        return json(route, 201, { voice_message: { voice_message_id: "vm_new", title: url.searchParams.get("title"), status: "active", created_by: "admin:adm_e2e", created_at: new Date().toISOString(), audio: { version: 1, content_type: "audio/mpeg", sample_rate_hz: 16000, channels: 1, duration_ms: 1080, byte_size: body.length } } });
+      }
       case "GET /api/admin/v1/devices/esp32-e2e-1/commands":
         return json(route, 200, { items: [], next_cursor: null });
       case "POST /api/admin/v1/devices/esp32-e2e-1/voice-commands":
@@ -189,6 +182,30 @@ test("sending audio needs the real modal's confirmation, can be dismissed with E
   await expect(page.getByText("Lệnh đã được máy chủ nhận")).toBeVisible();
   await expect(page.getByText(/chưa có nghĩa là thiết bị đã phát/)).toBeVisible();
   expect(seen.posts.filter((p) => p === "POST /api/admin/v1/devices/esp32-e2e-1/voice-commands")).toHaveLength(1);
+});
+
+test("an MP3 picked in the real file input is checked, described, and uploaded byte for byte as audio/mpeg (ADR-025)", async ({ page }) => {
+  const seen = await mockBackend(page);
+  await signIn(page);
+  await page.getByRole("navigation", { name: "Khu quản trị" }).getByRole("link", { name: "Gửi âm thanh" }).click();
+  const input = page.getByLabel("Tệp âm thanh MP3");
+  await expect(input).toBeEnabled();
+  await expect(input).toHaveAttribute("accept", ".mp3,audio/mpeg");
+  // The browser's own File for a real LAME file: the page walks its frames and shows what will be sent.
+  await input.setInputFiles({ name: "nhac-uong-nuoc.mp3", mimeType: "audio/mpeg", buffer: MP3_BYTES });
+  const picked = page.getByLabel("Tệp đã chọn");
+  await expect(picked).toContainText("nhac-uong-nuoc.mp3");
+  await expect(picked).toContainText("MP3 · MPEG-2 · 16 kHz · mono · 32 kbps");
+  await expect(picked).toContainText("1,1 giây");
+  // WAV is refused before anything is sent, whatever its name.
+  await input.setInputFiles({ name: "doi-ten.mp3", mimeType: "audio/mpeg", buffer: Buffer.concat([Buffer.from("RIFF\x24\x00\x00\x00WAVEfmt ", "latin1"), Buffer.alloc(40)]) });
+  await expect(page.getByText("Đây là tệp WAV. Lời nhắn giờ phải là tệp MP3.")).toBeVisible();
+  await input.setInputFiles({ name: "nhac-uong-nuoc.mp3", mimeType: "audio/mpeg", buffer: MP3_BYTES });
+  await page.getByLabel("Tên bản ghi").fill("Nhắc uống nước");
+  await page.getByRole("button", { name: "Tải lên kho riêng tư" }).click();
+  await expect(page.getByText(/giữ nguyên tệp gốc\)\. Bản ghi nằm trong kho riêng tư; chưa có gì được gửi tới thiết bị/)).toBeVisible();
+  expect(seen.uploads).toEqual([{ contentType: "audio/mpeg", sha256: createHash("sha256").update(MP3_BYTES).digest("hex"), bytes: MP3_BYTES.length }]);
+  expect(seen.posts).not.toContain("POST /api/admin/v1/devices/esp32-e2e-1/voice-commands"); // uploading never sends a command
 });
 
 test("the dashboard has no horizontal scroll at phone width", async ({ page }) => {
