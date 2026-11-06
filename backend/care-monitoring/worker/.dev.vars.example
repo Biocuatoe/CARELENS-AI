@@ -42,6 +42,14 @@ GOOGLE_OPEN_VIEWER_RECIPIENT_ID=
 # --var PASSWORD_SIGN_IN:enabled for local development; keep it enabled here too.
 PASSWORD_SIGN_IN=enabled
 
+# Contact / purchase-request notifications (A43). All three set = the Worker e-mails each stored request through Resend.
+# Leave RESEND_API_KEY empty for local work: requests are stored with notification "not_configured" and nothing is sent.
+# CONTACT_FROM_EMAIL must be on a domain verified in Resend (onboarding@resend.dev only delivers to the Resend account's
+# own address). In production RESEND_API_KEY is a secret: `wrangler secret put RESEND_API_KEY`.
+CONTACT_NOTIFICATION_TO=
+CONTACT_FROM_EMAIL=
+RESEND_API_KEY=
+
 # Admin sign-in with Google (Phase B): e-mail addresses (comma separated) of the owners who may use the admin API.
 # Empty = admin sign-in is off. In production this is a secret: `wrangler secret put ADMIN_BOOTSTRAP_EMAILS`.
 # Needs the Google settings above, and the flow starts at /api/app/v1/auth/google/start?mode=admin.

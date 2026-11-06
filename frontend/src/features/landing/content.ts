@@ -218,38 +218,161 @@ export const PRIVACY = {
  * nên ô sản phẩm là chữ tự do, không có mã hay cấu hình bịa ra. Không hỏi thông tin y tế.
  */
 export const CONTACT = {
-  eyebrow: "Hợp tác cùng CareLens AI",
+  eyebrow: "Liên hệ và đặt mua",
   heading: "Liên hệ với chúng tôi",
-  body: "Chọn nhóm phù hợp để bắt đầu trao đổi với đội ngũ CareLens AI.",
-  audiences: [
-    {
-      id: "family",
-      title: "Cá nhân và gia đình",
-      why: "Chủ động chăm sóc và đồng hành cùng người thân.",
-      draft: "Xin chào đội ngũ CareLens AI, tôi muốn tìm hiểu cách CareLens AI hỗ trợ việc chăm sóc người thân của mình.\n\nTôi là: \nHoàn cảnh gia đình: \nĐiều tôi quan tâm nhất: ",
-    },
-    {
-      id: "business",
-      title: "Doanh nghiệp",
-      why: "Hợp tác, tích hợp hoặc triển khai tiềm năng.",
-      draft: "Xin chào đội ngũ CareLens AI, doanh nghiệp chúng tôi muốn trao đổi về hợp tác, tích hợp hoặc triển khai.\n\nĐơn vị: \nNgười liên hệ: \nHình thức hợp tác quan tâm: ",
-    },
-    {
-      id: "facility",
-      title: "Cơ sở chăm sóc y tế",
-      why: "Trao đổi quy trình chăm sóc và cơ hội hợp tác phù hợp.",
-      draft: "Xin chào đội ngũ CareLens AI, cơ sở chúng tôi muốn trao đổi về quy trình chăm sóc và cơ hội hợp tác.\n\nCơ sở: \nNgười liên hệ: \nQuy trình muốn trao đổi: ",
-    },
+  body: "Gửi yêu cầu tư vấn hoặc đặt mua. Đội ngũ CareLens AI sẽ liên hệ lại để trao đổi và xác nhận thông tin.",
+  stepGroup: "Bạn là",
+  stepAction: "Bạn cần",
+  groups: [
+    { id: "individual", title: "Cá nhân và gia đình", why: "Chăm sóc và đồng hành cùng người thân tại nhà." },
+    { id: "facility", title: "Cơ sở chăm sóc y tế", why: "Viện dưỡng lão, bệnh viện, phòng khám, dịch vụ chăm sóc." },
   ],
-  draftTitle: "Nội dung trao đổi gợi ý",
-  send: "Gửi email cho đội ngũ",
-  copy: "Sao chép nội dung",
-  copied: "Đã sao chép. Hãy dán nội dung vào email hoặc tin nhắn gửi cho đội ngũ.",
-  copyFailed: "Không sao chép tự động được. Hãy chọn và sao chép nội dung ở trên.",
-  noChannel: "Địa chỉ liên hệ chính thức sẽ được cập nhật tại đây. Trang này không tự gửi tin nhắn.",
-  team: "Gặp đội ngũ",
+  actions: {
+    individual: [
+      { id: "individual_consultation", title: "Tư vấn sản phẩm", why: "Tìm hiểu giải pháp có phù hợp với gia đình bạn." },
+      { id: "individual_purchase", title: "Yêu cầu đặt mua", why: "Đăng ký mua, đội ngũ liên hệ xác nhận." },
+    ],
+    facility: [
+      { id: "facility_consultation", title: "Tư vấn triển khai", why: "Trao đổi về thử nghiệm, triển khai hoặc hợp tác." },
+      { id: "facility_purchase", title: "Báo giá / đặt mua", why: "Nhận báo giá theo số lượng và phương án triển khai." },
+    ],
+  },
+  formTitle: {
+    individual_consultation: "Yêu cầu tư vấn sản phẩm",
+    individual_purchase: "Yêu cầu đặt mua thiết bị",
+    facility_consultation: "Yêu cầu tư vấn triển khai",
+    facility_purchase: "Yêu cầu báo giá / đặt mua",
+  },
+  defaultMessage: {
+    individual_consultation:
+      "Xin chào CareLens AI, tôi muốn tìm hiểu về giải pháp CareLens AI và cách thiết bị có thể hỗ trợ chăm sóc, theo dõi người thân trong gia đình.",
+    individual_purchase:
+      "Xin chào CareLens AI, tôi muốn đăng ký yêu cầu đặt mua thiết bị. Mong đội ngũ liên hệ để xác nhận sản phẩm, giá bán và thông tin giao nhận.",
+    facility_consultation:
+      "Xin chào CareLens AI, chúng tôi đại diện cho một cơ sở chăm sóc y tế và mong muốn trao đổi về khả năng triển khai, thử nghiệm hoặc hợp tác cùng giải pháp CareLens AI.",
+    facility_purchase:
+      "Xin chào CareLens AI, chúng tôi muốn nhận tư vấn và báo giá cho nhu cầu triển khai thiết bị tại cơ sở. Mong đội ngũ liên hệ để trao đổi thêm về số lượng, phương án triển khai và chi phí.",
+  },
+  placeholderPick: "Chọn nhóm của bạn để bắt đầu.",
+  placeholderAction: "Chọn nhu cầu để hiện biểu mẫu phù hợp.",
+  required: "Bắt buộc",
+  optional: "Không bắt buộc",
+  requiredNote: "Mục có dấu * là bắt buộc.",
+  sections: { contact: "Thông tin liên hệ", needs: "Nhu cầu", delivery: "Thông tin giao nhận", organization: "Thông tin cơ sở" },
+  labels: {
+    full_name: "Họ và tên",
+    contact_name: "Họ và tên người liên hệ",
+    phone: "Số điện thoại",
+    email: "Email",
+    work_email: "Email công việc",
+    relationship: "Bạn là gì của người được chăm sóc",
+    interests: "Bạn quan tâm đến",
+    product_interest: "Sản phẩm hoặc cấu hình quan tâm",
+    quantity: "Số lượng",
+    recipient_name: "Tên người nhận",
+    recipient_phone: "Số điện thoại người nhận",
+    delivery_address: "Địa chỉ giao hàng",
+    delivery_notes: "Ghi chú giao hàng",
+    organization: "Tên cơ sở / tổ chức",
+    facility_type: "Loại cơ sở",
+    job_title: "Chức danh",
+    address: "Địa chỉ cơ sở",
+    care_recipients_estimate: "Số người được chăm sóc (ước tính)",
+    device_quantity: "Số lượng thiết bị (ước tính)",
+    timeline: "Thời gian dự kiến triển khai",
+    integration_requirements: "Yêu cầu lắp đặt hoặc tích hợp",
+    message: "Lời nhắn",
+    message_needs: "Mô tả nhu cầu triển khai",
+    message_extra: "Lời nhắn / yêu cầu thêm",
+    consent: "Tôi đồng ý để CareLens AI dùng thông tin trên để liên hệ về yêu cầu này.",
+  },
+  hints: {
+    product_interest: "Nếu chưa rõ, có thể để trống. Đội ngũ sẽ tư vấn cấu hình phù hợp.",
+    message: "Bạn có thể sửa nội dung gợi ý. Vui lòng không gửi hồ sơ bệnh án hay thông tin sức khỏe chi tiết.",
+    quantity: "Giá và tình trạng hàng sẽ được đội ngũ xác nhận khi liên hệ.",
+  },
+  choose: "Chọn…",
+  relationships: [
+    { id: "self", label: "Bản thân" },
+    { id: "parent", label: "Cha hoặc mẹ" },
+    { id: "grandparent", label: "Ông hoặc bà" },
+    { id: "other_family", label: "Người thân khác trong gia đình" },
+    { id: "other", label: "Khác" },
+  ],
+  interests: [
+    { id: "incident_alerts", label: "Cảnh báo khi có sự cố" },
+    { id: "reminders", label: "Nhắc uống nước, uống thuốc" },
+    { id: "daily_summary", label: "Tóm tắt hằng ngày cho người thân" },
+    { id: "setup_and_use", label: "Lắp đặt và sử dụng thiết bị" },
+    { id: "privacy", label: "Quyền riêng tư và dữ liệu" },
+    { id: "pricing_and_purchase", label: "Chi phí và cách đặt mua" },
+  ],
+  facilityTypes: [
+    { id: "nursing_home", label: "Viện dưỡng lão / trung tâm dưỡng lão" },
+    { id: "hospital", label: "Bệnh viện" },
+    { id: "clinic", label: "Phòng khám" },
+    { id: "home_care", label: "Dịch vụ chăm sóc tại nhà" },
+    { id: "rehabilitation", label: "Cơ sở phục hồi chức năng" },
+    { id: "other", label: "Khác" },
+  ],
+  timelines: [
+    { id: "within_1_month", label: "Trong 1 tháng" },
+    { id: "1_3_months", label: "1–3 tháng" },
+    { id: "3_6_months", label: "3–6 tháng" },
+    { id: "over_6_months", label: "Trên 6 tháng" },
+    { id: "undecided", label: "Chưa xác định" },
+  ],
+  errors: {
+    required: "Vui lòng nhập thông tin này.",
+    choose: "Vui lòng chọn.",
+    email: "Email chưa đúng định dạng, ví dụ ten@tenmien.vn.",
+    phone: "Số điện thoại cần 8–15 chữ số, có thể bắt đầu bằng +.",
+    count: "Nhập số nguyên từ 1 đến {max}.",
+    tooLong: "Nội dung quá dài (tối đa {max} ký tự).",
+    consent: "Cần đồng ý để đội ngũ có thể liên hệ với bạn.",
+    summary: "Vui lòng kiểm tra lại {n} mục chưa hợp lệ.",
+  },
+  submit: "Gửi yêu cầu",
+  submitting: "Đang gửi…",
+  privacyTitle: "Quyền riêng tư",
+  /** Thông báo quyền riêng tư (A44): mục đích, bên xử lý email (Resend), thời hạn lưu, cách xem/xóa, không quảng cáo.
+   * Thời hạn khớp backend/care-monitoring/worker/src/contact.ts (CLOSED_RETENTION_DAYS, INACTIVITY_CLOSE_MONTHS). */
+  privacy: [
+    "Thông tin bạn gửi chỉ dùng để liên hệ, tư vấn và xử lý yêu cầu này; không dùng cho quảng cáo hay mục đích không liên quan.",
+    "Để báo cho đội ngũ, nội dung yêu cầu được gửi qua Resend, dịch vụ chuyển email mà CareLens AI sử dụng.",
+    "Yêu cầu đã xử lý xong được xóa khỏi máy chủ sau 180 ngày. Yêu cầu không có trao đổi trong 12 tháng được coi là đã xử lý xong.",
+    "Để xem hoặc xóa thông tin của bạn, hãy gửi một yêu cầu tư vấn mới ghi rõ mã yêu cầu. Đội ngũ sẽ xác minh qua email hoặc số điện thoại bạn đã cung cấp trước khi thực hiện.",
+    "Đây là yêu cầu, chưa phải đơn hàng; không có thanh toán trực tuyến.",
+  ],
+  /** Phiên bản của thông báo (`privacy`) và câu đồng ý (`labels.consent`) mà biểu mẫu hiển thị; máy chủ lưu kèm thời điểm đồng ý.
+   * Đổi một trong hai thì phải đặt phiên bản mới ở đây, trong PRIVACY_NOTICE_VERSIONS của Worker và trong contact.test.tsx
+   * (test so mã băm nội dung với phiên bản). */
+  privacyNoticeVersion: "contact-notice-2026-11-06",
+  failure: {
+    no_backend: "Bản web này chưa kết nối máy chủ nên chưa gửi được yêu cầu. Nội dung bạn nhập vẫn được giữ nguyên.",
+    network:
+      "Không kết nối được máy chủ nên chưa xác nhận được yêu cầu. Kiểm tra mạng rồi gửi lại; nội dung bạn nhập vẫn được giữ nguyên, và gửi lại cùng nội dung sẽ không tạo yêu cầu trùng.",
+    timeout:
+      "Máy chủ phản hồi quá lâu nên chưa xác nhận được yêu cầu đã lưu hay chưa. Bạn có thể gửi lại: nếu yêu cầu đã được lưu, hệ thống trả lại mã cũ thay vì tạo yêu cầu trùng. Nội dung bạn nhập vẫn được giữ nguyên.",
+    invalid: "Máy chủ chưa chấp nhận một số mục. Vui lòng kiểm tra các mục được đánh dấu.",
+    rate_limited: "Bạn đã gửi nhiều yêu cầu trong thời gian ngắn. Vui lòng thử lại sau ít phút; nội dung bạn nhập vẫn được giữ nguyên.",
+    rejected: "Máy chủ không chấp nhận yêu cầu gửi từ trang này. Nội dung bạn nhập vẫn được giữ nguyên; vui lòng thử lại sau.",
+    server: "Máy chủ gặp lỗi nên chưa xác nhận được yêu cầu. Vui lòng thử lại sau ít phút; nội dung bạn nhập vẫn được giữ nguyên.",
+  },
+  success: {
+    title: "Đã ghi nhận yêu cầu của bạn",
+    reference: "Mã yêu cầu",
+    body: "Đội ngũ CareLens AI sẽ liên hệ với bạn qua số điện thoại hoặc email đã cung cấp. Hệ thống không gửi email xác nhận cho bạn, vui lòng giữ mã yêu cầu để tiện trao đổi.",
+    purchase: "Đây là yêu cầu đặt mua, chưa phải đơn hàng đã xác nhận. Sản phẩm, giá và giao nhận sẽ được xác nhận khi đội ngũ liên hệ.",
+    duplicate: "Yêu cầu giống hệt đã được gửi trước đó, nên không tạo yêu cầu mới. Đây là mã của yêu cầu đã lưu.",
+    /** Máy chủ trả "pending" hoặc "failed": yêu cầu đã lưu, email báo đội ngũ chưa được nhà cung cấp nhận; cron sẽ thử lại. */
+    notificationPending: "Yêu cầu đã được lưu. Email báo cho đội ngũ chưa gửi xong; hệ thống sẽ tự thử gửi lại. Bạn không cần gửi lại yêu cầu.",
+    /** Máy chủ trả "not_configured": email báo đội ngũ chưa được bật trên máy chủ này. */
+    notificationNotConfigured:
+      "Yêu cầu đã được lưu, nhưng máy chủ này chưa bật email báo cho đội ngũ, nên đội ngũ có thể chưa biết ngay về yêu cầu. Bạn không cần gửi lại yêu cầu.",
+    again: "Gửi yêu cầu khác",
+  },
   app: "Xem ứng dụng",
-  mailSubject: "Liên hệ CareLens AI",
 } as const;
 
 export const FOOTER = {

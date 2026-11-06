@@ -151,3 +151,45 @@ Mọi route `/api/admin/v1/*` (trừ `session/exchange`) kiểm ở máy chủ: 
 | `POST /api/demo/command` | 410 `demo_command_removed` |
 
 Ánh xạ: hồ sơ của vé hiện dưới persona `r_liveshowcase`; thiết bị `LEGACY_STREAM_DEVICE_ID` (hoặc thiết bị đầu tiên của hồ sơ) hiện là hub `d_hub_liveshowcase` (`online` từ liên lạc cuối có xác thực). Sự kiện: quyết định hợp nhất (`fall_like`, `type` = trạng thái hoặc kết quả xác minh, `alert_id`), quan sát uống nước/thuốc (`care_activity`), vòng đời lệnh thiết bị (`care_activity`, `type: device_command_<status>`, chỉ ghi "đã phát xong" khi thiết bị báo `completed`) và một dòng trạng thái hệ thống (`activity`, `type: system_status`, `source_mode: system`: agent cục bộ, hàng đợi, lần phân tích gần nhất, lỗi gần nhất, IMU gần nhất, trạng thái hiệu chỉnh). Cảnh báo có `version`, `policy_version`, `source_mode`. `care_level`, `latest_data`, `battery` luôn `null`.
+
+## Biểu mẫu liên hệ / yêu cầu đặt mua — `/api/public/v1` (A43, không xác thực)
+
+`POST /api/public/v1/contact-requests` · `Content-Type: application/json` · thân ≤ 16 KB · `Origin` phải nằm trong `ALLOWED_ORIGINS`.
+
+| Trường chung | Ghi chú |
+| --- | --- |
+| `category` | `individual_consultation` · `individual_purchase` · `facility_consultation` · `facility_purchase` |
+| `consent` | bắt buộc `true` |
+| `privacy_notice_version` | bắt buộc, một giá trị trong `PRIVACY_NOTICE_VERSIONS` (hiện chỉ `contact-notice-2026-11-06`); giá trị khác → 422. Máy chủ lưu cùng `consent_at`, không đưa vào email |
+| `website` | ô bẫy, phải rỗng (có giá trị → 400 `submission_rejected`, không lưu) |
+
+| Loại | Bắt buộc | Không bắt buộc |
+| --- | --- | --- |
+| `individual_consultation` | `full_name`, `phone`, `email`, `message` | `relationship` (`self`, `parent`, `grandparent`, `other_family`, `other`), `interests[]` (`incident_alerts`, `reminders`, `daily_summary`, `setup_and_use`, `privacy`, `pricing_and_purchase`) |
+| `individual_purchase` | `full_name`, `phone`, `email`, `quantity` (1–20), `recipient_name`, `recipient_phone`, `delivery_address` | `product_interest` (chữ tự do, không có danh mục), `delivery_notes`, `message` |
+| `facility_consultation` | `organization`, `full_name`, `email`, `phone`, `message` | `facility_type` (`nursing_home`, `hospital`, `clinic`, `home_care`, `rehabilitation`, `other`), `job_title`, `address`, `care_recipients_estimate` (1–100 000), `timeline` (`within_1_month`, `1_3_months`, `3_6_months`, `over_6_months`, `undecided`) |
+| `facility_purchase` | `organization`, `full_name`, `email`, `phone`, `address`, `device_quantity` (1–10 000) | `job_title`, `timeline`, `integration_requirements`, `message` |
+
+Độ dài tối đa: tên 120, tổ chức 200, địa chỉ 300, lời nhắn 2000. Trường thừa → 422. Trường không bắt buộc nhận `null` hoặc chuỗi rỗng.
+
+| Kết quả | Thân |
+| --- | --- |
+| 201 | `{request_id: "CL-YYMMDD-XXXXXXXX", category, received_at, duplicate: false, notification: {status}}` |
+| 200 | Yêu cầu giống hệt trong 24 giờ: `duplicate: true`, `request_id` của yêu cầu đã lưu |
+| 400 `submission_rejected` · 403 `origin_not_allowed` · 413 · 415 · 422 `invalid_payload` (`fields[]`) · 429 `too_many_requests` · 503 `submission_not_stored` | problem+json |
+
+Không có route công khai nào đọc, sửa hay xóa yêu cầu đã lưu.
+
+### Vận hành yêu cầu liên hệ — `/api/admin/v1/contact-requests` (A44, `adminOnly`)
+
+| Route | Kết quả |
+| --- | --- |
+| `GET /api/admin/v1/contact-requests?notification_status=&handling_status=&limit=&cursor=` | `{items[], next_cursor, counts: {notification: {trạng thái: n}, handling: {open, closed}}, notifications}`. Mỗi item: `request_id`, `category`, `customer_group`, `created_at`, `updated_at`, `handling {status, closed_at, close_reason, purge_after}`, `consent {consent_at, privacy_notice_version}`, `notification {status, attempts, last_attempt_at, sent_at, error, outcome_unknown, needs_operator}`. **Không có dữ liệu khách.** Bộ lọc sai → 400 |
+| `GET /api/admin/v1/contact-requests/{id}` | Như item + `payload` (dữ liệu khách). Ghi audit `contact_request.view`. Mã không hợp lệ hoặc không có → 404 |
+| `POST …/{id}/close` | `handling_status = closed`, `close_reason = operator`, `closed_at`, `purge_after = +180 ngày`; `changed: false` nếu đã đóng (giữ ngày cũ). Audit `contact_request.close` |
+| `POST …/{id}/reopen` | `open`, xóa `closed_at`/`close_reason`/`purge_after`, `updated_at = now` (trên yêu cầu đang mở: ghi nhận trao đổi). Audit `contact_request.reopen` / `contact_request.activity` |
+| `DELETE …/{id}` | Xóa dòng ngay; `{request_id, erased: true, notification_status_at_erasure, not_covered: ["email_copies", "d1_time_travel_history", "provider_logs"]}`. Audit `contact_request.erase` |
+
+Thiếu credential admin → 401 (hoặc 503 `admin_not_configured` khi máy chủ chưa cấu hình admin); token người chăm sóc không dùng được. Audit không chứa dữ liệu khách.
+
+`notification.status`: `sent` (Resend đã nhận, chưa chắc đã tới hộp thư) · `pending` (đã lưu, chưa thử hoặc đang gửi ở lượt khác) · `failed` (đã lưu, lần thử bị từ chối, không tới được hoặc hết giờ; cron gửi lại với cùng idempotency key trong 23 giờ đầu) · `not_configured` (chưa cấu hình email; cron gửi khi cấu hình xong, nếu yêu cầu chưa quá 30 ngày). `/ready` có `capabilities.contact_notifications`.

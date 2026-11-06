@@ -164,3 +164,28 @@ Owner không tải được WAV (tệp quá lớn, yêu cầu mono) nên yêu c�
 ## 9. Bối cảnh trước triển khai (2026-10-19)
 
 Toàn bộ luồng đầu-cuối đã chạy với thiết bị thật trên backend cục bộ (`docs/E2E_TEST_RESULTS.md`). Tương thích đã kiểm trước khi triển khai: firmware mới với Worker cũ chạy được (mất tính năng mới); frontend mới với Worker cũ không hỏng; frontend cũ với Worker mới không hỏng; Worker mới trên schema thiếu 0006/0007 hỏng (vì vậy migration đi trước Worker).
+
+## 10. Phát hành liên hệ (A43, A44, A45) — 2026-11-06
+
+Owner chọn "Option B": chỉ phần liên hệ, không A42 và ADR-027/028; email chưa bật (chưa có tên miền gửi). Commit phát hành: commit chứa mục này (`git log -1 -- docs/PRODUCTION_ROLLOUT_READINESS.md`), trên commit ghi nhận mã nguồn production trước đó.
+
+| Cổng | Lệnh / bằng chứng | Kết quả |
+| --- | --- | --- |
+| Mã nguồn production | API Cloudflare `workers/scripts/care-monitoring/content/v2` (source map có `sourcesContent`); tải lại frontend đang chạy và dựng lại | Worker `492b3cfd` và frontend `dpl_J2mJ49apKUg9EhWoDGRjv3nrrw2f` xác lập nguyên văn (A45) |
+| Tách bản phát hành | worktree riêng `release/contact-a43-a44`; so source map | 121/124 nguồn trùng, khác chỉ phần liên hệ; không có mã A42/ADR-027 |
+| Test bản phát hành | Worker `npm run typecheck`, `npm run contracts:check`, `npx vitest run`; frontend `npm run typecheck`, `npm run lint`, `npm test`, Playwright `contact.spec.ts` + `landing.spec.ts` | typecheck sạch; contracts up to date; 385/386 (lỗi `realtime.test.ts › legacy stream` có sẵn, tái hiện trên `HEAD` `f289432` sạch; luồng legacy tắt trên production); frontend 415/415; Playwright 24/24 |
+| Admin | `SELECT` trên `admins` | 1 admin (owner, Google), cộng token tĩnh của operator |
+| D1 trước | `d1 info`, `migrations list --remote`, `d1_migrations` | đúng DB `bc68672b…`; `0001`–`0007` đã áp, chỉ `0008`/`0009` chờ, chưa có bảng `contact*`; bookmark Time Travel `00000094-00000000-0000511b-8d531655c9b1a2bf2946357a934f280e` |
+| Migration | `npx wrangler d1 migrations apply care_monitoring --remote` (~14:46 UTC) | `0008` ✅ `0009` ✅; 20 cột, 5 chỉ mục; `devices` 1, `admins` 1, `events` 1 618, `audit_log` 1 769 (không đổi) |
+| Worker | `npx wrangler deploy --tag contact-a43-a44` từ worktree phát hành (~14:47 UTC) | `e778ad7c-eef6-4fe1-9dac-6d973d0a6a7c`; binding `CONTACT_LIMITER` 5/60 s; cron `* * * * *`, `15 17 * * *`; nội dung tải về trùng 126/126 nguồn bản dựng |
+| Frontend | `VITE_API_BASE_URL=<Worker> npm run build` → `.vercel/output/static`; `vercel deploy --prebuilt --prod --skip-domain --yes`; `vercel promote dpl_2uwXa1WXyTZtvSttiGEhqjKMcvcW --yes` (14:55:50 UTC) | 41/41 tệp trên Vercel trùng sha1 bản dựng; domain phục vụ `index-D8khTy_2.js`, 27/27 tài sản và `index.html` trùng byte; 5 header bảo mật. Có thêm một bản trùng `carelens-3nw6u6ttp` (lệnh deploy chạy hai lần), không lên domain |
+| Kiểm production | `docs/E2E_TEST_RESULTS.md` §15 | đạt; 9 yêu cầu thử đã xóa, bảng 0 dòng |
+
+**Quay lại:** `docs/DEPLOYMENT_RUNBOOK.md` §17.0b.
+
+**Còn mở sau phát hành:**
+
+- Email chưa bật: owner mua tên miền, xác minh ở Resend, tạo khóa chỉ gửi, rồi làm theo `docs/DEPLOYMENT_RUNBOOK.md` §17.0. Tới lúc đó đội ngũ chỉ biết yêu cầu mới qua `scripts/admin.py contact-list`; nên kiểm hằng ngày.
+- Token admin tĩnh còn đặt và là đường duy nhất cho CLI liên hệ (A45). Thu hồi sau khi có trang liên hệ trong dashboard admin hoặc cách đăng nhập admin cho CLI: `npx wrangler secret delete ADMIN_TOKEN_SHA256`, rồi kiểm lại năm route liên hệ bằng phiên admin.
+- Client secret Google bị lộ (tên một secret của Worker bắt đầu bằng giá trị của nó, S-3): chưa xoay. Owner làm trên Google Cloud Console, project của OAuth client `979588489488-be9tq7gif9pncdiq2v26l4s427j2bj6v.apps.googleusercontent.com`: *APIs & Services → Credentials →* client đó *→ Add secret* → đặt secret mới bằng `npx wrangler versions secret put GOOGLE_CLIENT_SECRET` rồi `versions deploy` (hoặc `wrangler secret put GOOGLE_CLIENT_SECRET`), kiểm đăng nhập Google ở `/login` và `/admin/login`, **sau đó** *Disable* rồi *Delete* secret cũ trên Console, rồi xóa secret Worker có tên bắt đầu `GOCSPX-` (dùng script lọc tên, không gõ tên vào dòng lệnh). Không xóa secret cũ trước khi secret mới đã kiểm.
+- Frontend production có phần hiển thị hàng đợi ADR-027 từ 2026-10-20 (A45 mâu thuẫn (1)); owner quyết định giữ hay gỡ.

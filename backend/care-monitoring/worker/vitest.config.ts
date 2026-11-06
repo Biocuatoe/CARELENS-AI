@@ -24,6 +24,10 @@ export default defineConfig(async () => {
             GOOGLE_CLIENT_ID: "",
             // Admin sign-in is off unless a test turns it on (the real list is a production secret).
             ADMIN_BOOTSTRAP_EMAILS: "",
+            // Contact notifications are off unless a test configures a fake provider.
+            CONTACT_NOTIFICATION_TO: "",
+            CONTACT_FROM_EMAIL: "",
+            RESEND_API_KEY: "",
           },
         },
       }),

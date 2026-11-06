@@ -18,6 +18,14 @@ does not land in shell history). New credentials are printed once; store them wh
   python scripts/admin.py --api ... revoke-grant --id grt_...     (ends access to that recipient, closes streams)
   python scripts/admin.py --api ... status
 
+Contact / purchase requests (A44; CARELENS_ADMIN_TOKEN may also be an admin `clm_` session token):
+  python scripts/admin.py --api ... contact-list [--notification-status abandoned] [--handling-status open|closed]
+                                                  (no customer data: ids, states, dates, error codes)
+  python scripts/admin.py --api ... contact-show --id CL-...      (includes what the customer typed; the read is audited)
+  python scripts/admin.py --api ... contact-close --id CL-...     (handled: deleted 180 days after closing)
+  python scripts/admin.py --api ... contact-reopen --id CL-...    (reopen, or record activity on an open request)
+  python scripts/admin.py --api ... contact-erase --id CL-...     (erase now, only after verifying the requester; asks to confirm)
+
 Judges / viewers: create one dedicated caregiver for the judging panel, revoke the API token that `caregiver`
 prints (the web sign-in does not need it), grant the `viewer` role on the showcase recipient only, then issue
 a login. The generated password is shown once; give it over a private channel. Every sign-in is its own
@@ -32,6 +40,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -88,6 +97,15 @@ def main() -> int:
     rg = sub.add_parser("revoke-grant")
     rg.add_argument("--id", required=True)
     sub.add_parser("status")
+    cl = sub.add_parser("contact-list")
+    cl.add_argument("--notification-status", choices=["not_configured", "pending", "sending", "sent", "failed", "abandoned"])
+    cl.add_argument("--handling-status", choices=["open", "closed"])
+    cl.add_argument("--limit", type=int)
+    for name in ("contact-show", "contact-close", "contact-reopen", "contact-erase"):
+        sp = sub.add_parser(name)
+        sp.add_argument("--id", required=True, help="reference shown to the customer, e.g. CL-261104-7KQ3MZAB")
+        if name == "contact-erase":
+            sp.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     a = ap.parse_args()
     if a.cmd == "recipient":
         status, out = call(a.api, "POST", "/api/admin/v1/recipients", {"recipient_id": a.id, "display_label": a.label, "timezone": a.timezone})
@@ -114,6 +132,18 @@ def main() -> int:
         status, out = call(a.api, "POST", f"/api/admin/v1/caregiver-tokens/{a.id}/revoke")
     elif a.cmd == "revoke-grant":
         status, out = call(a.api, "POST", f"/api/admin/v1/grants/{a.id}/revoke")
+    elif a.cmd == "contact-list":
+        query = urllib.parse.urlencode({k: v for k, v in {"notification_status": a.notification_status, "handling_status": a.handling_status, "limit": a.limit}.items() if v is not None})
+        status, out = call(a.api, "GET", "/api/admin/v1/contact-requests" + (f"?{query}" if query else ""))
+    elif a.cmd == "contact-show":
+        status, out = call(a.api, "GET", f"/api/admin/v1/contact-requests/{urllib.parse.quote(a.id)}")
+    elif a.cmd in ("contact-close", "contact-reopen"):
+        status, out = call(a.api, "POST", f"/api/admin/v1/contact-requests/{urllib.parse.quote(a.id)}/{a.cmd.removeprefix('contact-')}")
+    elif a.cmd == "contact-erase":
+        if not a.yes and input(f"Erase {a.id} now? Type the reference again to confirm: ").strip() != a.id:
+            print("not erased")
+            return 1
+        status, out = call(a.api, "DELETE", f"/api/admin/v1/contact-requests/{urllib.parse.quote(a.id)}")
     else:
         status, out = call(a.api, "GET", "/api/admin/v1/status")
     print(json.dumps(out, ensure_ascii=False, indent=2))

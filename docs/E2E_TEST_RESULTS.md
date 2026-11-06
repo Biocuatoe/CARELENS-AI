@@ -190,3 +190,46 @@ Thiết bị chuyển sang production trong khoảng có hạn rồi trả về 
 PS = máy chủ production (D1/API production, chỉ đọc trừ thao tác owner).
 
 **Kết luận phần MP3:** đã kiểm chứng đầu-cuối với thiết bị thật **cục bộ** (§9.1–9.4) và **trên production** cho luồng dashboard → lệnh → loa (§9.5). Thiết bị không nối production thường trực.
+
+## 14. Biểu mẫu liên hệ / yêu cầu đặt mua (A43) — 2026-11-04, chỉ cục bộ
+
+- `npm run dev:backend` (`wrangler dev`, D1 cục bộ, migration `0008` áp cục bộ) + `npm run dev` (Vite 5173), Chromium qua Playwright điền giao diện thật.
+- Bốn loại gửi thành công, mã `CL-261104-T478A8VW`, `CL-261104-RH0PYCM0`, `CL-261104-2WKBVS2G`, `CL-261104-7M35ARV7`; D1 có đúng 4 dòng với `category`/`customer_group` đúng, `notification_status = not_configured` (không có khóa Resend); giao diện hiện lời báo "thông báo nội bộ chưa gửi được ngay". Gửi lại y hệt → cùng mã, `duplicate: true`, không thêm dòng.
+- Log Worker: chỉ `request_id` và `category`; không có tên hay email đã nhập.
+- **Chạy lại sau rà soát (2026-11-04):** `0008` được sửa (thêm `pending`, `consent_at`, `privacy_notice_version`); D1 cục bộ chỉ xóa bảng `contact_requests` và bản ghi `0008` rồi áp lại, dữ liệu khác giữ nguyên. Chromium → `wrangler dev`: bốn loại 201, mã `CL-261104-GFX89YN6`, `CL-261104-HRHZXQE7`, `CL-261104-CTYNYB0R`, `CL-261104-652PVJB6`. D1 có `consent_at = created_at`, `privacy_notice_version = contact-notice-2026-11-04` và `notification_status = not_configured`. Giao diện hiện câu "máy chủ này chưa bật email báo cho đội ngũ". Sau "Gửi yêu cầu khác", focus về ô đầu của biểu mẫu. Gửi lại y hệt trả 200, cùng mã. Log không có tên, email hay số điện thoại; `/__scheduled` chạy không lỗi.
+- **Thời hạn lưu và vận hành (A44, 2026-11-06):** `start_backend.py --dev-admin-email local-dev-admin@carelens.invalid` áp `0009` lên D1 cục bộ đang có 4 dòng (các dòng thành `open`, `updated_at = created_at`). Gửi `CL-261106-3ECY6B4Y` → 201. Phiên bản thông báo cũ `contact-notice-2026-11-04` → 422. `/ready` không chứa tên, email, số điện thoại hay mã yêu cầu. Danh sách admin khi không có credential → 401. Có phiên `clm_` (qua `dev_admin_login.py` + `session/exchange`), `scripts/admin.py`:
+  - `contact-list`: 5 dòng, số đếm đúng, không có dữ liệu khách
+  - `contact-show`: có `payload`, `consent`
+  - `contact-close`: `purge_after = closed_at + 180 ngày`
+  - `contact-reopen`: xóa ngày xóa
+  - `contact-erase`: gõ sai mã thì không xóa; xác nhận đúng thì xóa, kèm `not_covered`. Sau đó `contact-show` → lỗi.
+
+  Audit có `view`, `close`, `reopen`, `erase`, không có dữ liệu khách. `/__scheduled` chạy không lỗi; log Worker không có dữ liệu khách.
+- **Chưa kiểm:** gửi email thật qua Resend (chưa có khóa và tên miền gửi đã xác minh), production, D1 Time Travel.
+
+## 15. Biểu mẫu liên hệ trên production (A43, A44, A45) — 2026-11-06, email chưa bật
+
+Worker `e778ad7c-eef6-4fe1-9dac-6d973d0a6a7c`, frontend `dpl_2uwXa1WXyTZtvSttiGEhqjKMcvcW`, D1 `care_monitoring` (`bc68672b…`). Dữ liệu thử tổng hợp, đánh dấu `KIỂM THỬ PHÁT HÀNH`, email `@example.invalid`, số `0900 000 1xx`. Gọi bằng script Python (User-Agent riêng, certifi) và Chromium thật tới `https://carelens-ai-eta.vercel.app`. Admin gọi bằng token tĩnh của operator (không in ra).
+
+| Kiểm tra | Kết quả |
+| --- | --- |
+| `/ready`, `/health` | 200; `contact_notifications: not_configured`; không có email, khóa hay dữ liệu khách |
+| Origin lạ / thiếu origin | 403 `origin_not_allowed`; preflight từ origin lạ 403, không có `Access-Control-Allow-Origin` |
+| Preflight từ trang Vercel | 204, `Access-Control-Allow-Origin: https://carelens-ai-eta.vercel.app` |
+| Bốn loại (`individual_consultation`, `individual_purchase`, `facility_consultation`, `facility_purchase`) | 201, mã `CL-261106-…`, `notification.status = not_configured`. Lần chạy đầu `facility_purchase` bị 422 `address` vì payload thử thiếu địa chỉ (bắt buộc với loại này); đúng như thiết kế |
+| Gửi lại y hệt | 200, `duplicate: true`, cùng mã; chỉ 1 dòng trong D1 |
+| Phiên bản thông báo cũ `contact-notice-2026-11-04` | 422 |
+| `CONTACT_LIMITER` (5 / 60 s) | Có 429 `too_many_requests` (`retry-after: 60`): lần gửi lại (yêu cầu thứ 5 trong ~1 s, ngay sau lượt chạy trước) bị chặn; loạt 25 yêu cầu sai liên tiếp bị chặn 8 lần. Bộ đếm xấp xỉ: một loạt 10 yêu cầu liên tiếp không bị chặn lần nào |
+| Admin không có thông tin xác thực | 401 |
+| Danh sách admin | `notifications: "not_configured"`, số đếm đúng, không có tên, email hay số điện thoại |
+| Chi tiết | `consent.consent_at` = thời điểm gửi, `consent.privacy_notice_version = contact-notice-2026-11-06`, `handling.status = open` |
+| Đóng / đóng lại / mở lại | `closed`, `close_reason = operator`, `purge_after` = +180 ngày (2027-05-05); đóng lại `changed: false`, ngày không đổi; mở lại xóa `purge_after` |
+| Xóa | Chỉ xóa 9 yêu cầu thử của lần chạy này, sau khi kiểm lại dấu thử; 200 kèm `not_covered`, sau đó 404; bảng về 0 dòng |
+| Audit | `contact_request.view` 16, `close` 2, `reopen` 2, `erase` 9 (8 qua script, 1 cho yêu cầu từ trình duyệt): chi tiết chỉ có loại, trạng thái, ngày; người thực hiện là admin |
+| Cron mỗi phút | 11 lượt, tất cả `ok`, có `contact_notifications_retried`, `contact_requests_closed`, `contact_requests_deleted`; 0 exception |
+| Log Worker (`wrangler tail`, chỉ giữ log và exception) | 120 sự kiện, không có tên, email, số điện thoại hay địa chỉ thử; log yêu cầu chỉ có mã và loại |
+| Chromium → trang thật | Đủ sáu phần landing; 7/7 ảnh đội ngũ tải được (lazy, sau khi cuộn tới); gửi yêu cầu từ biểu mẫu thật → hiện mã và câu "máy chủ này chưa bật email báo cho đội ngũ"; yêu cầu đi tới đúng Worker production; 0 lỗi console |
+| CSP | Một báo cáo `script-src eval` từ phép thử JIT của `zod` (`Function("")` trong `try`); đã có trong bản trước (`LoginPage` dùng `zod`), `zod` tự chuyển sang chế độ không JIT. CSP chặn đúng như cấu hình |
+| Bundle | Không có `localhost` nào làm địa chỉ API (một chuỗi `http://localhost` là gốc phân tích URL nội bộ của React Router, chunk trùng byte bản trước), không cổng dev, không chuỗi giống khóa; `/api/public/v1/contact-requests` trỏ tới Worker production |
+
+**Chưa kiểm:** gửi email thật (email chưa bật, chưa có tên miền), D1 Time Travel restore, đăng nhập admin bằng Google sau phát hành (cần owner), cron tự đóng/xóa theo thời hạn thật (cần 12 tháng / 180 ngày; logic có test `contact-retention.test.ts`).

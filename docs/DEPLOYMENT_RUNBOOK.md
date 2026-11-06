@@ -327,3 +327,67 @@ Chỉ sau khi owner đồng ý riêng và có thiết bị thật:
 | 12 | Một nhắc lịch thử | Chọn giờ cách vài phút. Bằng chứng cron chạy: xuất hiện lệnh `reminder` cho lần hẹn đó; không có lệnh nghĩa là cron chưa chạy hoặc thiết bị bị coi là ngoại tuyến quá hạn |
 
 **Đã kiểm cục bộ, không thay cho các bước trên:** test Worker trong runtime Workers (309 sau ADR-022/024), `deploy:dry-run`, test giao diện và Playwright với Worker giả, và (2026-10-19) firmware ESP32-S3 thật qua HTTPS với backend cục bộ (`docs/E2E_TEST_RESULTS.md`). Chưa có bằng chứng nào từ Google thật, D1 production hay cron production. Bước 10–11 với firmware tích hợp: `firmware/carelens-esp32s3/README.md` (nạp `api` = URL Worker, không nạp `ca` để dùng bộ chứng chỉ ESP-IDF).
+
+## 17. Biểu mẫu liên hệ / yêu cầu đặt mua (A43, A44) — đã phát hành 2026-11-06, email chưa bật
+
+**Đã chạy trên production (2026-11-06, A45, bằng chứng `docs/PRODUCTION_ROLLOUT_READINESS.md` §7 và `docs/E2E_TEST_RESULTS.md` §15):** migration `0008` + `0009` (14:46 UTC), Worker `e778ad7c-eef6-4fe1-9dac-6d973d0a6a7c` (14:47 UTC), frontend `dpl_2uwXa1WXyTZtvSttiGEhqjKMcvcW` (lên domain 14:55:50 UTC). Email thông báo **chưa bật**: chưa có tên miền gửi đã xác minh (owner sẽ mua tên miền riêng cho CareLens AI), nên `RESEND_API_KEY` chưa đặt và `CONTACT_FROM_EMAIL` rỗng. Yêu cầu vẫn được lưu với `notification_status = not_configured`, admin thấy `notifications: "not_configured"`, `/ready` báo `contact_notifications: not_configured`, và khách được báo đội ngũ có thể chưa biết ngay.
+
+Bản Worker phát hành = mã của Worker `492b3cfd` (khôi phục nguyên văn từ source map của chính bản đó) + thay đổi liên hệ. **Không** gồm A42 (`decisions.ts`) và ADR-027/028 (`report_capture_queue`, trường hàng đợi trong `contracts.ts`). Khi phát hành lại, dựng từ commit đã ghi ở §7 của `docs/PRODUCTION_ROLLOUT_READINESS.md`, không từ cây làm việc (cây làm việc còn A42 và ADR-027/028 chưa duyệt).
+
+Ghi chú hạ tầng:
+
+- `CONTACT_LIMITER` là binding `ratelimits` trong `wrangler.jsonc` (`namespace_id "1003"`, 5 yêu cầu / 60 s / IP), tạo khi deploy Worker. Đã thấy 429 trên production, nhưng bộ đếm của Cloudflare là xấp xỉ (nhất quán dần theo từng vùng): 10 yêu cầu liên tiếp có lần không bị chặn. Chặn cứng là giới hạn D1 `CONTACT_MAX_PER_HOUR` (10 yêu cầu đã lưu / giờ / mạng).
+- Đã áp `0008`/`0009` thì không sửa hai tệp này nữa; thay đổi sau đi bằng migration mới.
+- Điểm khôi phục D1 trước khi áp migration: bookmark Time Travel `00000094-00000000-0000511b-8d531655c9b1a2bf2946357a934f280e`. **Không** khôi phục về bookmark này nếu đã có yêu cầu thật của khách (sẽ mất yêu cầu và dữ liệu giám sát ghi sau đó); `0008`/`0009` chỉ thêm bảng/cột, không cần khôi phục để quay lại Worker cũ.
+
+### 17.0 Bật email thông báo khi đã có tên miền
+
+Chỉ owner làm được bước 1–3 (tài khoản Resend và DNS của tên miền). Không gửi khóa qua chat, không đặt khóa vào repo, `.env`, `vars` hay biến `VITE_*`.
+
+1. **Tên miền:** mua tên miền riêng cho CareLens AI. Nên gửi từ một tên miền con dành riêng, ví dụ `notify.<tên-miền>`, để bản ghi của Resend không đụng email khác của tên miền chính. Không dùng `carelens-ai-eta.vercel.app` (không kiểm soát DNS).
+2. **Xác minh ở Resend:** https://resend.com/domains → *Add domain* → nhập tên miền con → thêm đúng các bản ghi Resend hiện ra tại nhà cung cấp DNS (thường là TXT SPF và MX cho `send.<tên-miền-con>`, TXT DKIM `resend._domainkey.<tên-miền-con>`; nên thêm TXT DMARC `_dmarc.<tên-miền>` nếu chưa có). Chờ Resend báo **Verified**.
+3. **Khóa API:** https://resend.com/api-keys → *Create API key* → tên `carelens-production-worker`, quyền **Sending access**, giới hạn theo tên miền vừa xác minh. Giữ khóa trong cửa sổ đó, chưa đóng.
+4. **Người gửi (không phải bí mật):** trong `backend/care-monitoring/worker/wrangler.jsonc` đặt `"CONTACT_FROM_EMAIL": "CareLens AI <lienhe@notify.<tên-miền>>"` (địa chỉ trên tên miền đã xác minh). Người nhận giữ nguyên `CONTACT_NOTIFICATION_TO = hungleduc2005@gmail.com` (ngoại lệ duy nhất của AGENTS.md §6). Email khách đi vào `reply_to`, không bao giờ vào `from`.
+5. **Khóa vào Worker mà không deploy ngay** (từ `backend/care-monitoring/worker`, dựng từ commit phát hành, không từ cây làm việc):
+   - `npx wrangler versions upload --message "contact email on"` (bản có `CONTACT_FROM_EMAIL` mới; chưa nhận lưu lượng)
+   - `npx wrangler versions secret put RESEND_API_KEY` → dán khóa vào **dấu nhắc ẩn của terminal** (theo tài liệu Cloudflare, lệnh này tạo thêm một bản mới từ bản mới nhất và không deploy; `--help` của wrangler 4.151.1 không ghi rõ, nên kiểm bằng `npx wrangler deployments list` rằng bản đang chạy chưa đổi)
+   - `npx wrangler versions list` → lấy mã bản mới nhất → `npx wrangler versions deploy <mã>@100% --yes`
+   - Không dùng `wrangler secret put` thường: nó deploy ngay bản đang chạy với khóa mới trong khi `CONTACT_FROM_EMAIL` còn rỗng (vô hại vì thiếu một biến là tắt, nhưng mất thứ tự kiểm soát).
+6. **Kiểm:** `/ready` → `contact_notifications: configured` (`misconfigured` = giá trị sai định dạng; không có giá trị nào bị in ra). Gửi **một** yêu cầu thử có đánh dấu từ trang Vercel; xác nhận thư thật tới `hungleduc2005@gmail.com` (kể cả thư mục Spam), tiêu đề có mã yêu cầu, *Trả lời* đi tới email khách thử. `notification.status = sent` chỉ có nghĩa là Resend đã nhận, không phải đã tới hộp thư. Ghi bằng chứng vào `docs/E2E_TEST_RESULTS.md`, rồi `contact-erase` yêu cầu thử và xóa thư thử.
+7. **Yêu cầu đã lưu trước khi bật:** cron gửi các yêu cầu `not_configured` còn mở và dưới 30 ngày tuổi trong vài phút sau khi bật; yêu cầu cũ hơn 30 ngày thành `abandoned` (`not_sent_expired`) và chỉ còn trong `contact-list`. Trước khi bật, xử lý tay những yêu cầu đang chờ để đội ngũ không nhận thư trùng việc đã làm.
+
+### 17.0b Quay lại
+
+- Worker: `npx wrangler rollback 492b3cfd-f0f1-4512-904c-0fdf68ca6dee` (bản trước phát hành; bỏ route liên hệ, giữ bảng `contact_requests`). Frontend phải quay cùng lúc, nếu không biểu mẫu báo lỗi.
+- Frontend: `vercel promote dpl_J2mJ49apKUg9EhWoDGRjv3nrrw2f --yes` (bản trước phát hành, phần "Liên hệ" cũ chỉ sao chép nội dung).
+- Không xóa bảng `contact_requests` khi còn yêu cầu thật của khách.
+
+### 17.1 Vận hành hằng ngày (admin)
+
+Đặt `CARELENS_ADMIN_TOKEN` rồi dùng `python backend/care-monitoring/scripts/admin.py --api <URL Worker> …`. Trên production hiện chỉ dùng được **token tĩnh của operator** (tệp của owner, ngoài repo): phiên admin `clm_` của đăng nhập Google chỉ nằm trong bộ nhớ trình duyệt và dashboard chưa có trang yêu cầu liên hệ (A45). Cục bộ có thể dùng phiên `clm_` từ `scripts/dev_admin_login.py`. Python báo `CERTIFICATE_VERIFY_FAILED` (kho CA của Windows cũ) thì đặt `SSL_CERT_FILE` tới tệp của `certifi` (`py -c "import certifi; print(certifi.where())"`) trước khi chạy.
+
+| Việc | Lệnh | Ghi chú |
+| --- | --- | --- |
+| Tìm yêu cầu chưa báo được cho đội ngũ | `contact-list --notification-status abandoned` | Không có dữ liệu khách. `notification.error`: `network_error`, `timeout`, `http_<mã>[:tên]`, `outcome_unknown` (lượt gửi bị ngắt, **có thể đã tới hộp thư**), `not_sent_expired` (chưa gửi lần nào, quá 30 ngày). Không gửi lại tự động; đọc chi tiết rồi xử lý tay |
+| Xem nội dung một yêu cầu | `contact-show --id CL-…` | Có dữ liệu khách; mỗi lần xem ghi audit `contact_request.view` |
+| Đã xử lý xong | `contact-close --id CL-…` | `purge_after` = sau 180 ngày; đóng lại lần nữa không dời ngày |
+| Còn trao đổi / mở lại | `contact-reopen --id CL-…` | Xóa ngày xóa; tính lại 12 tháng không hoạt động |
+| Số đếm theo trạng thái | `contact-list` → `counts` | `notifications`: `configured` / `misconfigured` / `not_configured` |
+
+Cron (mỗi phút): tự đóng yêu cầu mở không có cập nhật trong 12 tháng, xóa yêu cầu đã đóng khi qua `purge_after` (tối đa 100 dòng mỗi việc mỗi lượt), xóa băm IP sau 2 giờ. Log chỉ có số dòng (`contact_retention`), không có mã hay dữ liệu khách.
+
+### 17.2 Yêu cầu xem hoặc xóa dữ liệu của khách
+
+Không có route công khai nào đọc hay xóa theo mã yêu cầu; biết mã là chưa đủ. Quy trình:
+
+1. **Nhận yêu cầu:** qua biểu mẫu (khách gửi yêu cầu tư vấn mới kèm mã, theo thông báo quyền riêng tư), hoặc trả lời một email/cuộc gọi của đội ngũ. Ghi mã yêu cầu gốc và ngày nhận.
+2. **Xác minh danh tính:** `contact-show --id <mã gốc>`, rồi liên hệ **qua email hoặc số điện thoại lưu trong yêu cầu gốc** (không dùng thông tin mới mà người yêu cầu đưa ra) để người đó xác nhận. Không xác nhận được thì không cung cấp hay xóa gì, và ghi lý do.
+3. **Yêu cầu xem:** gửi nội dung `payload` của yêu cầu gốc qua chính kênh đã xác minh. Không gửi cho địa chỉ khác.
+4. **Yêu cầu xóa:** `contact-erase --id <mã gốc>` (phải gõ lại mã để xác nhận). Lặp lại cho yêu cầu mà khách gửi để xin xóa, khi đã xử lý xong. Audit ghi `contact_request.erase` (mã, loại, trạng thái thông báo; không có dữ liệu khách).
+5. **Bản sao ngoài D1 (lệnh xóa không chạm tới):**
+   - Thư thông báo trong hộp `hungleduc2005@gmail.com`: tìm theo mã yêu cầu (có trong tiêu đề thư) và xóa bằng tay, kể cả trong Thùng rác.
+   - Log email của Resend: xem thời hạn lưu của gói Resend; xóa trên dashboard Resend nếu gói cho phép.
+   - D1 Time Travel: lịch sử điểm khôi phục **không** bị xóa và tự hết hạn theo gói Cloudflare. Không khôi phục D1 về thời điểm trước một lần xóa đã thực hiện; nếu buộc phải khôi phục thì xóa lại các mã đã xóa sau đó (giữ danh sách mã đã xóa trong audit log).
+   - Phản hồi `contact-erase` có `not_covered: ["email_copies", "d1_time_travel_history", "provider_logs"]`, nhắc ba phần này.
+6. **Trả lời khách** qua kênh đã xác minh, nói rõ phần đã xóa và phần tự hết hạn. Không nói "đã xóa hoàn toàn" khi bản sao lưu còn.
+7. `notification_status_at_erasure = sending`: thư đã giao cho Resend vẫn có thể tới; kiểm hộp thư sau vài phút và xóa nếu có.

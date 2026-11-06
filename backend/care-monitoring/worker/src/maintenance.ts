@@ -5,6 +5,7 @@
  */
 import { deleteCaptureMedia, type CaptureRow } from "./captures";
 import { commandHousekeepingStatements } from "./commands";
+import { applyContactRetention, clearContactRateKeys, retryContactNotifications } from "./contact";
 import type { Ctx } from "./context";
 import { decideOverdue } from "./decisions";
 import { finalizeTerminalVisionJobs, recoveryStatements } from "./jobs";
@@ -24,6 +25,9 @@ export interface MaintenanceResult {
   report_jobs_created: number;
   imu_batches_purged: number;
   stream_tickets_purged: number;
+  contact_notifications_retried: number;
+  contact_requests_closed: number;
+  contact_requests_deleted: number;
 }
 
 /** Retention: raw IMU older than IMU_RAW_RETENTION_HOURS and used/expired stream tickets. Bounded per run. */
@@ -94,6 +98,19 @@ export async function runMaintenance(ctx: Ctx, opts: { includeReports: boolean }
   const reminders = await queueDueReminders(ctx);
   const reports = opts.includeReports ? await ensureDailyReportJobs(ctx) : 0;
   const purged = await purgeExpired(ctx);
+  // A mail outage must not stop the maintenance run.
+  const contactRetried = await retryContactNotifications(ctx).catch((err: unknown) => {
+    console.error(JSON.stringify({ msg: "contact_retry_error", error: err instanceof Error ? err.name : "unknown" }));
+    return 0;
+  });
+  await clearContactRateKeys(ctx).catch((err: unknown) => {
+    console.error(JSON.stringify({ msg: "contact_rate_key_clear_error", error: err instanceof Error ? err.name : "unknown" }));
+  });
+  // Contact-request retention (A44): touches contact_requests only.
+  const contactRetention = await applyContactRetention(ctx).catch((err: unknown) => {
+    console.error(JSON.stringify({ msg: "contact_retention_error", error: err instanceof Error ? err.name : "unknown" }));
+    return { closed: 0, deleted: 0 };
+  });
   return {
     expired_uploads: media.expiredUploads,
     media_deleted: media.deleted,
@@ -103,5 +120,8 @@ export async function runMaintenance(ctx: Ctx, opts: { includeReports: boolean }
     report_jobs_created: reports,
     imu_batches_purged: purged.imu,
     stream_tickets_purged: purged.tickets,
+    contact_notifications_retried: contactRetried,
+    contact_requests_closed: contactRetention.closed,
+    contact_requests_deleted: contactRetention.deleted,
   };
 }

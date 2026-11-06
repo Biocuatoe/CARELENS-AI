@@ -6,8 +6,9 @@
  *   /api/agent/v1/*                          Local AI Agent (agent bearer): job claim/lease/media/complete, hint stream
  *   /api/app/v1/session, stream-tickets      web sign-in (owner-issued credential or Google) and single-use stream tickets
  *   /api/app/v1/*                            caregivers and viewers (bearer + per-recipient grants)
- *   /api/admin/v1/*                          provisioning and operations status (admin bearer)
+ *   /api/admin/v1/*                          provisioning, operations status, contact-request handling (admin bearer)
  *   /api/demo/stream|state|command           adapter for the frontend's Live Demo (ticket or dev allowlist)
+ *   /api/public/v1/contact-requests          landing contact / purchase-request form (no auth; origin + rate limits)
  *
  * Inference never runs here: the agent on the home PC pulls jobs over outbound HTTPS.
  */
@@ -18,6 +19,8 @@ import * as alerts from "./alerts";
 import * as app from "./app";
 import * as captures from "./captures";
 import * as commands from "./commands";
+import * as contact from "./contact";
+import * as contactAdmin from "./contactAdmin";
 import { observeClock } from "./clock";
 import { adminMe, authenticateAdmin, exchangeAdminSession, logoutAdmin } from "./adminAuth";
 import { authenticateAgent, authenticateCaregiver, authenticateDevice, type Ctx } from "./context";
@@ -58,6 +61,9 @@ route("GET", "/ready", async (ctx) => readiness(ctx));
 route("GET", "/api/demo/stream", (ctx, _p, cors) => legacy.legacyStream(ctx, cors));
 route("GET", "/api/demo/state", (ctx) => legacy.legacyState(ctx));
 route("POST", "/api/demo/command", async () => legacy.legacyCommand());
+
+/* ---------------- public landing form (A43) */
+route("POST", "/api/public/v1/contact-requests", (ctx) => contact.submitContactRequest(ctx));
 
 /* ---------------- device */
 const device = (fn: (ctx: Ctx, d: Awaited<ReturnType<typeof authenticateDevice>>, p: string[]) => Promise<Response>): Handler => async (ctx, p) =>
@@ -205,6 +211,12 @@ route("GET", "/api/admin/v1/devices/:id/reminders", adminOnly((ctx, p) => comms.
 route("POST", "/api/admin/v1/devices/:id/reminders", adminOnly((ctx, p) => comms.adminCreateReminder(ctx, p[0] as string)));
 route("POST", "/api/admin/v1/reminders/:id/(pause|resume|cancel)", adminOnly((ctx, p) => comms.adminChangeReminder(ctx, p[0] as string, p[1] as "pause" | "resume" | "cancel")));
 route("GET", "/api/admin/v1/audit", adminOnly((ctx) => ops.listAudit(ctx)));
+// Contact / purchase requests (A44): list without customer data, audited detail, close / reopen, erasure on verified request.
+route("GET", "/api/admin/v1/contact-requests", adminOnly((ctx) => contactAdmin.listContactRequests(ctx)));
+route("GET", "/api/admin/v1/contact-requests/:id", adminOnly((ctx, p) => contactAdmin.getContactRequest(ctx, p[0] as string)));
+route("POST", "/api/admin/v1/contact-requests/:id/close", adminOnly((ctx, p) => contactAdmin.closeContactRequest(ctx, p[0] as string)));
+route("POST", "/api/admin/v1/contact-requests/:id/reopen", adminOnly((ctx, p) => contactAdmin.reopenContactRequest(ctx, p[0] as string)));
+route("DELETE", "/api/admin/v1/contact-requests/:id", adminOnly((ctx, p) => contactAdmin.eraseContactRequest(ctx, p[0] as string)));
 
 async function readiness(ctx: Ctx): Promise<Response> {
   const checks: Record<string, string> = {};
@@ -242,6 +254,7 @@ async function readiness(ctx: Ctx): Promise<Response> {
         device_audio_sample_rates_hz: ctx.config.deviceAudioSampleRates,
         imu_raw_retention_hours: ctx.config.imuRawRetentionHours,
         esp32_firmware: "not_verified_with_hardware",
+        contact_notifications: ctx.config.contactMail ? "configured" : ctx.config.contactMailConfigError ? "misconfigured" : "not_configured",
       },
       fusion_policy_version: ctx.config.fusionPolicy.policy_version,
       report_schedule: { timezone: ctx.config.reportTimezone, local_time: `${String(ctx.config.dailyReportLocalTime.hour).padStart(2, "0")}:${String(ctx.config.dailyReportLocalTime.minute).padStart(2, "0")}` },
@@ -252,7 +265,7 @@ async function readiness(ctx: Ctx): Promise<Response> {
 
 export interface AppOptions {
   clock?: Clock;
-  /** Replaces the global fetch for calls to Google (tests only). */
+  /** Replaces the global fetch for calls to Google and the mail provider (tests only). */
   outboundFetch?: typeof fetch;
 }
 
@@ -300,6 +313,7 @@ export function createApp(options: AppOptions = {}) {
       request: new Request("https://cron.internal/"),
       url: new URL("https://cron.internal/"),
       exec,
+      outboundFetch: options.outboundFetch,
     };
     const daily = controller.cron === DAILY_REPORT_CRON;
     const minute = clock.now().getUTCMinutes();

@@ -15,6 +15,8 @@ export interface Env {
   /** Optional Workers Rate Limiting bindings. Missing binding = no per-location limiter. */
   AUTH_FAILURE_LIMITER?: RateLimit;
   DEVICE_LIMITER?: RateLimit;
+  /** Per-IP limiter for the public contact / purchase-request form. Missing binding = only the hourly D1 count applies. */
+  CONTACT_LIMITER?: RateLimit;
 
   ENVIRONMENT?: string;
   ALLOWED_ORIGINS?: string;
@@ -63,6 +65,14 @@ export interface Env {
   /** Lifetime of an admin session in minutes (default 120, 15-720). */
   ADMIN_SESSION_TTL_MINUTES?: string;
   DEVICE_AUDIO_SAMPLE_RATES?: string;
+  /** Contact form notifications (A43). Recipient list (comma-separated, max 5); a var, not a secret. */
+  CONTACT_NOTIFICATION_TO?: string;
+  /** Sender on a domain verified at the provider: "addr@domain" or "Name <addr@domain>". */
+  CONTACT_FROM_EMAIL?: string;
+  /** Secret (`wrangler secret put RESEND_API_KEY`, never a var). All three set = notifications on. */
+  RESEND_API_KEY?: string;
+  /** Requests one network (per-day IP digest) may submit per hour (default 10, 1-100). */
+  CONTACT_MAX_PER_HOUR?: string;
 }
 
 /** A configured rule that turns a fall-check aggregate score into a candidate. There is no default:
@@ -190,6 +200,17 @@ export interface Config {
   adminConfigError: string | null;
   adminSessionTtlMinutes: number;
   deviceAudioSampleRates: number[];
+  /** null until CONTACT_NOTIFICATION_TO, CONTACT_FROM_EMAIL and RESEND_API_KEY are all set and well-formed. */
+  contactMail: ContactMailSettings | null;
+  /** Set when the contact mail settings are malformed. Submissions are still stored; only notifications are off. Never contains values. */
+  contactMailConfigError: string | null;
+  contactMaxPerHour: number;
+}
+
+export interface ContactMailSettings {
+  to: string[];
+  from: string;
+  apiKey: string;
 }
 
 export interface GoogleSettings {
@@ -259,6 +280,27 @@ function adminBootstrap(value: string | undefined): { emails: string[]; error: s
     return { emails: [], error: `ADMIN_BOOTSTRAP_EMAILS must list 1-${MAX_BOOTSTRAP_ADMINS} plain e-mail addresses; admin sign-in is off until it is fixed.` };
   }
   return { emails: [...new Set(entries)], error: null };
+}
+
+const PLAIN_EMAIL = /^[^\s@,;<>()"'\\]+@[^\s@,;<>()"'\\]+\.[^\s@,;<>()"'\\]{2,}$/;
+
+/** Contact notification settings. Half-configured (e.g. the recipient var is set but the secret is not yet) = off without
+ * an error, so the form keeps storing requests; a malformed value is reported on /ready. Error text never repeats a value. */
+function contactMail(env: Env): { contactMail: ContactMailSettings | null; contactMailConfigError: string | null } {
+  const to = (env.CONTACT_NOTIFICATION_TO ?? "").split(/[\s,;]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const from = (env.CONTACT_FROM_EMAIL ?? "").trim();
+  const apiKey = (env.RESEND_API_KEY ?? "").trim();
+  if (to.length > 5 || !to.every((e) => e.length <= 254 && PLAIN_EMAIL.test(e))) {
+    return { contactMail: null, contactMailConfigError: "CONTACT_NOTIFICATION_TO must list 1-5 plain e-mail addresses." };
+  }
+  if (from) {
+    const m = /^(?:([^<>"\r\n]{1,80}?)\s*<([^<>\s]+)>|([^<>\s]+))$/.exec(from);
+    const addr = m ? (m[2] ?? m[3] ?? "") : "";
+    if (!PLAIN_EMAIL.test(addr) || addr.length > 254) return { contactMail: null, contactMailConfigError: 'CONTACT_FROM_EMAIL must be "addr@domain" or "Name <addr@domain>".' };
+  }
+  if (apiKey && (apiKey.length > 256 || /\s/.test(apiKey))) return { contactMail: null, contactMailConfigError: "RESEND_API_KEY is malformed." };
+  if (to.length === 0 || !from || !apiKey) return { contactMail: null, contactMailConfigError: null };
+  return { contactMail: { to: [...new Set(to)], from, apiKey }, contactMailConfigError: null };
 }
 
 function passwordSignIn(value: string | undefined): boolean {
@@ -358,6 +400,8 @@ export function loadConfig(env: Env): Config {
     adminConfigError: bootstrap.error,
     adminSessionTtlMinutes: int(env.ADMIN_SESSION_TTL_MINUTES, 120, 15, 720, "ADMIN_SESSION_TTL_MINUTES"),
     deviceAudioSampleRates: [...new Set(rates)].sort((a, b) => a - b),
+    ...contactMail(env),
+    contactMaxPerHour: int(env.CONTACT_MAX_PER_HOUR, 10, 1, 100, "CONTACT_MAX_PER_HOUR"),
   };
 }
 

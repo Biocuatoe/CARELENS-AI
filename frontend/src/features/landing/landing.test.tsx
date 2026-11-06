@@ -7,7 +7,6 @@ import { AppProviders } from "../../app/providers";
 import { LandingPage } from "./LandingPage";
 import { CONTACT, MEDICATION, NAV_ITEMS, SECTION_IDS, TAGLINE, TEAM } from "./content";
 import { slotState } from "./medication";
-import { contactMailto } from "./ContactSection";
 
 beforeAll(() => {
   // jsdom không có matchMedia: cảnh 3D (không có WebGL trong jsdom) đọc chế độ giảm chuyển động và kích thước màn hình.
@@ -102,49 +101,26 @@ describe("Landing CareLens AI", () => {
     expect(within(list).getAllByRole("heading", { level: 4 })).toHaveLength(BEATS.length);
   });
 
-  it("liên hệ: ba nhóm người liên hệ, nút chính luôn dùng được, chọn nhóm đổi nội dung, không có địa chỉ bịa", async () => {
+  it("liên hệ: hai nhóm khách hàng, ba bước trong cùng phần, không còn nhóm doanh nghiệp, không có địa chỉ hay giá bịa", async () => {
     const user = userEvent.setup();
     const { container } = renderLanding();
     const section = container.querySelector(`#${SECTION_IDS.contact}`)! as HTMLElement;
+    expect(section).toHaveAttribute("data-tone", "light");
     expect(within(section).getByRole("heading", { level: 2, name: "Liên hệ với chúng tôi" })).toBeInTheDocument();
-    const group = within(section).getByRole("group", { name: "Chọn nhóm liên hệ" });
-    const options = within(group).getAllByRole("button");
-    expect(options).toHaveLength(3);
-    options.forEach((o, i) => {
-      expect(o.textContent).toContain(CONTACT.audiences[i]!.title);
-      expect(o.textContent).toContain(CONTACT.audiences[i]!.why);
-    });
-    expect(options[0]).toHaveAttribute("aria-pressed", "true");
-    // Chưa có địa chỉ chính thức: nút chính là sao chép nội dung (dùng được, không bị tắt) kèm lời nói rõ trang không tự gửi.
-    const primary = within(section).getByRole("button", { name: CONTACT.copy });
-    expect(primary).toBeEnabled();
-    expect(section.textContent).toContain("Trang này không tự gửi tin nhắn");
-    expect(section.querySelector('a[href^="mailto:"]')).toBeNull();
-    expect(section.querySelector('a[href^="tel:"]')).toBeNull();
-    // Chọn nhóm khác thì nội dung gợi ý đổi theo.
-    await user.click(options[1]!);
-    expect(options[1]).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTestId("contact-draft").textContent).toContain("doanh nghiệp chúng tôi");
-    await user.click(options[2]!);
-    expect(screen.getByTestId("contact-draft").textContent).toContain("cơ sở chúng tôi");
-    // Nút "Gặp đội ngũ" dẫn tới phần đội ngũ có thật.
-    const toTeam = within(section).getByRole("link", { name: CONTACT.team });
-    expect(toTeam).toHaveAttribute("href", `#${SECTION_IDS.team}`);
-    expect(container.querySelector(`#${SECTION_IDS.team}`)).not.toBeNull();
+    const groups = within(within(section).getByRole("group", { name: "Chọn nhóm khách hàng" })).getAllByRole("button");
+    expect(groups.map((b) => b.textContent)).toEqual(CONTACT.groups.map((g) => `${g.title}${g.why}`));
+    expect(section.textContent).not.toMatch(/Doanh nghiệp/);
+    // Chưa chọn gì thì chưa có biểu mẫu.
+    expect(within(section).queryByRole("button", { name: CONTACT.submit })).toBeNull();
+    await user.click(groups[1]!);
+    await user.click(within(section).getByRole("button", { name: /Báo giá \/ đặt mua/ }));
+    expect(within(section).getByRole("heading", { level: 3, name: CONTACT.formTitle.facility_purchase })).toBeInTheDocument();
+    expect(within(section).getByRole("button", { name: CONTACT.submit })).toBeEnabled();
+    expect(section.querySelector('a[href^="mailto:"], a[href^="tel:"]')).toBeNull();
+    expect(section.textContent).not.toMatch(/\d[\d.,]*\s?(đ|₫|VND|VNĐ)/);
   });
 
-  it("liên hệ: chỉ khi có địa chỉ chính thức mới soạn thư, theo từng nhóm; không có địa chỉ thì không có liên kết thư", () => {
-    for (const a of CONTACT.audiences) {
-      expect(contactMailto(undefined, a)).toBeNull();
-      expect(contactMailto("  ", a)).toBeNull();
-      const href = contactMailto("lienhe@example.org", a)!;
-      expect(href.startsWith("mailto:lienhe@example.org?subject=")).toBe(true);
-      expect(decodeURIComponent(href)).toContain(a.title);
-      expect(decodeURIComponent(href)).toContain(a.draft.split("\n")[0]);
-    }
-  });
-
-  it("đội ngũ: thay hẳn phần quy trình, đủ năm thành viên, đúng tên và vai trò theo tệp ảnh, CEO ở giữa trên màn rộng", () => {
+  it("đội ngũ: thay hẳn phần quy trình, đủ năm thành viên, đúng tên, vai trò và ảnh, CEO ở giữa trên màn rộng", () => {
     const { container } = renderLanding();
     expect(container.querySelector("#quy-trinh")).toBeNull();
     expect(screen.queryByRole("heading", { name: /Từ cảm biến đến người chăm sóc/ })).not.toBeInTheDocument();
