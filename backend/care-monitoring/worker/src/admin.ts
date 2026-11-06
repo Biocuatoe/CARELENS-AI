@@ -5,6 +5,7 @@
  */
 import { z } from "zod";
 import { adminActorId, auditStatement, type Ctx } from "./context";
+import { connectionState } from "./adminOps";
 import { conflict, json, notFound, readJson } from "./http";
 import { closeUserStreams } from "./realtime";
 import { hashChosenSecret, legacyDigest } from "./password";
@@ -314,6 +315,8 @@ export async function opsStatus(ctx: Ctx): Promise<Response> {
       ...d,
       last_contact_age_seconds: ageSeconds(d.last_seen_at),
       connected: d.last_seen_at !== null && (ageSeconds(d.last_seen_at) ?? Infinity) <= ctx.config.deviceOnlineWindowSeconds,
+      connection_state: connectionState(ageSeconds(d.last_seen_at), ctx.config.deviceFreshWindowSeconds, ctx.config.deviceOnlineWindowSeconds),
+      connection_policy: { online_max_age_seconds: ctx.config.deviceFreshWindowSeconds, offline_after_seconds: ctx.config.deviceOnlineWindowSeconds, heartbeat_interval_seconds: 60 },
       heartbeat_status: last_heartbeat_json ? JSON.parse(last_heartbeat_json) : null,
     })),
     imu_24h: imu?.results ?? [],

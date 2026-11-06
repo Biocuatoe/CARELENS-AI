@@ -155,6 +155,135 @@
               "mp3"
             ]
           }
+        },
+        "reset_reason": {
+          "description": "Why the chip started the current boot (ESP-IDF esp_reset_reason), as the firmware read it at boot. Sent only to a server whose heartbeat response has config.report_reset_reason. Self-reported, not verified by the server.",
+          "type": "string",
+          "enum": [
+            "power_on",
+            "external_pin",
+            "software",
+            "panic",
+            "interrupt_watchdog",
+            "task_watchdog",
+            "other_watchdog",
+            "deep_sleep",
+            "brownout",
+            "sdio",
+            "usb",
+            "jtag",
+            "unknown"
+          ]
+        },
+        "chip_temp_c": {
+          "description": "ESP32-S3 die temperature (internal sensor), not the camera, the case or the wearer. Sent only when config.report_capture_stats is set.",
+          "type": "number",
+          "minimum": -40,
+          "maximum": 150
+        },
+        "capture": {
+          "description": "Camera scheduling counters of this boot. Sent only when config.report_capture_stats is set.",
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "off",
+                "interval",
+                "cycle"
+              ],
+              "description": "cycle = continuous commissioning cycle (24-frame burst, rest, repeat) for a bounded session."
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "off",
+                "running",
+                "paused_thermal",
+                "paused_quota",
+                "ended"
+              ]
+            },
+            "session_s": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000000,
+              "description": "Seconds since the cycle started in this boot."
+            },
+            "bursts_captured": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000000,
+              "description": "Cycle bursts the camera completed with all frames."
+            },
+            "bursts_uploaded": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000000,
+              "description": "Bursts (any mode) the server accepted as complete."
+            },
+            "bursts_dropped": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000000,
+              "description": "Cycle bursts dropped on the device because the upload queue was full; never uploaded."
+            },
+            "upload_refused": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000000,
+              "description": "Bursts the server refused (4xx, including 429 capture_quota_exceeded)."
+            },
+            "upload_failed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000000,
+              "description": "Bursts lost to transport errors or 5xx after the device's retries."
+            },
+            "camera_failures": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000000
+            },
+            "thermal_pauses": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000000
+            },
+            "queue_depth": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16
+            },
+            "last_cycle_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000000,
+              "description": "Start-to-start time of the last two cycle bursts."
+            },
+            "last_upload_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000000,
+              "description": "Manifest-to-complete time of the last uploaded burst."
+            }
+          },
+          "required": [
+            "mode",
+            "state",
+            "session_s",
+            "bursts_captured",
+            "bursts_uploaded",
+            "bursts_dropped",
+            "upload_refused",
+            "upload_failed",
+            "camera_failures",
+            "thermal_pauses",
+            "queue_depth",
+            "last_cycle_ms",
+            "last_upload_ms"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [

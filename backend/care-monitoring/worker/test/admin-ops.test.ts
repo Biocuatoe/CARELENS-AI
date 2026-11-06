@@ -11,9 +11,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   TestClock,
   captureFixture,
+  claim,
+  complete,
   dbAll,
   dbFirst,
   deviceClock,
+  drinkRequest,
   freshDb,
   harness,
   heartbeat,
@@ -23,11 +26,13 @@ import {
   provision,
   sendImu,
   uploadCapture,
+  visionResult,
   type Harness,
   type World,
 } from "./helpers";
 import { LAME_16K_MONO, insertLegacyWav, mp3, mp3DurationMs, mp3Frame, wav } from "./audio";
 import { MP3_CONTRACT } from "../src/media";
+import { captureProcessingState, connectionState } from "../src/adminOps";
 import { sha256Hex } from "../src/util";
 
 const OWNER = "owner.ops@example.invalid";
@@ -222,6 +227,154 @@ describe("device registry", () => {
   });
 });
 
+describe("device connection state", () => {
+  type View = { device: { connection_state: string; connected: boolean; last_contact_age_seconds: number | null; last_seen_at: string | null; connection_policy: Record<string, number> } };
+  const view = async () => (await ok<View>(await get(`/devices/${w.deviceId}`))).device;
+
+  it("has explicit boundaries: online up to the fresh window, stale up to the offline window, then offline", () => {
+    expect(connectionState(null, 60, 180)).toBe("never_seen");
+    expect(connectionState(0, 60, 180)).toBe("online");
+    expect(connectionState(60, 60, 180)).toBe("online");
+    expect(connectionState(61, 60, 180)).toBe("stale");
+    expect(connectionState(180, 60, 180)).toBe("stale");
+    expect(connectionState(181, 60, 180)).toBe("offline");
+  });
+
+  it("moves from online to stale to offline as time passes without any new request, and says so in the policy", async () => {
+    expect((await view()).connection_state).toBe("never_seen");
+    await ok(await h.call("POST", "/api/device/v1/heartbeat", { token: w.deviceToken, json: heartbeat(h, w.deviceId) }));
+    let d = await view();
+    expect(d).toMatchObject({ connection_state: "online", connected: true, last_contact_age_seconds: 0 });
+    expect(d.connection_policy).toEqual({ online_max_age_seconds: 60, offline_after_seconds: 180, heartbeat_interval_seconds: 60, last_seen_write_interval_seconds: 30 });
+    clock.set("2026-10-19T03:01:00.000Z"); // 60 s: one heartbeat interval
+    expect((await view()).connection_state).toBe("online");
+    clock.set("2026-10-19T03:01:01.000Z");
+    d = await view();
+    expect(d).toMatchObject({ connection_state: "stale", connected: true, last_contact_age_seconds: 61 });
+    clock.set("2026-10-19T03:03:01.000Z");
+    d = await view();
+    expect(d).toMatchObject({ connection_state: "offline", connected: false, last_contact_age_seconds: 181 });
+    // The next authenticated request brings it back.
+    await ok(await h.call("POST", "/api/device/v1/heartbeat", { token: w.deviceToken, json: heartbeat(h, w.deviceId) }));
+    expect((await view()).connection_state).toBe("online");
+  });
+});
+
+describe("recent captures", () => {
+  type Item = {
+    capture_id: string;
+    processing_state: string;
+    state_reason: string | null;
+    capture_status: string;
+    job: { job_id: string; status: string; completed_at: string | null } | null;
+    results: Array<{ event_type: string; classification: string; verification_status: string; score_kind: string | null }>;
+    media_deleted_at: string | null;
+    result_after_ms: number | null;
+    boot_id: string;
+  };
+  type Page = { items: Item[]; queued_vision_jobs: number; device_counters: { reported_at: string; capture: Record<string, unknown> } | null };
+  const recent = async (query = "", token: string | null = admin, deviceId = w.deviceId) => ok<Page>(await get(`/devices/${deviceId}/captures${query}`, token));
+  const fx = (id: string, capturedAt: string) => captureFixture({ deviceId: w.deviceId, captureId: id, capturedAt });
+
+  it("derives one processing state per capture from the stored rows only", () => {
+    const st = (status: string, job: { status: string; last_error_code: string | null } | null, events: Array<{ event_type: string; classification: string }> = [], failure: string | null = null) =>
+      captureProcessingState({ status, failure_code: failure }, job, events);
+    const done = { status: "completed", last_error_code: null };
+    const none = [{ event_type: "fall_check", classification: "uncalibrated_output" }, { event_type: "drink_check", classification: "none_observed" }];
+    expect(st("receiving", null)).toEqual({ state: "uploading", reason: null });
+    expect(st("uploaded", { status: "queued", last_error_code: null })).toEqual({ state: "awaiting_processing", reason: null });
+    expect(st("uploaded", { status: "retry_pending", last_error_code: "vision_unavailable" })).toEqual({ state: "awaiting_processing", reason: "vision_unavailable" });
+    expect(st("uploaded", { status: "processing", last_error_code: null }).state).toBe("processing");
+    expect(st("processing", { status: "processing", last_error_code: null }).state).toBe("processing");
+    // An uncalibrated fall output plus "none observed" is an analysed capture without an event, never a fall.
+    expect(st("processed", done, none)).toEqual({ state: "completed_no_event", reason: null });
+    expect(st("processed", done, [none[0]!, { event_type: "drink_check", classification: "drinking_water_observed" }])).toEqual({ state: "observation_unverified", reason: "drinking_water_observed" });
+    expect(st("processed", done, [none[0]!, { event_type: "drink_check", classification: "medicine_observed" }]).state).toBe("observation_unverified");
+    expect(st("processed", done, [none[0]!, { event_type: "drink_check", classification: "cross_window_review" }])).toEqual({ state: "needs_review", reason: "cross_window_review" });
+    expect(st("processed", done, [{ event_type: "fall_check", classification: "fall_candidate" }, none[1]!]).state).toBe("needs_review");
+    // Missing data is not "nothing happened".
+    expect(st("processed", done, [{ event_type: "fall_check", classification: "not_enough_data" }, none[1]!])).toEqual({ state: "insufficient_data", reason: "not_enough_data" });
+    expect(st("processed", done, [])).toEqual({ state: "insufficient_data", reason: "no_results_stored" });
+    expect(st("expired", { status: "expired", last_error_code: "media_expired" }, [], null)).toEqual({ state: "expired", reason: "media_expired" });
+    expect(st("failed", { status: "failed", last_error_code: "vision_rejected" }, [], "invalid_media")).toEqual({ state: "failed", reason: "invalid_media" });
+    expect(st("uploaded", { status: "failed", last_error_code: "max_attempts" })).toEqual({ state: "failed", reason: "max_attempts" });
+  });
+
+  it("lists the newest captures first and follows one from upload to an analysed result with its media deleted", async () => {
+    await uploadCapture(h, w.deviceToken, await fx("cap-recent-1", "2026-10-19T02:58:00.000Z"));
+    await uploadCapture(h, w.deviceToken, await fx("cap-recent-2", "2026-10-19T02:59:00.000Z"), { complete: false, skipChunks: [1] });
+    let page = await recent();
+    expect(page.items.map((i) => [i.capture_id, i.processing_state])).toEqual([
+      ["cap-recent-2", "uploading"],
+      ["cap-recent-1", "awaiting_processing"],
+    ]);
+    expect(page.queued_vision_jobs).toBe(1);
+    const job = await claim(h, w.agentToken, ["vision"]);
+    expect((await recent()).items[1]).toMatchObject({ capture_id: "cap-recent-1", processing_state: "processing" });
+    clock.set("2026-10-19T03:00:30.000Z");
+    await ok(await complete(h, w.agentToken, job!, visionResult({ captureId: "cap-recent-1", frameCount: 24 })));
+    page = await recent();
+    const item = page.items.find((i) => i.capture_id === "cap-recent-1")!;
+    expect(item).toMatchObject({ processing_state: "completed_no_event", state_reason: null, capture_status: "processed", job: { job_id: job!.job_id, status: "completed" } });
+    expect(item.results.map((r) => [r.event_type, r.classification, r.verification_status]).sort()).toEqual([
+      ["drink_check", "none_observed", "unverified"],
+      ["fall_check", "uncalibrated_output", "unverified"],
+    ]);
+    expect(item.media_deleted_at).toEqual(expect.any(String));
+    expect(item.result_after_ms).toBe(150_000);
+    expect(page.queued_vision_jobs).toBe(0);
+    expect((await recent("?limit=1")).items.map((i) => i.capture_id)).toEqual(["cap-recent-2"]);
+    expect(JSON.stringify(page)).not.toMatch(/sha256|r2_key|media\/|data:image|base64|clm_|cld_|cla_/);
+  });
+
+  it("keeps the fall and drink results of each capture apart from upload to the admin view", async () => {
+    // Regression for the 2026-10-20 movement test: a fall-like burst must not show as drinking, and a drink
+    // label must stay a separate, unverified observation of its own capture.
+    const o = Array.from({ length: 24 }, (_, i) => i * 125);
+    const run = async (id: string, capturedAt: string, scores: number[], label: "khong" | "uong_nuoc") => {
+      await uploadCapture(h, w.deviceToken, await fx(id, capturedAt));
+      const job = await claim(h, w.agentToken, ["vision"]);
+      expect(job?.payload.capture_id).toBe(id);
+      const drink = [drinkRequest(0, 23, o, label, label === "uong_nuoc" ? 6 : null)];
+      await ok(await complete(h, w.agentToken, job!, visionResult({ captureId: id, frameCount: 24, scores, drink, aggregateLabel: label, liftFrames: label === "uong_nuoc" ? [6] : [] })));
+    };
+    await run("cap-moving", "2026-10-19T02:58:00.000Z", [9.5], "khong");
+    await run("cap-drink", "2026-10-19T02:59:00.000Z", [-10], "uong_nuoc");
+    const rows = await dbAll<{ capture_id: string; event_type: string; classification: string; label: string | null; model_score: number | null; verification_status: string }>(
+      `SELECT capture_id, event_type, classification, label, model_score, verification_status FROM events ORDER BY capture_id, event_type`,
+    );
+    expect(rows).toEqual([
+      { capture_id: "cap-drink", event_type: "drink_check", classification: "drinking_water_observed", label: "uong_nuoc", model_score: null, verification_status: "unverified" },
+      { capture_id: "cap-drink", event_type: "fall_check", classification: "uncalibrated_output", label: null, model_score: -10, verification_status: "unverified" },
+      { capture_id: "cap-moving", event_type: "drink_check", classification: "none_observed", label: "khong", model_score: null, verification_status: "unverified" },
+      { capture_id: "cap-moving", event_type: "fall_check", classification: "uncalibrated_output", label: null, model_score: 9.5, verification_status: "unverified" },
+    ]);
+    const items = (await recent()).items;
+    expect(items.map((i) => [i.capture_id, i.processing_state, i.state_reason])).toEqual([
+      ["cap-drink", "observation_unverified", "drinking_water_observed"],
+      ["cap-moving", "completed_no_event", null],
+    ]);
+    expect(await dbAll(`SELECT * FROM fusion_decisions`)).toHaveLength(0);
+    expect(await dbAll(`SELECT * FROM alerts`)).toHaveLength(0);
+  });
+
+  it("passes on the device's own counters of bursts it never uploaded, labelled as self-reported", async () => {
+    expect((await recent()).device_counters).toBeNull();
+    const hb = heartbeat(h, w.deviceId) as { status: Record<string, unknown> };
+    const capture = { mode: "cycle", state: "running", session_s: 60, bursts_captured: 12, bursts_uploaded: 6, bursts_dropped: 5, upload_refused: 0, upload_failed: 0, camera_failures: 0, thermal_pauses: 0, queue_depth: 3, last_cycle_ms: 4700, last_upload_ms: 7000 };
+    await ok(await h.call("POST", "/api/device/v1/heartbeat", { token: w.deviceToken, json: { ...hb, status: { ...hb.status, capture } } }));
+    expect((await recent()).device_counters).toMatchObject({ capture: { bursts_dropped: 5, bursts_uploaded: 6 } });
+  });
+
+  it("is admin-only, per existing device, with a bounded page size", async () => {
+    expect((await get(`/devices/${w.deviceId}/captures`, w.caregiverToken)).status).toBe(401);
+    expect((await get(`/devices/${w.deviceId}/captures`, null)).status).toBe(401);
+    expect((await get(`/devices/esp32-unknown/captures`)).status).toBe(404);
+    expect(await problemCode(await get(`/devices/${w.deviceId}/captures?limit=51`))).toBe("invalid_limit");
+    expect(await problemCode(await get(`/devices/${w.deviceId}/captures?limit=0`))).toBe("invalid_limit");
+  });
+});
+
 describe("daily activity report", () => {
   const LOCAL_DAY = "2026-10-19"; // [2026-10-18T17:00:00.000Z, 2026-10-19T17:00:00.000Z) in UTC+7
   const presence = (hour: string, firstSeen: string) =>
@@ -260,8 +413,14 @@ describe("daily activity report", () => {
     expect(at).toEqual([...at].sort());
     const kinds = new Set(r.entries.map((e) => e.kind));
     for (const k of ["boot", "heartbeat_latest", "capture", "imu_trigger", "imu_hour_summary", "command", "command_event", "vision_job", "voice.upload", "command.create"]) expect(kinds, k).toContain(k);
-    expect(r.entries.find((e) => e.kind === "capture")).toMatchObject({ source_mode: "simulated", status: "uploaded", detail: { media_deleted: false } });
-    expect(r.entries.find((e) => e.kind === "imu_trigger")).toMatchObject({ source_mode: "simulated" });
+    const capture = r.entries.find((e) => e.kind === "capture")!;
+    expect(capture).toMatchObject({ ref_id: "cap-ops-2", source_mode: "simulated", status: "uploaded", detail: { media_deleted: false, media_deleted_at: null } });
+    expect(typeof capture.detail.boot_id).toBe("string");
+    expect(capture.detail.uploaded_at).toEqual(expect.any(String));
+    // The vision job, the capture and (once the agent reports) its results are linked by capture_id and boot_id.
+    expect(r.entries.find((e) => e.kind === "vision_job")).toMatchObject({ status: "queued", detail: { capture_id: "cap-ops-2", completed_at: null } });
+    const trigger = r.entries.find((e) => e.kind === "imu_trigger")!;
+    expect(trigger).toMatchObject({ source_mode: "simulated", detail: { trigger_id: "trg-ops-2", boot_id: capture.detail.boot_id } });
     const commandEntry = r.entries.find((e) => e.kind === "command")!;
     expect(commandEntry).toMatchObject({ ref_id: cmd.command.command_id, status: "queued", detail: { created_by_kind: "admin", played_confirmed_by_device: false } });
     // The admin's own actions appear, attributed to the admin, with ids and enums only.

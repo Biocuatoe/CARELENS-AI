@@ -17,12 +17,19 @@
  */
 import { DEMO_API_BASE } from "../demo/demoAdapter";
 
-import { AdminApiError, isAdminApiError, isAdminAuthFailure, type AdminErrorCode } from "./adminError";
+import {
+  AdminApiError,
+  isAdminApiError,
+  isAdminAuthFailure,
+  type AdminErrorCode,
+} from "./adminError";
 import {
   parseActivity,
+  parseRecentCaptures,
   parseAuditPage,
   parseCancelResult,
   parseCapabilities,
+  parseConnectionPolicy,
   parseCommandCreated,
   parseCommandPage,
   parseCommandTimeline,
@@ -35,6 +42,7 @@ import {
   parseVoiceUpload,
   type VoiceMessage,
 } from "./adminModels";
+import type { ConnectionPolicy } from "../../features/admin/connection";
 import type { Uploader } from "./xhrUpload";
 export { AdminApiError, isAdminApiError, isAdminAuthFailure, type AdminErrorCode };
 export * from "./adminModels";
@@ -70,7 +78,15 @@ export interface OpsDevice {
   lastSeenAt: string | null;
   lastContactAgeSeconds: number | null;
   connected: boolean;
-  health: { camera: string | null; imu: string | null; speaker: string | null; wifiRssiDbm: number | null; lastError: string | null } | null;
+  connectionState: string | null;
+  connectionPolicy: ConnectionPolicy | null;
+  health: {
+    camera: string | null;
+    imu: string | null;
+    speaker: string | null;
+    wifiRssiDbm: number | null;
+    lastError: string | null;
+  } | null;
 }
 
 export interface OpsAgent {
@@ -86,6 +102,7 @@ export interface OpsAgent {
 
 export interface OpsStatus {
   serverTime: string;
+  receivedAtMs: number;
   storage: { d1SizeBytes: number | null; imuIngest: string | null };
   queue: Array<{ kind: string; waiting: number; oldestAgeSeconds: number | null }>;
   failures24h: number;
@@ -99,15 +116,19 @@ export interface OpsStatus {
 const PROBLEM_MESSAGES: Record<string, string> = {
   schedule_in_past: "Thời điểm đã qua hoặc quá gần (cần cách hiện tại ít nhất 30 giây).",
   schedule_too_far: "Thời điểm quá xa (tối đa 1 năm).",
-  no_future_occurrence: "Lịch này không còn lần nào trong tương lai. Kiểm tra các ngày trong tuần và ngày kết thúc.",
+  no_future_occurrence:
+    "Lịch này không còn lần nào trong tương lai. Kiểm tra các ngày trong tuần và ngày kết thúc.",
   invalid_date_range: "Ngày kết thúc trước ngày bắt đầu.",
   invalid_date: "Ngày không hợp lệ.",
   voice_message_not_found: "Bản ghi âm không còn hoặc không thuộc thiết bị này.",
-  audio_not_playable: "Bản ghi âm không đúng tốc độ lấy mẫu mà thiết bị phát được. Hãy tải lên lại.",
-  invalid_audio: "Tệp âm thanh không đúng định dạng (cần WAV PCM 16-bit mono, đúng tốc độ lấy mẫu, 0,5–60 giây).",
+  audio_not_playable:
+    "Bản ghi âm không đúng tốc độ lấy mẫu mà thiết bị phát được. Hãy tải lên lại.",
+  invalid_audio:
+    "Tệp âm thanh không đúng định dạng (cần WAV PCM 16-bit mono, đúng tốc độ lấy mẫu, 0,5–60 giây).",
   unsupported_media_type: "Loại tệp không được hỗ trợ.",
   payload_too_large: "Tệp quá lớn.",
-  idempotency_key_reused: "Yêu cầu này trùng khóa với một yêu cầu khác nội dung. Mở lại hộp xác nhận rồi gửi lại.",
+  idempotency_key_reused:
+    "Yêu cầu này trùng khóa với một yêu cầu khác nội dung. Mở lại hộp xác nhận rồi gửi lại.",
   schedule_finished: "Lịch này không còn lần nào để chạy.",
   reminder_cancelled: "Nhắc lịch này đã bị hủy nên không thay đổi được.",
   not_cancellable: "Lệnh này không thể hủy ở trạng thái hiện tại.",
@@ -120,11 +141,17 @@ const PROBLEM_MESSAGES: Record<string, string> = {
 
 /* ------------------------------------------------------------------ helpers */
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const roleOf = (v: unknown): AdminRole | null => (v === "owner" || v === "admin" ? v : null);
-const bad = (what: string) => new AdminApiError(502, "invalid_response", `Máy chủ trả về dữ liệu ${what} không đúng định dạng.`);
+const bad = (what: string) =>
+  new AdminApiError(
+    502,
+    "invalid_response",
+    `Máy chủ trả về dữ liệu ${what} không đúng định dạng.`,
+  );
 
 export function parseProfile(data: unknown): AdminProfile {
   if (!isRecord(data) || data.auth_method !== "session") throw bad("danh tính quản trị");
@@ -144,7 +171,8 @@ export function parseExchange(data: unknown): AdminExchange {
   const token = str(data.token);
   const expiresAt = str(data.expires_at);
   const admin = data.admin;
-  if (!token || !token.startsWith("clm_") || !expiresAt || !isRecord(admin)) throw bad("phiên quản trị");
+  if (!token || !token.startsWith("clm_") || !expiresAt || !isRecord(admin))
+    throw bad("phiên quản trị");
   const role = roleOf(admin.role);
   const adminId = str(admin.admin_id);
   if (!role || !adminId) throw bad("phiên quản trị");
@@ -156,7 +184,8 @@ export function parseOpsStatus(data: unknown): OpsStatus {
   if (!isRecord(data)) throw bad("trạng thái hệ thống");
   const serverTime = str(data.server_time);
   if (!serverTime) throw bad("trạng thái hệ thống");
-  const list = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
+  const list = (v: unknown): Record<string, unknown>[] =>
+    Array.isArray(v) ? v.filter(isRecord) : [];
   const storage = isRecord(data.storage) ? data.storage : {};
   const fusion = isRecord(data.fusion) ? data.fusion : {};
   const devices: OpsDevice[] = list(data.devices).flatMap((d) => {
@@ -172,7 +201,17 @@ export function parseOpsStatus(data: unknown): OpsStatus {
         lastSeenAt: str(d.last_seen_at),
         lastContactAgeSeconds: num(d.last_contact_age_seconds),
         connected: d.connected === true,
-        health: hb ? { camera: str(hb.camera), imu: str(hb.imu), speaker: str(hb.speaker), wifiRssiDbm: num(hb.wifi_rssi_dbm), lastError: str(hb.last_error) } : null,
+        connectionState: str(d.connection_state),
+        connectionPolicy: parseConnectionPolicy(d.connection_policy),
+        health: hb
+          ? {
+              camera: str(hb.camera),
+              imu: str(hb.imu),
+              speaker: str(hb.speaker),
+              wifiRssiDbm: num(hb.wifi_rssi_dbm),
+              lastError: str(hb.last_error),
+            }
+          : null,
       },
     ];
   });
@@ -181,18 +220,49 @@ export function parseOpsStatus(data: unknown): OpsStatus {
     if (!agentId) return [];
     const reported = isRecord(a.reported)
       ? Object.entries(a.reported)
-          .flatMap(([k, v]): Array<[string, string]> => (typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? [[k.slice(0, 40), String(v).slice(0, 80)]] : []))
+          .flatMap(([k, v]): Array<[string, string]> =>
+            typeof v === "string" || typeof v === "number" || typeof v === "boolean"
+              ? [[k.slice(0, 40), String(v).slice(0, 80)]]
+              : [],
+          )
           .slice(0, 12)
       : [];
-    return [{ agentId, label: str(a.label) ?? agentId, status: str(a.status) ?? "unknown", lastSeenAt: str(a.last_seen_at), connected: a.connected === true, hasReport: a.reported !== null && a.reported !== undefined, reported }];
+    return [
+      {
+        agentId,
+        label: str(a.label) ?? agentId,
+        status: str(a.status) ?? "unknown",
+        lastSeenAt: str(a.last_seen_at),
+        connected: a.connected === true,
+        hasReport: a.reported !== null && a.reported !== undefined,
+        reported,
+      },
+    ];
   });
   return {
     serverTime,
+    receivedAtMs: Date.now(), // parsed as the reply arrives: the age of each contact keeps counting from here
     storage: { d1SizeBytes: num(storage.d1_size_bytes), imuIngest: str(storage.imu_ingest) },
-    queue: list(data.queue).flatMap((q) => (str(q.kind) ? [{ kind: str(q.kind) as string, waiting: num(q.waiting) ?? 0, oldestAgeSeconds: num(q.oldest_age_seconds) }] : [])),
+    queue: list(data.queue).flatMap((q) =>
+      str(q.kind)
+        ? [
+            {
+              kind: str(q.kind) as string,
+              waiting: num(q.waiting) ?? 0,
+              oldestAgeSeconds: num(q.oldest_age_seconds),
+            },
+          ]
+        : [],
+    ),
     failures24h: list(data.failures_24h).reduce((sum, f) => sum + (num(f.n) ?? 0), 0),
-    lastInference: list(data.last_successful_inference).flatMap((r) => (str(r.kind) ? [{ kind: str(r.kind) as string, completedAt: str(r.last_completed_at) }] : [])),
-    fusion: { policyVersion: str(fusion.policy_version), suspectedFallPossible: typeof fusion.suspected_fall_possible === "boolean" ? fusion.suspected_fall_possible : null },
+    lastInference: list(data.last_successful_inference).flatMap((r) =>
+      str(r.kind) ? [{ kind: str(r.kind) as string, completedAt: str(r.last_completed_at) }] : [],
+    ),
+    fusion: {
+      policyVersion: str(fusion.policy_version),
+      suspectedFallPossible:
+        typeof fusion.suspected_fall_possible === "boolean" ? fusion.suspected_fall_possible : null,
+    },
     devices,
     agents,
   };
@@ -211,7 +281,13 @@ interface Reply {
 /** Fields of the reminder form, as the API takes them. Times are wall-clock in the server's report time zone (Asia/Ho_Chi_Minh). */
 export type ReminderSchedule =
   | { type: "once"; local_date: string; local_time: string }
-  | { type: "weekly"; days_of_week: number[]; times_local: string[]; start_date: string; end_date: string | null };
+  | {
+      type: "weekly";
+      days_of_week: number[];
+      times_local: string[];
+      start_date: string;
+      end_date: string | null;
+    };
 
 export interface ReminderInput {
   idempotencyKey: string;
@@ -229,7 +305,10 @@ export class AdminClient {
     private readonly apiBase: string | null = DEMO_API_BASE,
     private readonly fetchImpl: typeof fetch = (...args) => fetch(...args),
     /** Time limits (ms): JSON calls, and uploads of a recording (up to 2 MB). A hung request never keeps a button busy. */
-    private readonly timeouts: { request: number; upload: number } = { request: 20_000, upload: 120_000 },
+    private readonly timeouts: { request: number; upload: number } = {
+      request: 20_000,
+      upload: 120_000,
+    },
     /** Upload with byte progress (XMLHttpRequest in the app). Null: uploads go through fetch and report no progress. */
     private readonly uploader: Uploader | null = null,
   ) {}
@@ -239,9 +318,22 @@ export class AdminClient {
     return this.apiBase ? `${this.apiBase}/api/app/v1/auth/google/start?mode=admin` : null;
   }
 
-  private async call(method: string, path: string, opts: { token?: string; body?: unknown; raw?: { body: BodyInit; contentType: string }; binary?: boolean } = {}): Promise<Reply> {
+  private async call(
+    method: string,
+    path: string,
+    opts: {
+      token?: string;
+      body?: unknown;
+      raw?: { body: BodyInit; contentType: string };
+      binary?: boolean;
+    } = {},
+  ): Promise<Reply> {
     if (!this.apiBase) {
-      throw new AdminApiError(503, "no_backend", "Bản web này chưa kết nối máy chủ (thiếu VITE_API_BASE_URL lúc build). Vui lòng liên hệ người vận hành.");
+      throw new AdminApiError(
+        503,
+        "no_backend",
+        "Bản web này chưa kết nối máy chủ (thiếu VITE_API_BASE_URL lúc build). Vui lòng liên hệ người vận hành.",
+      );
     }
     const headers: Record<string, string> = {};
     if (opts.body !== undefined) headers["content-type"] = "application/json";
@@ -251,7 +343,11 @@ export class AdminClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), limit);
     const timedOut = () =>
-      new AdminApiError(504, "timeout", `Máy chủ không trả lời trong ${Math.round(limit / 1000)} giây. Chưa biết thao tác đã được thực hiện hay chưa.`);
+      new AdminApiError(
+        504,
+        "timeout",
+        `Máy chủ không trả lời trong ${Math.round(limit / 1000)} giây. Chưa biết thao tác đã được thực hiện hay chưa.`,
+      );
     let res: Response;
     let text: string;
     try {
@@ -259,7 +355,11 @@ export class AdminClient {
         res = await this.fetchImpl(`${this.apiBase}${path}`, {
           method,
           headers,
-          body: opts.raw ? opts.raw.body : opts.body === undefined ? undefined : JSON.stringify(opts.body),
+          body: opts.raw
+            ? opts.raw.body
+            : opts.body === undefined
+              ? undefined
+              : JSON.stringify(opts.body),
           credentials: "omit",
           cache: "no-store",
           signal: controller.signal,
@@ -269,11 +369,16 @@ export class AdminClient {
         throw await this.explainNetworkFailure();
       }
       try {
-        if (opts.binary && res.status === 200) return { status: 200, data: null, problemCode: null, blob: await res.blob() };
+        if (opts.binary && res.status === 200)
+          return { status: 200, data: null, problemCode: null, blob: await res.blob() };
         text = await res.text();
       } catch {
         if (controller.signal.aborted) throw timedOut();
-        throw new AdminApiError(503, "unavailable", "Kết nối tới máy chủ bị ngắt khi đang nhận phản hồi. Vui lòng thử lại.");
+        throw new AdminApiError(
+          503,
+          "unavailable",
+          "Kết nối tới máy chủ bị ngắt khi đang nhận phản hồi. Vui lòng thử lại.",
+        );
       }
     } finally {
       clearTimeout(timer);
@@ -291,54 +396,124 @@ export class AdminClient {
   private async explainNetworkFailure(): Promise<AdminApiError> {
     let reachable = false;
     try {
-      await this.fetchImpl(`${this.apiBase}/health`, { mode: "no-cors", credentials: "omit", cache: "no-store" });
+      await this.fetchImpl(`${this.apiBase}/health`, {
+        mode: "no-cors",
+        credentials: "omit",
+        cache: "no-store",
+      });
       reachable = true;
     } catch {
       // nothing answered
     }
     if (reachable) {
-      return new AdminApiError(503, "origin_blocked", "Máy chủ đang chạy nhưng không chấp nhận địa chỉ trang này. Người vận hành cần thêm địa chỉ này vào ALLOWED_ORIGINS.");
+      return new AdminApiError(
+        503,
+        "origin_blocked",
+        "Máy chủ đang chạy nhưng không chấp nhận địa chỉ trang này. Người vận hành cần thêm địa chỉ này vào ALLOWED_ORIGINS.",
+      );
     }
-    return new AdminApiError(503, "unavailable", "Không kết nối được máy chủ CareLens. Kiểm tra mạng rồi thử lại.");
+    return new AdminApiError(
+      503,
+      "unavailable",
+      "Không kết nối được máy chủ CareLens. Kiểm tra mạng rồi thử lại.",
+    );
   }
 
   /** Maps a non-success reply to one error. The server body is never shown to the user. */
   private fail(reply: Reply): AdminApiError {
     const { status, problemCode } = reply;
-    if (status === 401) return new AdminApiError(401, "unauthenticated", "Phiên quản trị không hợp lệ hoặc đã hết hạn.");
-    if (status === 403) return new AdminApiError(403, "forbidden", "Tài khoản này không có quyền quản trị.");
-    if (status === 429) return new AdminApiError(429, "rate_limited", "Có quá nhiều lần thử hoặc thao tác trong thời gian ngắn. Vui lòng thử lại sau một phút.");
+    if (status === 401)
+      return new AdminApiError(
+        401,
+        "unauthenticated",
+        "Phiên quản trị không hợp lệ hoặc đã hết hạn.",
+      );
+    if (status === 403)
+      return new AdminApiError(403, "forbidden", "Tài khoản này không có quyền quản trị.");
+    if (status === 429)
+      return new AdminApiError(
+        429,
+        "rate_limited",
+        "Có quá nhiều lần thử hoặc thao tác trong thời gian ngắn. Vui lòng thử lại sau một phút.",
+      );
     if (status === 503 && problemCode === "misconfigured") {
-      return new AdminApiError(503, "misconfigured", "Cấu hình đăng nhập quản trị trên máy chủ chưa đúng. Người vận hành cần kiểm tra.");
+      return new AdminApiError(
+        503,
+        "misconfigured",
+        "Cấu hình đăng nhập quản trị trên máy chủ chưa đúng. Người vận hành cần kiểm tra.",
+      );
     }
-    if (status === 503 && (problemCode === "admin_signin_not_configured" || problemCode === "admin_not_configured" || problemCode === "google_not_configured")) {
-      return new AdminApiError(503, "not_configured", "Đăng nhập quản trị chưa được bật trên máy chủ này.");
+    if (
+      status === 503 &&
+      (problemCode === "admin_signin_not_configured" ||
+        problemCode === "admin_not_configured" ||
+        problemCode === "google_not_configured")
+    ) {
+      return new AdminApiError(
+        503,
+        "not_configured",
+        "Đăng nhập quản trị chưa được bật trên máy chủ này.",
+      );
     }
-    if (status === 404) return new AdminApiError(404, "not_found", "Không tìm thấy mục này, hoặc máy chủ chưa có API này (cần triển khai phiên bản Worker mới).", problemCode);
-    if (status === 409) return new AdminApiError(409, "conflict", PROBLEM_MESSAGES[problemCode ?? ""] ?? "Trạng thái đã thay đổi. Tải lại rồi thử lại.", problemCode);
+    if (status === 404)
+      return new AdminApiError(
+        404,
+        "not_found",
+        "Không tìm thấy mục này, hoặc máy chủ chưa có API này (cần triển khai phiên bản Worker mới).",
+        problemCode,
+      );
+    if (status === 409)
+      return new AdminApiError(
+        409,
+        "conflict",
+        PROBLEM_MESSAGES[problemCode ?? ""] ?? "Trạng thái đã thay đổi. Tải lại rồi thử lại.",
+        problemCode,
+      );
     if (status === 400 || status === 413 || status === 415 || status === 422) {
-      return new AdminApiError(status, "bad_request", PROBLEM_MESSAGES[problemCode ?? ""] ?? "Máy chủ không chấp nhận yêu cầu.", problemCode);
+      return new AdminApiError(
+        status,
+        "bad_request",
+        PROBLEM_MESSAGES[problemCode ?? ""] ?? "Máy chủ không chấp nhận yêu cầu.",
+        problemCode,
+      );
     }
-    return new AdminApiError(status >= 500 ? 503 : status, "unavailable", `Máy chủ không xử lý được yêu cầu (mã ${status}). Vui lòng thử lại sau.`);
+    return new AdminApiError(
+      status >= 500 ? 503 : status,
+      "unavailable",
+      `Máy chủ không xử lý được yêu cầu (mã ${status}). Vui lòng thử lại sau.`,
+    );
   }
 
   /** Whether the "sign in" button can work, from the public /ready report. Says nothing about who may sign in. */
   async signInAvailability(): Promise<SignInAvailability> {
     const reply = await this.call("GET", "/ready");
     // /ready answers 503 with the same JSON when a dependency is down, so the body is read whatever the status.
-    const caps = isRecord(reply.data) && isRecord(reply.data.capabilities) ? reply.data.capabilities : null;
+    const caps =
+      isRecord(reply.data) && isRecord(reply.data.capabilities) ? reply.data.capabilities : null;
     if (!caps) throw this.fail(reply);
-    if (caps.google_signin !== "configured") return { state: "unavailable", reason: caps.google_signin === "misconfigured" ? "misconfigured" : "google_off" };
+    if (caps.google_signin !== "configured")
+      return {
+        state: "unavailable",
+        reason: caps.google_signin === "misconfigured" ? "misconfigured" : "google_off",
+      };
     // Servers from before Phase B do not report admin_signin at all.
     if (caps.admin_signin === undefined) return { state: "unavailable", reason: "old_server" };
     if (caps.admin_signin === "configured") return { state: "available" };
-    return { state: "unavailable", reason: caps.admin_signin === "misconfigured" ? "misconfigured" : "admin_off" };
+    return {
+      state: "unavailable",
+      reason: caps.admin_signin === "misconfigured" ? "misconfigured" : "admin_off",
+    };
   }
 
   async exchangeCode(code: string): Promise<AdminExchange> {
     const reply = await this.call("POST", "/api/admin/v1/session/exchange", { body: { code } });
     // The code is single-use: a 401 means expired, already used, or never issued. Trying the same code again cannot help.
-    if (reply.status === 401) throw new AdminApiError(401, "unauthenticated", "Mã đăng nhập đã hết hạn hoặc đã được dùng. Vui lòng đăng nhập lại bằng Google.");
+    if (reply.status === 401)
+      throw new AdminApiError(
+        401,
+        "unauthenticated",
+        "Mã đăng nhập đã hết hạn hoặc đã được dùng. Vui lòng đăng nhập lại bằng Google.",
+      );
     if (reply.status !== 201) throw this.fail(reply);
     return parseExchange(reply.data);
   }
@@ -357,38 +532,69 @@ export class AdminClient {
 
   /* ---- dashboard API: every method needs the session token and returns parsed view models (adminModels.ts) ---- */
 
-  private async expect<T>(reply: Reply, statuses: number[], parse: (data: unknown) => T): Promise<T> {
+  private async expect<T>(
+    reply: Reply,
+    statuses: number[],
+    parse: (data: unknown) => T,
+  ): Promise<T> {
     if (!statuses.includes(reply.status)) throw this.fail(reply);
     return parse(reply.data);
   }
 
   capabilities(token: string) {
-    return this.call("GET", "/api/admin/v1/capabilities", { token }).then((r) => this.expect(r, [200], parseCapabilities));
+    return this.call("GET", "/api/admin/v1/capabilities", { token }).then((r) =>
+      this.expect(r, [200], parseCapabilities),
+    );
   }
 
   devices(token: string) {
-    return this.call("GET", "/api/admin/v1/devices", { token }).then((r) => this.expect(r, [200], parseDeviceList));
+    return this.call("GET", "/api/admin/v1/devices", { token }).then((r) =>
+      this.expect(r, [200], parseDeviceList),
+    );
   }
 
   device(token: string, deviceId: string) {
-    return this.call("GET", `/api/admin/v1/devices/${seg(deviceId)}`, { token }).then((r) => this.expect(r, [200], parseDeviceDetail));
+    return this.call("GET", `/api/admin/v1/devices/${seg(deviceId)}`, { token }).then((r) =>
+      this.expect(r, [200], parseDeviceDetail),
+    );
+  }
+
+  /** The newest captures of one device with their processing state (newest first, at most 50). */
+  recentCaptures(token: string, deviceId: string, limit = 20) {
+    return this.call("GET", `/api/admin/v1/devices/${seg(deviceId)}/captures?limit=${limit}`, {
+      token,
+    }).then((r) => this.expect(r, [200], parseRecentCaptures));
   }
 
   /** `date` is a calendar date YYYY-MM-DD in Asia/Ho_Chi_Minh; the server turns it into the half-open UTC interval. */
   activity(token: string, deviceId: string, date: string) {
-    return this.call("GET", `/api/admin/v1/devices/${seg(deviceId)}/activity?date=${seg(date)}`, { token }).then((r) => this.expect(r, [200], parseActivity));
+    return this.call("GET", `/api/admin/v1/devices/${seg(deviceId)}/activity?date=${seg(date)}`, {
+      token,
+    }).then((r) => this.expect(r, [200], parseActivity));
   }
 
   voiceMessages(token: string, deviceId: string) {
-    return this.call("GET", `/api/admin/v1/devices/${seg(deviceId)}/voice-messages`, { token }).then((r) => this.expect(r, [200], parseVoiceList));
+    return this.call("GET", `/api/admin/v1/devices/${seg(deviceId)}/voice-messages`, {
+      token,
+    }).then((r) => this.expect(r, [200], parseVoiceList));
   }
 
   /** Uploads an MP3 byte for byte (ADR-025: no conversion anywhere; the device decodes it). `onProgress` gets bytes sent and
    * total when the client has an uploader; through fetch there is no progress to report. */
-  async uploadVoice(token: string, deviceId: string, title: string, mp3: Blob, onProgress?: (sent: number, total: number) => void): Promise<VoiceMessage> {
+  async uploadVoice(
+    token: string,
+    deviceId: string,
+    title: string,
+    mp3: Blob,
+    onProgress?: (sent: number, total: number) => void,
+  ): Promise<VoiceMessage> {
     const path = `/api/admin/v1/devices/${seg(deviceId)}/voice-messages?title=${seg(title)}`;
     if (!this.uploader || !this.apiBase) {
-      return this.expect(await this.call("POST", path, { token, raw: { body: mp3, contentType: "audio/mpeg" } }), [201], parseVoiceUpload);
+      return this.expect(
+        await this.call("POST", path, { token, raw: { body: mp3, contentType: "audio/mpeg" } }),
+        [201],
+        parseVoiceUpload,
+      );
     }
     const outcome = await this.uploader({
       url: `${this.apiBase}${path}`,
@@ -398,7 +604,11 @@ export class AdminClient {
       onProgress,
     });
     if (outcome.kind === "timeout") {
-      throw new AdminApiError(504, "timeout", `Máy chủ không trả lời trong ${Math.round(this.timeouts.upload / 1000)} giây. Chưa biết thao tác đã được thực hiện hay chưa.`);
+      throw new AdminApiError(
+        504,
+        "timeout",
+        `Máy chủ không trả lời trong ${Math.round(this.timeouts.upload / 1000)} giây. Chưa biết thao tác đã được thực hiện hay chưa.`,
+      );
     }
     if (outcome.kind === "network") throw await this.explainNetworkFailure();
     let data: unknown = null;
@@ -407,44 +617,74 @@ export class AdminClient {
     } catch {
       // Not JSON (a proxy page): the status code decides.
     }
-    return this.expect({ status: outcome.status, data, problemCode: isRecord(data) ? str(data.code) : null }, [201], parseVoiceUpload);
+    return this.expect(
+      { status: outcome.status, data, problemCode: isRecord(data) ? str(data.code) : null },
+      [201],
+      parseVoiceUpload,
+    );
   }
 
   /** The recording as a Blob for the admin's own browser to play. There is no shareable URL for it. */
   async voiceAudio(token: string, voiceMessageId: string): Promise<Blob> {
-    const reply = await this.call("GET", `/api/admin/v1/voice-messages/${seg(voiceMessageId)}/audio`, { token, binary: true });
+    const reply = await this.call(
+      "GET",
+      `/api/admin/v1/voice-messages/${seg(voiceMessageId)}/audio`,
+      { token, binary: true },
+    );
     if (reply.status !== 200 || !reply.blob) throw this.fail(reply);
     return reply.blob;
   }
 
   /** Always sends `confirm: true`: the server refuses the command without it, so no code path can send one by accident. */
-  createVoiceCommand(token: string, deviceId: string, input: { voiceMessageId: string; idempotencyKey: string; expiresInSeconds: number }) {
-    const body = { voice_message_id: input.voiceMessageId, idempotency_key: input.idempotencyKey, expires_in_seconds: input.expiresInSeconds, confirm: true };
-    return this.call("POST", `/api/admin/v1/devices/${seg(deviceId)}/voice-commands`, { token, body }).then((r) => this.expect(r, [200, 201], parseCommandCreated));
+  createVoiceCommand(
+    token: string,
+    deviceId: string,
+    input: { voiceMessageId: string; idempotencyKey: string; expiresInSeconds: number },
+  ) {
+    const body = {
+      voice_message_id: input.voiceMessageId,
+      idempotency_key: input.idempotencyKey,
+      expires_in_seconds: input.expiresInSeconds,
+      confirm: true,
+    };
+    return this.call("POST", `/api/admin/v1/devices/${seg(deviceId)}/voice-commands`, {
+      token,
+      body,
+    }).then((r) => this.expect(r, [200, 201], parseCommandCreated));
   }
 
   commands(token: string, deviceId: string, cursor?: string) {
     const query = cursor ? `?limit=20&cursor=${seg(cursor)}` : "?limit=20";
-    return this.call("GET", `/api/admin/v1/devices/${seg(deviceId)}/commands${query}`, { token }).then((r) => this.expect(r, [200], parseCommandPage));
+    return this.call("GET", `/api/admin/v1/devices/${seg(deviceId)}/commands${query}`, {
+      token,
+    }).then((r) => this.expect(r, [200], parseCommandPage));
   }
 
   commandTimeline(token: string, commandId: string) {
-    return this.call("GET", `/api/admin/v1/commands/${seg(commandId)}`, { token }).then((r) => this.expect(r, [200], parseCommandTimeline));
+    return this.call("GET", `/api/admin/v1/commands/${seg(commandId)}`, { token }).then((r) =>
+      this.expect(r, [200], parseCommandTimeline),
+    );
   }
 
   /** Always sends `confirm: true`. The device applies the value at its next heartbeat; only its own report says it did. */
   setSpeakerVolume(token: string, deviceId: string, volume: number) {
-    return this.call("PUT", `/api/admin/v1/devices/${seg(deviceId)}/speaker-volume`, { token, body: { volume, confirm: true } }).then((r) =>
-      this.expect(r, [200], parseSpeakerVolumeSet),
-    );
+    return this.call("PUT", `/api/admin/v1/devices/${seg(deviceId)}/speaker-volume`, {
+      token,
+      body: { volume, confirm: true },
+    }).then((r) => this.expect(r, [200], parseSpeakerVolumeSet));
   }
 
   cancelCommand(token: string, commandId: string) {
-    return this.call("POST", `/api/admin/v1/commands/${seg(commandId)}/cancel`, { token, body: {} }).then((r) => this.expect(r, [200, 202], parseCancelResult));
+    return this.call("POST", `/api/admin/v1/commands/${seg(commandId)}/cancel`, {
+      token,
+      body: {},
+    }).then((r) => this.expect(r, [200, 202], parseCancelResult));
   }
 
   reminders(token: string, deviceId: string) {
-    return this.call("GET", `/api/admin/v1/devices/${seg(deviceId)}/reminders`, { token }).then((r) => this.expect(r, [200], parseReminderList));
+    return this.call("GET", `/api/admin/v1/devices/${seg(deviceId)}/reminders`, { token }).then(
+      (r) => this.expect(r, [200], parseReminderList),
+    );
   }
 
   createReminder(token: string, deviceId: string, input: ReminderInput) {
@@ -457,18 +697,26 @@ export class AdminClient {
       schedule: input.schedule,
       confirm: true,
     };
-    return this.call("POST", `/api/admin/v1/devices/${seg(deviceId)}/reminders`, { token, body }).then((r) => this.expect(r, [200, 201], parseReminderResult));
+    return this.call("POST", `/api/admin/v1/devices/${seg(deviceId)}/reminders`, {
+      token,
+      body,
+    }).then((r) => this.expect(r, [200, 201], parseReminderResult));
   }
 
   changeReminder(token: string, reminderId: string, op: "pause" | "resume" | "cancel") {
-    return this.call("POST", `/api/admin/v1/reminders/${seg(reminderId)}/${op}`, { token, body: {} }).then((r) => this.expect(r, [200], parseReminderResult));
+    return this.call("POST", `/api/admin/v1/reminders/${seg(reminderId)}/${op}`, {
+      token,
+      body: {},
+    }).then((r) => this.expect(r, [200], parseReminderResult));
   }
 
   audit(token: string, opts: { cursor?: string; actionPrefix?: string; limit?: number } = {}) {
     const q = new URLSearchParams({ limit: String(opts.limit ?? 30) });
     if (opts.cursor) q.set("cursor", opts.cursor);
     if (opts.actionPrefix) q.set("action_prefix", opts.actionPrefix);
-    return this.call("GET", `/api/admin/v1/audit?${q.toString()}`, { token }).then((r) => this.expect(r, [200], parseAuditPage));
+    return this.call("GET", `/api/admin/v1/audit?${q.toString()}`, { token }).then((r) =>
+      this.expect(r, [200], parseAuditPage),
+    );
   }
 
   /** Ends this session on the server. Resolves true when the server confirmed (204) or already considers it ended (401). */

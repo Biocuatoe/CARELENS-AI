@@ -218,7 +218,8 @@ export async function buildLegacyState(env: Env, config: Config, sub: LegacySubs
   const hubs: Record<string, unknown> = {};
   if (dev) {
     const lastMs = dev.last_seen_at ? new Date(dev.last_seen_at).getTime() : null;
-    const online = lastMs !== null && now.getTime() - lastMs <= config.deviceOnlineWindowSeconds * 1000;
+    // Same policy as the admin view: the viewer contract has only connected/offline, so "stale" shows as offline.
+    const online = lastMs !== null && now.getTime() - lastMs <= config.deviceFreshWindowSeconds * 1000;
     hubs[LEGACY_HUB_ID] = {
       id: LEGACY_HUB_ID,
       recipient_id: LEGACY_RECIPIENT_ID,

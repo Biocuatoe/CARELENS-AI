@@ -1,14 +1,135 @@
-import type { AdminCommand, AdminRole, CommandStatus, ReminderState } from "../../data/admin/adminClient";
+import type { CaptureQueueStats, DeviceCaptureStats } from "../../data/admin/adminModels";
+import type {
+  AdminCommand,
+  AdminRole,
+  CommandStatus,
+  ReminderState,
+} from "../../data/admin/adminClient";
 import type { StatusTone } from "../../design-system/feedback";
 
-export const ADMIN_ROLE_LABELS: Record<AdminRole, string> = { owner: "Chủ sở hữu", admin: "Quản trị viên" };
+export const ADMIN_ROLE_LABELS: Record<AdminRole, string> = {
+  owner: "Chủ sở hữu",
+  admin: "Quản trị viên",
+};
 
 /** Trạng thái thành phần thiết bị do chính thiết bị báo trong heartbeat (device-heartbeat.v2). */
-export const COMPONENT_LABELS: Record<string, string> = { ok: "ok", error: "lỗi", disabled: "tắt", unknown: "không rõ" };
+export const COMPONENT_LABELS: Record<string, string> = {
+  ok: "ok",
+  error: "lỗi",
+  disabled: "tắt",
+  unknown: "không rõ",
+};
 
-export const ROW_STATUS_LABELS: Record<string, string> = { active: "Đang hoạt động", revoked: "Đã thu hồi" };
+export const ROW_STATUS_LABELS: Record<string, string> = {
+  active: "Đang hoạt động",
+  revoked: "Đã thu hồi",
+};
 
-export const JOB_KIND_LABELS: Record<string, string> = { vision: "Suy luận hình ảnh", daily_report: "Báo cáo ngày" };
+/** Device connection from the age of its last authenticated request (server policy: online, then uncertain, then offline). */
+export const CONNECTION_LABELS: Record<
+  "online" | "stale" | "offline" | "never_seen" | "unknown",
+  { label: string; tone: StatusTone }
+> = {
+  online: { label: "Đang liên lạc", tone: "neutral" },
+  stale: { label: "Kết nối không chắc chắn", tone: "attention" },
+  offline: { label: "Mất kết nối", tone: "inactive" },
+  never_seen: { label: "Chưa từng liên lạc", tone: "unknown" },
+  unknown: { label: "Không rõ trạng thái kết nối", tone: "unknown" },
+};
+
+/** Where a capture stands between the device upload and its results (server-derived processing_state). */
+export const PROCESSING_STATE_LABELS: Record<string, { label: string; tone: StatusTone }> = {
+  uploading: { label: "Thiết bị đang tải lên", tone: "neutral" },
+  awaiting_processing: { label: "Đã tải lên, chờ agent xử lý", tone: "neutral" },
+  processing: { label: "Agent/Vision đang xử lý", tone: "neutral" },
+  observation_unverified: { label: "Có quan sát AI, chưa xác nhận", tone: "attention" },
+  needs_review: { label: "Cần người xem lại", tone: "attention" },
+  insufficient_data: { label: "Không đủ dữ liệu để phân tích", tone: "unknown" },
+  completed_no_event: { label: "Đã phân tích, không có sự kiện", tone: "inactive" },
+  failed: { label: "Xử lý thất bại", tone: "urgent" },
+  expired: { label: "Hết hạn trước khi xử lý xong", tone: "urgent" },
+  unknown: { label: "Trạng thái không rõ", tone: "unknown" },
+};
+
+/** Model results per check. Every one is an AI output that no person has verified. */
+export const DRINK_RESULT_LABELS: Record<string, string> = {
+  none_observed: "không nhận ra uống nước/uống thuốc",
+  drinking_water_observed: "có thể đang uống nước (quan sát AI, chưa xác nhận)",
+  medicine_observed:
+    "có thể đang uống thuốc (quan sát AI, chưa xác nhận, không phải xác nhận đã uống)",
+  cross_window_review: "thấy vỉ thuốc và cốc ở hai đoạn khác nhau, cần người xem lại",
+  not_enough_data: "không đủ dữ liệu",
+};
+export const FALL_RESULT_LABELS: Record<string, string> = {
+  uncalibrated_output: "mô hình chưa hiệu chỉnh, không kết luận",
+  fall_candidate: "ứng viên theo luật thử nghiệm, cần người xem lại",
+  below_candidate_rule: "dưới ngưỡng thử nghiệm",
+  not_enough_data: "không đủ dữ liệu",
+};
+
+/** Camera scheduling the firmware reports (heartbeat status.capture). */
+export const CAPTURE_MODE_LABELS: Record<string, string> = {
+  off: "tắt",
+  interval: "theo khoảng thời gian",
+  cycle: "chu kỳ liên tục (phiên chạy thử có giới hạn)",
+};
+export const CAPTURE_STATE_LABELS: Record<string, string> = {
+  off: "chưa chạy",
+  running: "đang chạy",
+  paused_thermal: "tạm dừng vì chip nóng",
+  paused_quota: "tạm dừng vì máy chủ hết hạn mức chụp",
+  paused_backpressure: "chờ chỗ trong hàng đợi tải lên (không chụp để rồi bỏ)",
+  paused_offline: "chờ kết nối mạng (không chụp khi không tải lên được)",
+  ended: "đã hết thời lượng phiên",
+};
+
+/** Device self-reported burst counters (heartbeat status.capture). Dropped bursts never reached the server. */
+export function captureCountersText(c: DeviceCaptureStats): string {
+  return `đã chụp ${c.burstsCaptured} · đã tải lên ${c.burstsUploaded} · bỏ trên thiết bị ${c.burstsDropped} · máy chủ từ chối ${c.uploadRefused} · lỗi tải ${c.uploadFailed} · đang giữ trên thiết bị ${c.queueDepth}`;
+}
+
+/** Firmware >= 0.4.0 (ADR-027): every burst is in exactly one of these, so the totals must add up. */
+export function captureReconciles(c: DeviceCaptureStats): boolean {
+  return c.burstsCaptured === c.burstsUploaded + c.burstsDropped + c.uploadRefused + c.uploadFailed + c.queueDepth;
+}
+
+export function captureQueueText(q: CaptureQueueStats): string {
+  return `đang chờ ${q.queued} · đang tải lên ${q.uploading} · chờ thử lại ${q.retrying} · bỏ vì hàng đợi đầy ${q.droppedQueueFull} · bỏ vì quá hạn ${q.droppedExpired} · lần thử lại ${q.retries}`;
+}
+
+export function captureEventsText(q: CaptureQueueStats): string {
+  return `đã chụp ${q.eventsCaptured} · đã tải lên ${q.eventsUploaded} · không lên được máy chủ ${q.eventsLost} · sự kiện kích hoạt không gửi được ${q.triggerEventsLost}`;
+}
+
+export function captureBackpressureText(q: CaptureQueueStats): string {
+  return `chụp phải chờ hàng đợi ${q.deferredBackpressure} lần · chờ kết nối ${q.deferredOffline} lần · yêu cầu chụp bị bỏ qua ${q.requestsSkipped}`;
+}
+
+export function imuUplinkText(q: CaptureQueueStats): string {
+  return `mẫu cũ nhất chưa gửi ${(q.imuLagMs / 1000).toFixed(1)} s · mẫu bị ghi đè trước khi gửi ${q.imuOverrunSamples}`;
+}
+
+/** Why the current boot started, as the firmware read it (heartbeat status.reset_reason). Self-reported by the device. */
+export const RESET_REASON_LABELS: Record<string, string> = {
+  power_on: "bật nguồn",
+  external_pin: "nút/chân reset",
+  software: "khởi động lại bằng phần mềm",
+  panic: "lỗi firmware (panic)",
+  interrupt_watchdog: "watchdog ngắt",
+  task_watchdog: "watchdog tác vụ",
+  other_watchdog: "watchdog khác",
+  deep_sleep: "thức dậy từ ngủ sâu",
+  brownout: "sụt áp nguồn (brownout)",
+  sdio: "SDIO",
+  usb: "USB",
+  jtag: "JTAG",
+  unknown: "không rõ",
+};
+
+export const JOB_KIND_LABELS: Record<string, string> = {
+  vision: "Suy luận hình ảnh",
+  daily_report: "Báo cáo ngày",
+};
 
 export const IMU_INGEST_LABELS: Record<string, string> = {
   accepting: "Đang nhận IMU thô",
@@ -37,9 +158,16 @@ export const COMMAND_STATUS_LABELS: Record<CommandStatus, { label: string; tone:
 
 /** The state to show for one command. A delivered command whose device reported `received` (ADR-022) is described as such:
  * the device holds it (and is fetching the audio), which is still not "played". */
-export function commandStateLabel(c: Pick<AdminCommand, "status" | "receivedAt" | "voiceMessageId">): { label: string; tone: StatusTone } {
+export function commandStateLabel(
+  c: Pick<AdminCommand, "status" | "receivedAt" | "voiceMessageId">,
+): { label: string; tone: StatusTone } {
   if (c.status === "delivered" && c.receivedAt) {
-    return { label: c.voiceMessageId ? "Thiết bị đã nhận lệnh, đang tải âm thanh" : "Thiết bị đã nhận lệnh, chưa phát", tone: "neutral" };
+    return {
+      label: c.voiceMessageId
+        ? "Thiết bị đã nhận lệnh, đang tải âm thanh"
+        : "Thiết bị đã nhận lệnh, chưa phát",
+      tone: "neutral",
+    };
   }
   return COMMAND_STATUS_LABELS[c.status];
 }
@@ -87,10 +215,21 @@ export const REMINDER_STATE_LABELS: Record<ReminderState, { label: string; tone:
   unknown: { label: "Không rõ", tone: "unknown" },
 };
 
-export const REMINDER_KIND_LABELS: Record<string, string> = { water: "Uống nước", medication: "Uống thuốc" };
+export const REMINDER_KIND_LABELS: Record<string, string> = {
+  water: "Uống nước",
+  medication: "Uống thuốc",
+};
 
 /** Thứ ISO 1 = thứ Hai … 7 = Chủ nhật. */
-export const WEEKDAY_LABELS: Record<number, string> = { 1: "T2", 2: "T3", 3: "T4", 4: "T5", 5: "T6", 6: "T7", 7: "CN" };
+export const WEEKDAY_LABELS: Record<number, string> = {
+  1: "T2",
+  2: "T3",
+  3: "T4",
+  4: "T5",
+  5: "T6",
+  6: "T7",
+  7: "CN",
+};
 
 /* ------------------------------------------------------------------ daily activity report */
 
@@ -151,7 +290,11 @@ export const GENERIC_STATUS_LABELS: Record<string, string> = {
   denied: "Bị từ chối",
 };
 
-export const SOURCE_MODE_LABELS: Record<string, string> = { simulated: "Dữ liệu mô phỏng", device: "Từ thiết bị", mixed: "Lẫn dữ liệu mô phỏng" };
+export const SOURCE_MODE_LABELS: Record<string, string> = {
+  simulated: "Dữ liệu mô phỏng",
+  device: "Từ thiết bị",
+  mixed: "Lẫn dữ liệu mô phỏng",
+};
 
 /* ------------------------------------------------------------------ audit */
 

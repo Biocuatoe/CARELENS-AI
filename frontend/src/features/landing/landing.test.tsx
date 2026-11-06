@@ -149,30 +149,78 @@ describe("Landing CareLens AI", () => {
     expect(container.querySelector("#quy-trinh")).toBeNull();
     expect(screen.queryByRole("heading", { name: /Từ cảm biến đến người chăm sóc/ })).not.toBeInTheDocument();
     expect(NAV_ITEMS.map((n) => n.label)).not.toContain("Quy trình");
+    // Chỉ một phần đội ngũ.
+    expect(container.querySelectorAll(`#${SECTION_IDS.team}`)).toHaveLength(1);
+    expect(screen.getAllByRole("heading", { level: 2, name: "Đội ngũ của chúng tôi" })).toHaveLength(1);
     const team = container.querySelector(`#${SECTION_IDS.team}`)! as HTMLElement;
     expect(within(team).getByRole("heading", { level: 2, name: "Đội ngũ của chúng tôi" })).toBeInTheDocument();
-    const expected: Record<string, string> = {
-      CEO: "Lê Đức Hùng",
-      CTO: "Đinh Hoàng Phương",
-      CMO: "Nguyễn Hải Yến",
-      CSO: "Vũ Bình Dương",
-      COO: "Vũ Hữu Trí",
+    const expected: Record<string, { name: string; file: string }> = {
+      CTO: { name: "Đinh Hoàng Phương", file: "Đinh Hoàng Phương - CTO.jpg" },
+      CMO: { name: "Nguyễn Hải Yến", file: "Nguyễn Hải Yến - CMO.JPG" },
+      CEO: { name: "Lê Đức Hùng", file: "Lê Đức Hùng - CEO.jpg" },
+      CSO: { name: "Vũ Bình Dương", file: "Vũ Bình Dương - CSO.jpg" },
+      COO: { name: "Vũ Hữu Trí", file: "Vũ Hữu Trí - COO.jpg" },
     };
     const items = Array.from(team.querySelectorAll<HTMLElement>("li[data-role]"));
     expect(items).toHaveLength(5);
     for (const li of items) {
       const role = li.dataset.role!;
-      expect(li.textContent).toContain(expected[role]!);
+      const want = expected[role]!;
+      expect(li.textContent).toContain(want.name);
       expect(li.textContent).toContain(role);
       const img = li.querySelector("img")!;
-      expect(img.getAttribute("alt")).toBe(`${expected[role]}, ${role}`);
-      expect(img.getAttribute("src")).toBeTruthy();
+      expect(img.getAttribute("alt")).toBe(`${want.name}, ${role}`);
+      // Ảnh phải là đúng tệp trong members/ (URL do Vite sinh giữ tên tệp ở chế độ dev), không phải ảnh khác.
+      expect(decodeURIComponent(img.getAttribute("src") ?? "").normalize("NFC")).toContain(want.file);
     }
-    // Thứ tự màn rộng (cột 1–5): CEO đúng cột giữa, hai người mỗi bên.
+    // Thứ tự màn rộng (cột 1–5): Phương | Yến | Hùng (CEO) | Dương | Trí.
     const slotOf = (li: HTMLElement) => Number(li.style.getPropertyValue("--slot"));
     const byCol = [...items].sort((a, b) => slotOf(a) - slotOf(b)).map((li) => li.dataset.role);
-    expect(byCol).toEqual([...TEAM.desktopOrder]);
+    expect(byCol).toEqual(["CTO", "CMO", "CEO", "CSO", "COO"]);
     expect(byCol[2]).toBe("CEO");
+    expect(TEAM.core.map((m) => m.role)).toEqual(byCol);
+  });
+
+  it("chuyên gia đồng hành: đúng hai thẻ, đúng tên, vai trò và ảnh; không có lời trích chưa duyệt", () => {
+    const { container } = renderLanding();
+    const team = container.querySelector(`#${SECTION_IDS.team}`)! as HTMLElement;
+    expect(within(team).getByRole("heading", { level: 3, name: "Chuyên gia đồng hành" })).toBeInTheDocument();
+    const cards = Array.from(team.querySelectorAll<HTMLElement>("li[data-expert]"));
+    expect(cards).toHaveLength(2);
+    const want: Record<string, { name: string; file: string }> = {
+      "chu-huy-anh": { name: "ThS. Chu Huy Anh", file: "ThS Chu Huy Anh - Chuyên gia.jpg" },
+      "ha-manh-hung": { name: "TS. Hà Mạnh Hùng", file: "Tiến sĩ Hà Mạnh Hùng - Chuyên gia.jpg" },
+    };
+    for (const li of cards) {
+      const w = want[li.dataset.expert!]!;
+      expect(li.textContent).toContain(w.name);
+      expect(li.textContent).toContain("Chuyên gia");
+      const img = li.querySelector("img")!;
+      expect(img.getAttribute("alt")).toBe(`${w.name}, Chuyên gia`);
+      expect(decodeURIComponent(img.getAttribute("src") ?? "").normalize("NFC")).toContain(w.file);
+    }
+    // Lời đề xuất chưa được duyệt không xuất hiện ở trang công khai và không có lời trích đã duyệt nào.
+    expect(team.querySelector("blockquote")).toBeNull();
+    expect(team.textContent).not.toMatch(/Giá trị của CareLens AI không chỉ|Một giải pháp AI trong lĩnh vực chăm sóc/);
+    expect(TEAM.experts.every((e) => e.quote === undefined)).toBe(true);
+  });
+
+  it("lời chuyên gia nháp chỉ hiện ở chế độ xem nháp, gắn đúng thẻ và có nhãn chưa xác nhận", async () => {
+    window.history.pushState({}, "", "/?team-quotes=draft");
+    try {
+      const { container } = renderLanding();
+      const team = container.querySelector(`#${SECTION_IDS.team}`)! as HTMLElement;
+      await within(team).findAllByRole("blockquote");
+      const byExpert = (id: string) => team.querySelector(`li[data-expert="${id}"]`)!;
+      expect(byExpert("chu-huy-anh").querySelector("blockquote")!.textContent).toMatch(/^Giá trị của CareLens AI/);
+      expect(byExpert("ha-manh-hung").querySelector("blockquote")!.textContent).toMatch(/^Một giải pháp AI/);
+      for (const f of Array.from(team.querySelectorAll("figure"))) {
+        expect(f.getAttribute("data-quote-state")).toBe("draft");
+        expect(f.textContent).toContain("chưa được chuyên gia xác nhận");
+      }
+    } finally {
+      window.history.pushState({}, "", "/");
+    }
   });
 
   it("không còn lời tự nhận là phần quy trình khái niệm hay giai đoạn trước thương mại, và không có giá hay gói dịch vụ", () => {

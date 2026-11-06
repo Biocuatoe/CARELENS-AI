@@ -40,7 +40,7 @@ beforeEach(async () => {
 describe("speaker volume", () => {
   it("is null until an admin sets it, so a device keeps its own volume", async () => {
     const res = await ok<{ config: { speaker_volume: number | null } }>(await beat());
-    expect(res.config).toEqual({ speaker_volume: null, report_audio_codecs: true }); // ADR-025 asks for the codecs too
+    expect(res.config).toEqual({ speaker_volume: null, report_audio_codecs: true, report_reset_reason: true, report_capture_stats: true }); // ADR-025 asks for the codecs too
     expect(await speakerView()).toEqual({ desired_volume: null, desired_set_at: null, reported_volume: null, reported_at: null });
   });
 
@@ -77,5 +77,48 @@ describe("speaker volume", () => {
 
   it("refuses a reported volume outside 0..1 from the device", async () => {
     expect((await beat({ speaker_volume: 1.5 })).status).toBe(422);
+  });
+});
+
+describe("reset reason", () => {
+  it("is requested in the heartbeat response, stored as the device reported it, and shown to the admin", async () => {
+    const res = await ok<{ config: { report_reset_reason: boolean } }>(await beat({ reset_reason: "brownout" }));
+    expect(res.config.report_reset_reason).toBe(true);
+    const stored = await dbFirst<{ last_heartbeat_json: string }>(`SELECT last_heartbeat_json FROM devices WHERE device_id = ?1`, w.deviceId);
+    expect(JSON.parse(stored!.last_heartbeat_json).reset_reason).toBe("brownout");
+    const view = await ok<{ device: { heartbeat: { status: Record<string, unknown> } } }>(await h.call("GET", `/api/admin/v1/devices/${w.deviceId}`, { token: admin }));
+    expect(view.device.heartbeat.status.reset_reason).toBe("brownout");
+  });
+
+  it("stores the chip temperature and capture counters the firmware reports, and refuses malformed counters", async () => {
+    const capture = {
+      mode: "cycle",
+      state: "running",
+      session_s: 120,
+      bursts_captured: 26,
+      bursts_uploaded: 14,
+      bursts_dropped: 9,
+      upload_refused: 0,
+      upload_failed: 1,
+      camera_failures: 0,
+      thermal_pauses: 0,
+      queue_depth: 3,
+      last_cycle_ms: 4620,
+      last_upload_ms: 8410,
+    };
+    const res = await ok<{ config: { report_capture_stats: boolean } }>(await beat({ chip_temp_c: 52.3, capture }));
+    expect(res.config.report_capture_stats).toBe(true);
+    const stored = await dbFirst<{ last_heartbeat_json: string }>(`SELECT last_heartbeat_json FROM devices WHERE device_id = ?1`, w.deviceId);
+    expect(JSON.parse(stored!.last_heartbeat_json)).toMatchObject({ chip_temp_c: 52.3, capture });
+    expect(await problemCode(await beat({ capture: { ...capture, bursts_dropped: -1 } }))).toBe("invalid_payload");
+    expect(await problemCode(await beat({ capture: { ...capture, state: "overheating" } }))).toBe("invalid_payload");
+    expect(await problemCode(await beat({ capture: { ...capture, extra: 1 } }))).toBe("invalid_payload");
+    expect(await problemCode(await beat({ chip_temp_c: 400 }))).toBe("invalid_payload");
+  });
+
+  it("stays optional for older firmware and refuses values outside the firmware's list", async () => {
+    await ok(await beat());
+    expect(await problemCode(await beat({ reset_reason: "battery_low" }))).toBe("invalid_payload");
+    expect(await problemCode(await beat({ reset_reason: 3 }))).toBe("invalid_payload");
   });
 });

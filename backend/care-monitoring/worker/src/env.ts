@@ -39,6 +39,7 @@ export interface Env {
   EMERGENCY_COMMAND_TTL_SECONDS?: string;
   /** ADR-022: the slowest audio download a device is granted after it reported `received` (bytes per second). */
   AUDIO_DOWNLOAD_MIN_BYTES_PER_SECOND?: string;
+  DEVICE_FRESH_WINDOW_SECONDS?: string;
   IMU_RAW_RETENTION_HOURS?: string;
   IMU_MAX_BATCH_AGE_SECONDS?: string;
   IMU_STORAGE_SOFT_LIMIT_MB?: string;
@@ -157,6 +158,9 @@ export interface Config {
   maxNormalCapturesPerHour: number;
   maxTriggeredCapturesPerHour: number;
   deviceOnlineWindowSeconds: number;
+  /** A device is "online" while its last authenticated request is at most this old; between this and
+   * deviceOnlineWindowSeconds it is "stale" (connection uncertain), after that "offline". */
+  deviceFreshWindowSeconds: number;
   reportTimezone: string;
   dailyReportLocalTime: { hour: number; minute: number };
   fusionPolicy: FusionPolicy;
@@ -326,6 +330,13 @@ export function loadConfig(env: Env): Config {
     maxNormalCapturesPerHour: int(env.MAX_NORMAL_CAPTURES_PER_HOUR, 60, 0, 3600, "MAX_NORMAL_CAPTURES_PER_HOUR"),
     maxTriggeredCapturesPerHour: int(env.MAX_TRIGGERED_CAPTURES_PER_HOUR, 20, 0, 3600, "MAX_TRIGGERED_CAPTURES_PER_HOUR"),
     deviceOnlineWindowSeconds: int(env.DEVICE_ONLINE_WINDOW_SECONDS, 180, 30, 3600, "DEVICE_ONLINE_WINDOW_SECONDS"),
+    // 60 s = one firmware heartbeat interval. A running device makes an authenticated request at least every ~10 s
+    // (command poll 5 s, IMU batch 10 s) and last_seen_at is written at most every 30 s (touchDevice), so a healthy
+    // device's last_seen_at is at most ~40 s old (measured on the real device 2026-10-20: <= 32 s).
+    deviceFreshWindowSeconds: Math.min(
+      int(env.DEVICE_FRESH_WINDOW_SECONDS, 60, 30, 3600, "DEVICE_FRESH_WINDOW_SECONDS"),
+      int(env.DEVICE_ONLINE_WINDOW_SECONDS, 180, 30, 3600, "DEVICE_ONLINE_WINDOW_SECONDS"),
+    ),
     reportTimezone,
     dailyReportLocalTime: { hour: Number(m[1]), minute: Number(m[2]) },
     fusionPolicy,

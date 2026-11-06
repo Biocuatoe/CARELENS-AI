@@ -86,6 +86,12 @@ route("POST", "/api/device/v1/heartbeat", device(async (ctx, d) => {
       // ADR-025: ask the firmware to list the codecs it plays (status.audio_codecs). Firmware that does not know the flag
       // ignores it and is treated as WAV-only.
       report_audio_codecs: true,
+      // Ask the firmware why the current boot started (status.reset_reason), so a reboot on battery (brownout, watchdog,
+      // panic) can be told apart from a power switch without a USB console. Older firmware ignores the flag.
+      report_reset_reason: true,
+      // Ask for the chip temperature and the camera scheduling counters (status.chip_temp_c, status.capture): the only
+      // view of dropped or refused bursts and of heat while the device runs without a USB console.
+      report_capture_stats: true,
     },
   });
 }));
@@ -186,6 +192,7 @@ route("GET", "/api/admin/v1/capabilities", adminOnly(async (ctx) => comms.capabi
 route("GET", "/api/admin/v1/devices", adminOnly((ctx) => ops.listDevices(ctx)));
 route("GET", "/api/admin/v1/devices/:id", adminOnly((ctx, p) => ops.getDevice(ctx, p[0] as string)));
 route("GET", "/api/admin/v1/devices/:id/activity", adminOnly((ctx, p) => ops.deviceActivity(ctx, p[0] as string)));
+route("GET", "/api/admin/v1/devices/:id/captures", adminOnly((ctx, p) => ops.recentCaptures(ctx, p[0] as string)));
 route("GET", "/api/admin/v1/devices/:id/voice-messages", adminOnly((ctx, p) => comms.adminListVoice(ctx, p[0] as string)));
 route("POST", "/api/admin/v1/devices/:id/voice-messages", adminOnly((ctx, p) => comms.adminUploadVoice(ctx, p[0] as string)));
 route("GET", "/api/admin/v1/voice-messages/:id/audio", adminOnly((ctx, p) => comms.adminVoiceAudio(ctx, p[0] as string)));

@@ -3,16 +3,26 @@
  * a row without its identifier is dropped, an unknown field is ignored, a missing value stays `null`. Nothing is defaulted into a
  * healthy-looking value. A reply that is not even the right shape throws, so a broken API is an error and never an empty list.
  */
+import type { ConnectionPolicy } from "../../features/admin/connection";
 import { AdminApiError } from "./adminError";
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-const bad = (what: string) => new AdminApiError(502, "invalid_response", `Máy chủ trả về dữ liệu ${what} không đúng định dạng.`);
-const list = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
+const bad = (what: string) =>
+  new AdminApiError(
+    502,
+    "invalid_response",
+    `Máy chủ trả về dữ liệu ${what} không đúng định dạng.`,
+  );
+const list = (v: unknown): Record<string, unknown>[] =>
+  Array.isArray(v) ? v.filter(isRecord) : [];
 const counts = (v: unknown): Record<string, number> => {
   const out: Record<string, number> = {};
-  if (isRecord(v)) for (const [k, n] of Object.entries(v)) if (typeof n === "number" && Number.isFinite(n)) out[k] = n;
+  if (isRecord(v))
+    for (const [k, n] of Object.entries(v))
+      if (typeof n === "number" && Number.isFinite(n)) out[k] = n;
   return out;
 };
 
@@ -21,7 +31,15 @@ const counts = (v: unknown): Record<string, number> => {
 export interface AdminCapabilities {
   tts: { available: boolean; note: string | null };
   /** Upload contract. ADR-025: content type audio/mpeg, codec mp3; an older server says audio/wav (then uploads cannot work). */
-  audio: { contentType: string | null; codec: string | null; sampleRatesHz: number[]; channels: number[]; maxBytes: number | null; minDurationMs: number | null; maxDurationMs: number | null };
+  audio: {
+    contentType: string | null;
+    codec: string | null;
+    sampleRatesHz: number[];
+    channels: number[];
+    maxBytes: number | null;
+    minDurationMs: number | null;
+    maxDurationMs: number | null;
+  };
   reminders: { timezone: string | null; schedulerNote: string | null };
   devicePlayback: string | null;
   /** Range the server accepts for the speaker volume (fraction of full scale); null on a server without the setting. */
@@ -29,8 +47,11 @@ export interface AdminCapabilities {
 }
 
 export function parseCapabilities(data: unknown): AdminCapabilities {
-  if (!isRecord(data) || !isRecord(data.tts) || !isRecord(data.audio)) throw bad("khả năng của máy chủ");
-  const rates = Array.isArray(data.audio.sample_rates_hz) ? data.audio.sample_rates_hz.filter((n): n is number => typeof n === "number") : [];
+  if (!isRecord(data) || !isRecord(data.tts) || !isRecord(data.audio))
+    throw bad("khả năng của máy chủ");
+  const rates = Array.isArray(data.audio.sample_rates_hz)
+    ? data.audio.sample_rates_hz.filter((n): n is number => typeof n === "number")
+    : [];
   const reminders = isRecord(data.reminders) ? data.reminders : {};
   return {
     // Anything but an explicit true means "not available": a missing flag never switches a feature on.
@@ -39,12 +60,19 @@ export function parseCapabilities(data: unknown): AdminCapabilities {
       contentType: str(data.audio.content_type),
       codec: str(data.audio.codec),
       sampleRatesHz: rates,
-      channels: Array.isArray(data.audio.channels) ? data.audio.channels.filter((n): n is number => typeof n === "number") : typeof data.audio.channels === "number" ? [data.audio.channels] : [],
+      channels: Array.isArray(data.audio.channels)
+        ? data.audio.channels.filter((n): n is number => typeof n === "number")
+        : typeof data.audio.channels === "number"
+          ? [data.audio.channels]
+          : [],
       maxBytes: num(data.audio.max_bytes),
       minDurationMs: num(data.audio.min_duration_ms),
       maxDurationMs: num(data.audio.max_duration_ms),
     },
-    reminders: { timezone: str(reminders.timezone), schedulerNote: str(reminders.execution_evidence) },
+    reminders: {
+      timezone: str(reminders.timezone),
+      schedulerNote: str(reminders.execution_evidence),
+    },
     devicePlayback: str(data.device_playback),
     speakerVolume: parseVolumeRange(data.speaker_volume),
   };
@@ -52,11 +80,98 @@ export function parseCapabilities(data: unknown): AdminCapabilities {
 
 function parseVolumeRange(v: unknown): AdminCapabilities["speakerVolume"] {
   if (!isRecord(v)) return null;
-  const min = num(v.min), max = num(v.max), step = num(v.step), def = num(v.default);
-  return min !== null && max !== null && step !== null && step > 0 && min <= max ? { min, max, step, default: def ?? min } : null;
+  const min = num(v.min),
+    max = num(v.max),
+    step = num(v.step),
+    def = num(v.default);
+  return min !== null && max !== null && step !== null && step > 0 && min <= max
+    ? { min, max, step, default: def ?? min }
+    : null;
 }
 
 /* ------------------------------------------------------------------ devices */
+
+/** Camera scheduling counters the firmware reports for its current boot (heartbeat status.capture). Self-reported. */
+/** Upload queue and raw-IMU uplink of firmware >= 0.4.0 (ADR-027); null when the firmware does not send them. */
+export interface CaptureQueueStats {
+  queued: number;
+  uploading: number;
+  retrying: number;
+  droppedQueueFull: number;
+  droppedExpired: number;
+  retries: number;
+  eventsCaptured: number;
+  eventsUploaded: number;
+  eventsLost: number;
+  deferredBackpressure: number;
+  deferredOffline: number;
+  requestsSkipped: number;
+  lastQueueWaitMs: number;
+  imuLagMs: number;
+  imuOverrunSamples: number;
+  triggerEventsLost: number;
+}
+
+export interface DeviceCaptureStats {
+  mode: string;
+  state: string;
+  sessionS: number;
+  burstsCaptured: number;
+  burstsUploaded: number;
+  burstsDropped: number;
+  uploadRefused: number;
+  uploadFailed: number;
+  cameraFailures: number;
+  thermalPauses: number;
+  queueDepth: number;
+  lastCycleMs: number;
+  lastUploadMs: number;
+  queue: CaptureQueueStats | null;
+}
+
+function parseCaptureStats(v: unknown): DeviceCaptureStats | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const n = (k: string): number | null =>
+    typeof o[k] === "number" && Number.isFinite(o[k]) ? (o[k] as number) : null;
+  const s = {
+    mode: typeof o.mode === "string" ? o.mode : null,
+    state: typeof o.state === "string" ? o.state : null,
+    sessionS: n("session_s"),
+    burstsCaptured: n("bursts_captured"),
+    burstsUploaded: n("bursts_uploaded"),
+    burstsDropped: n("bursts_dropped"),
+    uploadRefused: n("upload_refused"),
+    uploadFailed: n("upload_failed"),
+    cameraFailures: n("camera_failures"),
+    thermalPauses: n("thermal_pauses"),
+    queueDepth: n("queue_depth"),
+    lastCycleMs: n("last_cycle_ms"),
+    lastUploadMs: n("last_upload_ms"),
+  };
+  // Incomplete counters are not shown as if they were complete.
+  if (Object.values(s).some((x) => x === null)) return null;
+  const q = {
+    queued: n("queued"),
+    uploading: n("uploading"),
+    retrying: n("retrying"),
+    droppedQueueFull: n("dropped_queue_full"),
+    droppedExpired: n("dropped_expired"),
+    retries: n("retries"),
+    eventsCaptured: n("events_captured"),
+    eventsUploaded: n("events_uploaded"),
+    eventsLost: n("events_lost"),
+    deferredBackpressure: n("deferred_backpressure"),
+    deferredOffline: n("deferred_offline"),
+    requestsSkipped: n("requests_skipped"),
+    lastQueueWaitMs: n("last_queue_wait_ms"),
+    imuLagMs: n("imu_lag_ms"),
+    imuOverrunSamples: n("imu_overrun_samples"),
+    triggerEventsLost: n("trigger_events_lost"),
+  };
+  const queue = Object.values(q).some((x) => x === null) ? null : (q as CaptureQueueStats);
+  return { ...(s as Omit<DeviceCaptureStats, "queue">), queue };
+}
 
 export interface AdminDevice {
   deviceId: string;
@@ -71,15 +186,48 @@ export interface AdminDevice {
   lastContactAgeSeconds: number | null;
   connected: boolean;
   onlineWindowSeconds: number | null;
+  /** online | stale | offline | never_seen, as the server computed it at serverTime, and the thresholds it used. */
+  connectionState: string | null;
+  connectionPolicy: ConnectionPolicy | null;
+  /** server_time of the response and when this browser received it: the age of the last contact is recomputed from these. */
+  serverTime: string | null;
+  receivedAtMs: number;
   /** The firmware's own report; null until a heartbeat has arrived. */
-  heartbeat: { at: string; camera: string | null; imu: string | null; speaker: string | null; wifiRssiDbm: number | null; freeHeapBytes: number | null; lastError: string | null } | null;
-  lastCapture: { capturedAt: string | null; status: string | null; failureCode: string | null; sourceMode: string | null } | null;
-  lastEvent: { observedAt: string | null; eventType: string | null; classification: string | null; verificationStatus: string | null; sourceMode: string | null } | null;
+  heartbeat: {
+    at: string;
+    camera: string | null;
+    imu: string | null;
+    speaker: string | null;
+    wifiRssiDbm: number | null;
+    freeHeapBytes: number | null;
+    lastError: string | null;
+    resetReason: string | null;
+    chipTempC: number | null;
+    capture: DeviceCaptureStats | null;
+  } | null;
+  lastCapture: {
+    capturedAt: string | null;
+    status: string | null;
+    failureCode: string | null;
+    sourceMode: string | null;
+  } | null;
+  lastEvent: {
+    observedAt: string | null;
+    eventType: string | null;
+    classification: string | null;
+    verificationStatus: string | null;
+    sourceMode: string | null;
+  } | null;
   lastInferenceAt: string | null;
   commands: { active: Record<string, number>; last24h: Record<string, number> };
   hasSimulatedRecords: boolean;
   /** Speaker volume: what an admin set, and what the device itself last reported applying. Null on an older server. */
-  speaker: { desiredVolume: number | null; desiredSetAt: string | null; reportedVolume: number | null; reportedAt: string | null } | null;
+  speaker: {
+    desiredVolume: number | null;
+    desiredSetAt: string | null;
+    reportedVolume: number | null;
+    reportedAt: string | null;
+  } | null;
   /** Codecs the firmware reported in its latest heartbeat (ADR-025). Empty: older firmware or a server that does not ask. */
   audioCodecs: string[];
 }
@@ -106,20 +254,66 @@ export function parseDevice(d: Record<string, unknown>): AdminDevice | null {
     lastContactAgeSeconds: num(d.last_contact_age_seconds),
     connected: d.connected === true,
     onlineWindowSeconds: num(d.online_window_seconds),
-    heartbeat: hb && str(hb.at) ? { at: str(hb.at) as string, camera: str(hbStatus?.camera), imu: str(hbStatus?.imu), speaker: str(hbStatus?.speaker), wifiRssiDbm: num(hbStatus?.wifi_rssi_dbm), freeHeapBytes: num(hbStatus?.free_heap_bytes), lastError: str(hbStatus?.last_error) } : null,
-    lastCapture: cap ? { capturedAt: str(cap.captured_at), status: str(cap.status), failureCode: str(cap.failure_code), sourceMode: str(cap.source_mode) } : null,
-    lastEvent: evt ? { observedAt: str(evt.observed_at), eventType: str(evt.event_type), classification: str(evt.classification), verificationStatus: str(evt.verification_status), sourceMode: str(evt.source_mode) } : null,
+    connectionState: str(d.connection_state),
+    connectionPolicy: parseConnectionPolicy(d.connection_policy),
+    serverTime: null,
+    receivedAtMs: 0,
+    heartbeat:
+      hb && str(hb.at)
+        ? {
+            at: str(hb.at) as string,
+            camera: str(hbStatus?.camera),
+            imu: str(hbStatus?.imu),
+            speaker: str(hbStatus?.speaker),
+            wifiRssiDbm: num(hbStatus?.wifi_rssi_dbm),
+            freeHeapBytes: num(hbStatus?.free_heap_bytes),
+            lastError: str(hbStatus?.last_error),
+            resetReason: str(hbStatus?.reset_reason),
+            chipTempC: num(hbStatus?.chip_temp_c),
+            capture: parseCaptureStats(hbStatus?.capture),
+          }
+        : null,
+    lastCapture: cap
+      ? {
+          capturedAt: str(cap.captured_at),
+          status: str(cap.status),
+          failureCode: str(cap.failure_code),
+          sourceMode: str(cap.source_mode),
+        }
+      : null,
+    lastEvent: evt
+      ? {
+          observedAt: str(evt.observed_at),
+          eventType: str(evt.event_type),
+          classification: str(evt.classification),
+          verificationStatus: str(evt.verification_status),
+          sourceMode: str(evt.source_mode),
+        }
+      : null,
     lastInferenceAt: str(d.last_inference_at),
-    commands: { active: counts(isRecord(cmds) ? cmds.active : null), last24h: counts(isRecord(cmds) ? cmds.last_24h : null) },
+    commands: {
+      active: counts(isRecord(cmds) ? cmds.active : null),
+      last24h: counts(isRecord(cmds) ? cmds.last_24h : null),
+    },
     hasSimulatedRecords: d.has_simulated_records_7d === true,
     speaker: isRecord(d.speaker)
-      ? { desiredVolume: num(d.speaker.desired_volume), desiredSetAt: str(d.speaker.desired_set_at), reportedVolume: num(d.speaker.reported_volume), reportedAt: str(d.speaker.reported_at) }
+      ? {
+          desiredVolume: num(d.speaker.desired_volume),
+          desiredSetAt: str(d.speaker.desired_set_at),
+          reportedVolume: num(d.speaker.reported_volume),
+          reportedAt: str(d.speaker.reported_at),
+        }
       : null,
-    audioCodecs: Array.isArray(d.audio_codecs) ? d.audio_codecs.filter((c): c is string => typeof c === "string") : [],
+    audioCodecs: Array.isArray(d.audio_codecs)
+      ? d.audio_codecs.filter((c): c is string => typeof c === "string")
+      : [],
   };
 }
 
-export function parseSpeakerVolumeSet(data: unknown): { desiredVolume: number; desiredSetAt: string | null } {
+export function parseSpeakerVolumeSet(data: unknown): {
+  desiredVolume: number;
+  desiredSetAt: string | null;
+} {
   const speaker = isRecord(data) && isRecord(data.speaker) ? data.speaker : null;
   const v = speaker ? num(speaker.desired_volume) : null;
   if (!speaker || v === null) throw bad("âm lượng loa");
@@ -132,16 +326,38 @@ export interface DeviceList {
   simulatedSources: string | null;
 }
 
+/** connection_policy as sent by the server; incomplete = null (the page then shows the server's state as is). */
+export function parseConnectionPolicy(v: unknown): ConnectionPolicy | null {
+  if (!isRecord(v)) return null;
+  const online = num(v.online_max_age_seconds);
+  const offline = num(v.offline_after_seconds);
+  if (online === null || offline === null) return null;
+  return {
+    onlineMaxAgeSeconds: online,
+    offlineAfterSeconds: offline,
+    heartbeatIntervalSeconds: num(v.heartbeat_interval_seconds),
+  };
+}
+
 export function parseDeviceList(data: unknown): DeviceList {
   if (!isRecord(data) || !Array.isArray(data.items)) throw bad("danh sách thiết bị");
-  return { items: list(data.items).flatMap((d) => parseDevice(d) ?? []), serverTime: str(data.server_time), simulatedSources: str(data.simulated_sources) };
+  const serverTime = str(data.server_time);
+  const receivedAtMs = Date.now(); // parsed as the reply arrives
+  return {
+    items: list(data.items).flatMap((d) => {
+      const device = parseDevice(d);
+      return device ? [{ ...device, serverTime, receivedAtMs }] : [];
+    }),
+    serverTime,
+    simulatedSources: str(data.simulated_sources),
+  };
 }
 
 export function parseDeviceDetail(data: unknown): AdminDevice {
   if (!isRecord(data) || !isRecord(data.device)) throw bad("chi tiết thiết bị");
   const device = parseDevice(data.device);
   if (!device) throw bad("chi tiết thiết bị");
-  return device;
+  return { ...device, serverTime: str(data.server_time), receivedAtMs: Date.now() };
 }
 
 /* ------------------------------------------------------------------ daily activity report */
@@ -175,8 +391,141 @@ export interface ActivityReport {
   entries: ActivityEntry[];
 }
 
+/** One model check stored for a capture (events row). Raw model output: an uncalibrated score is not a probability. */
+export interface CaptureResult {
+  eventId: string;
+  eventType: string;
+  classification: string;
+  label: string | null;
+  modelScore: number | null;
+  scoreKind: string | null;
+  calibrationStatus: string | null;
+  verificationStatus: string;
+}
+
+/** A capture with its vision job, results and the server-derived processing state (GET /devices/{id}/captures). */
+export interface RecentCapture {
+  captureId: string;
+  mode: string;
+  bootId: string | null;
+  sourceMode: string | null;
+  capturedAt: string;
+  frameCount: number | null;
+  cadenceStatus: string | null;
+  captureStatus: string;
+  failureCode: string | null;
+  uploadedAt: string | null;
+  mediaDeletedAt: string | null;
+  job: {
+    jobId: string;
+    status: string;
+    attempts: number | null;
+    errorCode: string | null;
+    completedAt: string | null;
+  } | null;
+  results: CaptureResult[];
+  processingState: string;
+  stateReason: string | null;
+  resultAfterMs: number | null;
+}
+
+export interface RecentCapturesPage {
+  deviceId: string;
+  serverTime: string | null;
+  queuedVisionJobs: number | null;
+  /** The device's own counters from its last heartbeat (self-reported); dropped bursts never reach the server. */
+  deviceCounters: { reportedAt: string | null; capture: DeviceCaptureStats | null } | null;
+  items: RecentCapture[];
+}
+
+export function parseRecentCaptures(data: unknown): RecentCapturesPage {
+  if (!isRecord(data) || !Array.isArray(data.items)) throw bad("danh sách lần chụp");
+  const deviceId = str(data.device_id);
+  if (!deviceId) throw bad("danh sách lần chụp");
+  const items = data.items.flatMap((raw): RecentCapture[] => {
+    if (!isRecord(raw)) return [];
+    const captureId = str(raw.capture_id);
+    const capturedAt = str(raw.captured_at);
+    const captureStatus = str(raw.capture_status);
+    const processingState = str(raw.processing_state);
+    if (!captureId || !capturedAt || !captureStatus || !processingState) return [];
+    const job =
+      isRecord(raw.job) && str(raw.job.job_id) && str(raw.job.status)
+        ? {
+            jobId: str(raw.job.job_id) as string,
+            status: str(raw.job.status) as string,
+            attempts: num(raw.job.attempts),
+            errorCode: str(raw.job.error_code),
+            completedAt: str(raw.job.completed_at),
+          }
+        : null;
+    const results = (Array.isArray(raw.results) ? raw.results : []).flatMap(
+      (r): CaptureResult[] => {
+        if (!isRecord(r)) return [];
+        const eventId = str(r.event_id);
+        const eventType = str(r.event_type);
+        const classification = str(r.classification);
+        const verificationStatus = str(r.verification_status);
+        if (!eventId || !eventType || !classification || !verificationStatus) return [];
+        return [
+          {
+            eventId,
+            eventType,
+            classification,
+            label: str(r.label),
+            modelScore: num(r.model_score),
+            scoreKind: str(r.score_kind),
+            calibrationStatus: str(r.calibration_status),
+            verificationStatus,
+          },
+        ];
+      },
+    );
+    return [
+      {
+        captureId,
+        mode: str(raw.mode) ?? "unknown",
+        bootId: str(raw.boot_id),
+        sourceMode: str(raw.source_mode),
+        capturedAt,
+        frameCount: num(raw.frame_count),
+        cadenceStatus: str(raw.cadence_status),
+        captureStatus,
+        failureCode: str(raw.failure_code),
+        uploadedAt: str(raw.uploaded_at),
+        mediaDeletedAt: str(raw.media_deleted_at),
+        job,
+        results,
+        processingState,
+        stateReason: str(raw.state_reason),
+        resultAfterMs: num(raw.result_after_ms),
+      },
+    ];
+  });
+  const counters = isRecord(data.device_counters)
+    ? {
+        reportedAt: str(data.device_counters.reported_at),
+        capture: parseCaptureStats(data.device_counters.capture),
+      }
+    : null;
+  return {
+    deviceId,
+    serverTime: str(data.server_time),
+    queuedVisionJobs: num(data.queued_vision_jobs),
+    deviceCounters: counters,
+    items,
+  };
+}
+
 export function parseActivity(data: unknown): ActivityReport {
-  if (!isRecord(data) || !isRecord(data.device) || !isRecord(data.period) || !isRecord(data.sources) || !Array.isArray(data.entries)) throw bad("báo cáo hoạt động");
+  if (
+    !isRecord(data) ||
+    !isRecord(data.device) ||
+    !isRecord(data.period) ||
+    !isRecord(data.sources) ||
+    !Array.isArray(data.entries)
+  )
+    throw bad("báo cáo hoạt động");
   const deviceId = str(data.device.device_id);
   const date = str(data.date);
   const timezone = str(data.timezone);
@@ -184,15 +533,42 @@ export function parseActivity(data: unknown): ActivityReport {
   const periodEnd = str(data.period.end);
   if (!deviceId || !date || !timezone || !periodStart || !periodEnd) throw bad("báo cáo hoạt động");
   const sources: Record<string, ActivitySource> = {};
-  for (const [name, v] of Object.entries(data.sources)) if (isRecord(v)) sources[name] = { status: str(v.status) ?? "unknown", count: num(v.count) ?? 0, note: str(v.note) };
+  for (const [name, v] of Object.entries(data.sources))
+    if (isRecord(v))
+      sources[name] = {
+        status: str(v.status) ?? "unknown",
+        count: num(v.count) ?? 0,
+        note: str(v.note),
+      };
   const entries = list(data.entries).flatMap((e): ActivityEntry[] => {
     const at = str(e.at);
     const source = str(e.source);
     const kind = str(e.kind);
     if (!at || !source || !kind) return [];
-    return [{ at, source, kind, refId: str(e.ref_id), sourceMode: str(e.source_mode), status: str(e.status), detail: isRecord(e.detail) ? e.detail : {} }];
+    return [
+      {
+        at,
+        source,
+        kind,
+        refId: str(e.ref_id),
+        sourceMode: str(e.source_mode),
+        status: str(e.status),
+        detail: isRecord(e.detail) ? e.detail : {},
+      },
+    ];
   });
-  return { deviceId, label: str(data.device.label) ?? deviceId, date, timezone, periodStart, periodEnd, generatedAt: str(data.generated_at), inFuture: data.in_future === true, sources, entries };
+  return {
+    deviceId,
+    label: str(data.device.label) ?? deviceId,
+    date,
+    timezone,
+    periodStart,
+    periodEnd,
+    generatedAt: str(data.generated_at),
+    inFuture: data.in_future === true,
+    sources,
+    entries,
+  };
 }
 
 /* ------------------------------------------------------------------ voice recordings and commands */
@@ -233,15 +609,34 @@ export function parseVoiceList(data: unknown): VoiceMessage[] {
 }
 
 export function parseVoiceUpload(data: unknown): VoiceMessage {
-  const v = isRecord(data) && isRecord(data.voice_message) ? parseVoiceMessage(data.voice_message) : null;
+  const v =
+    isRecord(data) && isRecord(data.voice_message) ? parseVoiceMessage(data.voice_message) : null;
   if (!v) throw bad("bản ghi âm");
   return v;
 }
 
 /** Every state the device protocol can put a command in. Anything else is shown as unknown, never as success. */
-export const COMMAND_STATUSES = ["queued", "delivered", "accepted", "started", "completed", "failed", "rejected", "cancelled", "expired", "superseded"] as const;
+export const COMMAND_STATUSES = [
+  "queued",
+  "delivered",
+  "accepted",
+  "started",
+  "completed",
+  "failed",
+  "rejected",
+  "cancelled",
+  "expired",
+  "superseded",
+] as const;
 export type CommandStatus = (typeof COMMAND_STATUSES)[number] | "unknown";
-export const TERMINAL_COMMAND_STATUSES: readonly string[] = ["completed", "failed", "rejected", "cancelled", "expired", "superseded"];
+export const TERMINAL_COMMAND_STATUSES: readonly string[] = [
+  "completed",
+  "failed",
+  "rejected",
+  "cancelled",
+  "expired",
+  "superseded",
+];
 
 export interface AdminCommand {
   commandId: string;
@@ -278,7 +673,9 @@ export function parseCommand(c: Record<string, unknown>): AdminCommand | null {
     commandId,
     deviceId: str(c.device_id) ?? "",
     commandType: str(c.command_type) ?? "unknown",
-    status: (COMMAND_STATUSES as readonly string[]).includes(status ?? "") ? (status as CommandStatus) : "unknown",
+    status: (COMMAND_STATUSES as readonly string[]).includes(status ?? "")
+      ? (status as CommandStatus)
+      : "unknown",
     statusReason: str(c.status_reason),
     // Trust the flag only together with the matching status, so an inconsistent reply cannot show "played".
     playedConfirmedByDevice: c.played_confirmed_by_device === true && status === "completed",
@@ -305,7 +702,10 @@ export interface CommandPage {
 
 export function parseCommandPage(data: unknown): CommandPage {
   if (!isRecord(data) || !Array.isArray(data.items)) throw bad("danh sách lệnh");
-  return { items: list(data.items).flatMap((c) => parseCommand(c) ?? []), nextCursor: str(data.next_cursor) };
+  return {
+    items: list(data.items).flatMap((c) => parseCommand(c) ?? []),
+    nextCursor: str(data.next_cursor),
+  };
 }
 
 export function parseCommandCreated(data: unknown): { command: AdminCommand; created: boolean } {
@@ -322,16 +722,34 @@ export interface CommandTimelineEvent {
   at: string | null;
 }
 
-export function parseCommandTimeline(data: unknown): { command: AdminCommand; timeline: CommandTimelineEvent[] } {
+export function parseCommandTimeline(data: unknown): {
+  command: AdminCommand;
+  timeline: CommandTimelineEvent[];
+} {
   const command = isRecord(data) && isRecord(data.command) ? parseCommand(data.command) : null;
   if (!isRecord(data) || !command) throw bad("diễn tiến lệnh");
-  return { command, timeline: list(data.timeline).map((e) => ({ seq: num(e.seq) ?? 0, status: str(e.status) ?? "unknown", reason: str(e.reason), actorType: str(e.actor_type), at: str(e.at) })) };
+  return {
+    command,
+    timeline: list(data.timeline).map((e) => ({
+      seq: num(e.seq) ?? 0,
+      status: str(e.status) ?? "unknown",
+      reason: str(e.reason),
+      actorType: str(e.actor_type),
+      at: str(e.at),
+    })),
+  };
 }
 
-export function parseCancelResult(data: unknown): { command: AdminCommand; cancelPendingDeviceConfirmation: boolean } {
+export function parseCancelResult(data: unknown): {
+  command: AdminCommand;
+  cancelPendingDeviceConfirmation: boolean;
+} {
   const command = isRecord(data) && isRecord(data.command) ? parseCommand(data.command) : null;
   if (!isRecord(data) || !command) throw bad("kết quả hủy lệnh");
-  return { command, cancelPendingDeviceConfirmation: data.cancel_pending_device_confirmation === true };
+  return {
+    command,
+    cancelPendingDeviceConfirmation: data.cancel_pending_device_confirmation === true,
+  };
 }
 
 /* ------------------------------------------------------------------ reminders */
@@ -355,7 +773,15 @@ export interface AdminReminder {
   pausedAt: string | null;
   nextOccurrenceAt: string | null;
   windowOpen: boolean;
-  lastDispatch: { commandId: string; occurrenceAt: string | null; status: string; statusReason: string | null; deliveryAttempts: number | null; finishedAt: string | null; playedConfirmedByDevice: boolean } | null;
+  lastDispatch: {
+    commandId: string;
+    occurrenceAt: string | null;
+    status: string;
+    statusReason: string | null;
+    deliveryAttempts: number | null;
+    finishedAt: string | null;
+    playedConfirmedByDevice: boolean;
+  } | null;
 }
 
 export function parseReminder(r: Record<string, unknown>): AdminReminder | null {
@@ -372,9 +798,16 @@ export function parseReminder(r: Record<string, unknown>): AdminReminder | null 
     label: str(r.label) ?? "",
     voiceMessageId: str(r.voice_message_id),
     scheduleKind: kind === "once" || kind === "recurring" ? kind : "unknown",
-    state: state === "scheduled" || state === "paused" || state === "cancelled" || state === "finished" ? state : "unknown",
-    timesLocal: Array.isArray(r.times_local) ? r.times_local.filter((t): t is string => typeof t === "string") : [],
-    daysOfWeek: Array.isArray(r.days_of_week) ? r.days_of_week.filter((d): d is number => typeof d === "number") : [],
+    state:
+      state === "scheduled" || state === "paused" || state === "cancelled" || state === "finished"
+        ? state
+        : "unknown",
+    timesLocal: Array.isArray(r.times_local)
+      ? r.times_local.filter((t): t is string => typeof t === "string")
+      : [],
+    daysOfWeek: Array.isArray(r.days_of_week)
+      ? r.days_of_week.filter((d): d is number => typeof d === "number")
+      : [],
     startDate: str(r.start_date),
     endDate: str(r.end_date),
     timezone: str(r.timezone),
@@ -391,18 +824,29 @@ export function parseReminder(r: Record<string, unknown>): AdminReminder | null 
             statusReason: str(last.status_reason),
             deliveryAttempts: num(last.delivery_attempts),
             finishedAt: str(last.finished_at),
-            playedConfirmedByDevice: last.played_confirmed_by_device === true && lastStatus === "completed",
+            playedConfirmedByDevice:
+              last.played_confirmed_by_device === true && lastStatus === "completed",
           }
         : null,
   };
 }
 
-export function parseReminderList(data: unknown): { items: AdminReminder[]; timezone: string | null } {
+export function parseReminderList(data: unknown): {
+  items: AdminReminder[];
+  timezone: string | null;
+} {
   if (!isRecord(data) || !Array.isArray(data.items)) throw bad("danh sách nhắc lịch");
-  return { items: list(data.items).flatMap((r) => parseReminder(r) ?? []), timezone: str(data.timezone) };
+  return {
+    items: list(data.items).flatMap((r) => parseReminder(r) ?? []),
+    timezone: str(data.timezone),
+  };
 }
 
-export function parseReminderResult(data: unknown): { reminder: AdminReminder; created: boolean; duplicate: boolean } {
+export function parseReminderResult(data: unknown): {
+  reminder: AdminReminder;
+  created: boolean;
+  duplicate: boolean;
+} {
   const reminder = isRecord(data) && isRecord(data.reminder) ? parseReminder(data.reminder) : null;
   if (!isRecord(data) || !reminder) throw bad("nhắc lịch");
   return { reminder, created: data.created === true, duplicate: data.duplicate === true };
@@ -429,7 +873,19 @@ export function parseAuditPage(data: unknown): { items: AuditEntry[]; nextCursor
     const at = str(a.at);
     const action = str(a.action);
     if (!auditId || !at || !action) return [];
-    return [{ auditId, at, actorType: str(a.actor_type) ?? "unknown", actorId: str(a.actor_id), action, targetType: str(a.target_type), targetId: str(a.target_id), outcome: str(a.outcome) ?? "unknown", requestId: str(a.request_id) }];
+    return [
+      {
+        auditId,
+        at,
+        actorType: str(a.actor_type) ?? "unknown",
+        actorId: str(a.actor_id),
+        action,
+        targetType: str(a.target_type),
+        targetId: str(a.target_id),
+        outcome: str(a.outcome) ?? "unknown",
+        requestId: str(a.request_id),
+      },
+    ];
   });
   return { items, nextCursor: str(data.next_cursor) };
 }

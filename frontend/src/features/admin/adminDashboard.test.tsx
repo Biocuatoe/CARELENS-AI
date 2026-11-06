@@ -1,10 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { capabilitiesBody, json, makeBackend, mountSignedIn, mount, loginHeading, probe, problem, type Call, type Handler } from "./testKit";
+import {
+  capabilitiesBody,
+  json,
+  makeBackend,
+  mountSignedIn,
+  mount,
+  loginHeading,
+  probe,
+  problem,
+  type Call,
+  type Handler,
+} from "./testKit";
 import { LAME_16K_MONO, audioFile, mp3Frame, wav } from "./testAudio";
 
-const capabilitiesBodyWithVolume = { ...capabilitiesBody, speaker_volume: { min: 0.05, max: 0.7, default: 0.25, step: 0.05 } };
+const capabilitiesBodyWithVolume = {
+  ...capabilitiesBody,
+  speaker_volume: { min: 0.05, max: 0.7, default: 0.25, step: 0.05 },
+};
 
 vi.mock("../../lib/navigation", () => ({ startFullPageNavigation: vi.fn() }));
 
@@ -25,21 +39,52 @@ const device = (over: Record<string, unknown> = {}) => ({
   created_at: "2026-10-18T02:00:00.000Z",
   revoked_at: null,
   credential: { state: "active", version: 3 },
-  last_seen_at: "2026-10-19T02:59:00.000Z",
-  last_contact_age_seconds: 60,
+  last_seen_at: "2026-10-19T02:59:30.000Z",
+  last_contact_age_seconds: 30,
+  connection_state: "online",
+  connection_policy: {
+    online_max_age_seconds: 60,
+    offline_after_seconds: 180,
+    heartbeat_interval_seconds: 60,
+  },
   connected: true,
   online_window_seconds: 180,
   last_boot_id: "boot-1",
-  heartbeat: { at: "2026-10-19T02:59:00.000Z", status: { camera: "ok", imu: "error", speaker: "ok", wifi_rssi_dbm: -61, free_heap_bytes: 120000, last_error: null } },
-  last_capture: { captured_at: "2026-10-19T02:58:00.000Z", status: "processed", failure_code: null, source_mode: "simulated" },
-  last_event: { observed_at: "2026-10-19T02:58:30.000Z", event_type: "fall_check", classification: "uncalibrated_output", verification_status: "unverified", source_mode: "simulated" },
+  heartbeat: {
+    at: "2026-10-19T02:59:00.000Z",
+    status: {
+      camera: "ok",
+      imu: "error",
+      speaker: "ok",
+      wifi_rssi_dbm: -61,
+      free_heap_bytes: 120000,
+      last_error: null,
+    },
+  },
+  last_capture: {
+    captured_at: "2026-10-19T02:58:00.000Z",
+    status: "processed",
+    failure_code: null,
+    source_mode: "simulated",
+  },
+  last_event: {
+    observed_at: "2026-10-19T02:58:30.000Z",
+    event_type: "fall_check",
+    classification: "uncalibrated_output",
+    verification_status: "unverified",
+    source_mode: "simulated",
+  },
   last_inference_at: "2026-10-19T02:58:40.000Z",
   commands: { active: { queued: 1 }, last_24h: { completed: 2 } },
   has_simulated_records_7d: true,
   audio_codecs: ["pcm_s16le", "mp3"],
   ...over,
 });
-const devicesBody = (items: unknown[] = [device()]) => ({ items, server_time: "2026-10-19T03:00:00.000Z", simulated_sources: "accepted" });
+const devicesBody = (items: unknown[] = [device()]) => ({
+  items,
+  server_time: "2026-10-19T03:00:00.000Z",
+  simulated_sources: "accepted",
+});
 
 const command = (over: Record<string, unknown> = {}) => ({
   command_id: "cmd_1",
@@ -61,8 +106,38 @@ const command = (over: Record<string, unknown> = {}) => ({
   created_by: "admin:adm_test",
   ...over,
 });
-const voiceItem = { voice_message_id: "vm_1", title: "Nhắc uống nước", status: "active", created_by: "admin:adm_test", created_at: "2026-10-19T02:00:00.000Z", audio: { version: 1, content_type: "audio/mpeg", sample_rate_hz: 16000, channels: 1, bits_per_sample: 0, duration_ms: 2016, byte_size: 8064 } };
-const legacyWavItem = { voice_message_id: "vm_old", title: "Bản ghi cũ", status: "active", created_by: "admin:adm_test", created_at: "2026-10-18T02:00:00.000Z", audio: { version: 1, content_type: "audio/wav", sample_rate_hz: 16000, channels: 1, bits_per_sample: 16, duration_ms: 2000, byte_size: 64044 } };
+const voiceItem = {
+  voice_message_id: "vm_1",
+  title: "Nhắc uống nước",
+  status: "active",
+  created_by: "admin:adm_test",
+  created_at: "2026-10-19T02:00:00.000Z",
+  audio: {
+    version: 1,
+    content_type: "audio/mpeg",
+    sample_rate_hz: 16000,
+    channels: 1,
+    bits_per_sample: 0,
+    duration_ms: 2016,
+    byte_size: 8064,
+  },
+};
+const legacyWavItem = {
+  voice_message_id: "vm_old",
+  title: "Bản ghi cũ",
+  status: "active",
+  created_by: "admin:adm_test",
+  created_at: "2026-10-18T02:00:00.000Z",
+  audio: {
+    version: 1,
+    content_type: "audio/wav",
+    sample_rate_hz: 16000,
+    channels: 1,
+    bits_per_sample: 16,
+    duration_ms: 2000,
+    byte_size: 64044,
+  },
+};
 
 const reminder = (over: Record<string, unknown> = {}) => ({
   reminder_id: "rem_1",
@@ -87,21 +162,42 @@ const reminder = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const ok = (body: unknown, status = 200) => () => json(status, body);
+const ok =
+  (body: unknown, status = 200) =>
+  () =>
+    json(status, body);
 const base = (extra: Record<string, Handler> = {}) =>
   makeBackend({
     "GET /api/admin/v1/devices": ok(devicesBody()),
-    "GET /api/admin/v1/devices/esp32-test-1": ok({ device: device(), last_boot: null, server_time: "2026-10-19T03:00:00.000Z" }),
+    "GET /api/admin/v1/devices/esp32-test-1": ok({
+      device: device(),
+      last_boot: null,
+      server_time: "2026-10-19T03:00:00.000Z",
+    }),
     "GET /api/admin/v1/devices/esp32-test-1/commands": ok({ items: [], next_cursor: null }),
     "GET /api/admin/v1/devices/esp32-test-1/voice-messages": ok({ items: [voiceItem] }),
-    "GET /api/admin/v1/devices/esp32-test-1/reminders": ok({ items: [], timezone: "Asia/Ho_Chi_Minh", server_time: "2026-10-19T03:00:00.000Z" }),
+    "GET /api/admin/v1/devices/esp32-test-1/reminders": ok({
+      items: [],
+      timezone: "Asia/Ho_Chi_Minh",
+      server_time: "2026-10-19T03:00:00.000Z",
+    }),
     ...extra,
   });
-const writes = (backend: ReturnType<typeof makeBackend>) => backend.adminCalls().filter((c) => c.method !== "GET" && c.path !== "/api/admin/v1/session/exchange");
-const find = (backend: ReturnType<typeof makeBackend>, key: string): Call[] => backend.calls.filter((c) => `${c.method} ${c.path}` === key);
+const writes = (backend: ReturnType<typeof makeBackend>) =>
+  backend
+    .adminCalls()
+    .filter((c) => c.method !== "GET" && c.path !== "/api/admin/v1/session/exchange");
+const find = (backend: ReturnType<typeof makeBackend>, key: string): Call[] =>
+  backend.calls.filter((c) => `${c.method} ${c.path}` === key);
 
 beforeEach(() => {
-  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => "blob:synthetic-preview"), revokeObjectURL: vi.fn() }));
+  vi.stubGlobal(
+    "URL",
+    Object.assign(URL, {
+      createObjectURL: vi.fn(() => "blob:synthetic-preview"),
+      revokeObjectURL: vi.fn(),
+    }),
+  );
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -111,12 +207,32 @@ describe("navigation and protection", () => {
   it("offers every dashboard section from the layout, and keeps the current one marked", async () => {
     await mountSignedIn("/admin/devices", base());
     const nav = await screen.findByRole("navigation", { name: "Khu quản trị" });
-    for (const name of ["Tổng quan", "Thiết bị", "Báo cáo ngày", "Gửi âm thanh", "Nhắc lịch", "Agent", "Nhật ký"]) expect(within(nav).getByRole("link", { name })).toBeVisible();
-    expect(within(nav).getByRole("link", { name: "Thiết bị" })).toHaveAttribute("aria-current", "page");
+    for (const name of [
+      "Tổng quan",
+      "Thiết bị",
+      "Báo cáo ngày",
+      "Gửi âm thanh",
+      "Nhắc lịch",
+      "Agent",
+      "Nhật ký",
+    ])
+      expect(within(nav).getByRole("link", { name })).toBeVisible();
+    expect(within(nav).getByRole("link", { name: "Thiết bị" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("sends a visitor without an admin session from any dashboard page to the login, calling no admin endpoint", async () => {
-    for (const path of ["/admin/devices", "/admin/devices/esp32-test-1", "/admin/reports", "/admin/messages", "/admin/reminders", "/admin/agents", "/admin/audit"]) {
+    for (const path of [
+      "/admin/devices",
+      "/admin/devices/esp32-test-1",
+      "/admin/reports",
+      "/admin/messages",
+      "/admin/reminders",
+      "/admin/agents",
+      "/admin/audit",
+    ]) {
       const backend = base();
       const { router } = await mount(path, backend);
       expect(await loginHeading()).toBeVisible();
@@ -144,19 +260,28 @@ describe("devices", () => {
     const row = within(table).getByRole("row", { name: /Thiết bị thử 1/ });
     expect(within(row).getByText("esp32-test-1")).toBeVisible();
     expect(within(row).getByText("fw-test-0")).toBeVisible();
-    expect(within(row).getByText("Có liên lạc gần đây")).toBeVisible();
+    expect(within(row).getByText("Đang liên lạc")).toBeVisible();
     expect(within(row).getByText("Có dữ liệu mô phỏng (7 ngày)")).toBeVisible();
     expect(screen.getByText("Máy chủ này nhận dữ liệu mô phỏng")).toBeVisible();
     expect(document.body.textContent).not.toMatch(/cld_|token/i);
   });
 
   it("shows an empty registry as empty, and a failed load as an error with a retry (never as empty)", async () => {
-    await mountSignedIn("/admin/devices", base({ "GET /api/admin/v1/devices": ok(devicesBody([])) }));
+    await mountSignedIn(
+      "/admin/devices",
+      base({ "GET /api/admin/v1/devices": ok(devicesBody([])) }),
+    );
     expect(await screen.findByText("Chưa có thiết bị nào được đăng ký")).toBeVisible();
     (await import("@testing-library/react")).cleanup();
 
     let fail = true;
-    await mountSignedIn("/admin/devices", base({ "GET /api/admin/v1/devices": () => (fail ? problem(500, "internal_error") : json(200, devicesBody())) }));
+    await mountSignedIn(
+      "/admin/devices",
+      base({
+        "GET /api/admin/v1/devices": () =>
+          fail ? problem(500, "internal_error") : json(200, devicesBody()),
+      }),
+    );
     const alert = await screen.findByRole("alert");
     expect(within(alert).getByText("Không tải được danh sách thiết bị")).toBeVisible();
     expect(screen.queryByText("Chưa có thiết bị nào được đăng ký")).toBeNull();
@@ -166,25 +291,301 @@ describe("devices", () => {
   });
 
   it("says plainly when the server has no dashboard API yet (404), instead of showing nothing", async () => {
-    const backend = base({ "GET /api/admin/v1/devices": () => new Response(null, { status: 404 }) });
+    const backend = base({
+      "GET /api/admin/v1/devices": () => new Response(null, { status: 404 }),
+    });
     await mountSignedIn("/admin/devices", backend);
     const alert = await screen.findByRole("alert");
     expect(within(alert).getByText(/chưa có API này/)).toBeVisible();
   });
 
   it("shows one device's registration, credential state, self-reported health and commands, and no credential material", async () => {
-    const backend = base({ "GET /api/admin/v1/devices/esp32-test-1/commands": ok({ items: [command({ status: "completed", played_confirmed_by_device: true }), command({ command_id: "cmd_2", status: "queued" })], next_cursor: null }) });
+    const backend = base({
+      "GET /api/admin/v1/devices/esp32-test-1/commands": ok({
+        items: [
+          command({ status: "completed", played_confirmed_by_device: true }),
+          command({ command_id: "cmd_2", status: "queued" }),
+        ],
+        next_cursor: null,
+      }),
+    });
     await mountSignedIn("/admin/devices/esp32-test-1", backend);
     expect(await screen.findByRole("heading", { level: 1, name: "Thiết bị thử 1" })).toBeVisible();
     expect(screen.getByText("Đang hiệu lực (phiên bản 3)")).toBeVisible();
     expect(screen.getByText(/Đây là lời tự báo của firmware/)).toBeVisible();
     expect(screen.getByText("IMU")).toBeVisible();
     expect(screen.getByText("lỗi")).toBeVisible(); // the device said imu: error
+    expect(screen.getAllByText("firmware không báo")).toHaveLength(2); // older firmware sends no reset_reason or chip temperature: nothing is guessed
     expect(screen.getByText(/Giao diện không hiện và không thể lấy lại credential/)).toBeVisible();
-    expect((await screen.findAllByText("Thiết bị báo đã phát xong")).length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText("Thiết bị báo đã phát xong")).length).toBeGreaterThanOrEqual(
+      1,
+    );
     expect(screen.getAllByText("Đang chờ thiết bị lấy lệnh").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByRole("link", { name: "Báo cáo theo ngày" })).toHaveAttribute("href", "/admin/reports?device=esp32-test-1");
+    expect(screen.getByRole("link", { name: "Báo cáo theo ngày" })).toHaveAttribute(
+      "href",
+      "/admin/reports?device=esp32-test-1",
+    );
     expect(writes(backend)).toEqual([]); // looking changes nothing
+  });
+  it("turns Online into 'connection uncertain' and then 'offline' on its own as the last contact ages, with the time zone shown", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-19T03:00:00.000Z"));
+    const detailPath = "GET /api/admin/v1/devices/esp32-test-1";
+    // The fake server answers with its current time, like the real one; the device itself stays silent after 02:59:30.
+    const backend = base({
+      [detailPath]: () =>
+        json(200, { device: device(), last_boot: null, server_time: new Date().toISOString() }),
+    });
+    await mountSignedIn("/admin/devices/esp32-test-1", backend);
+    expect(await screen.findByText("Đang liên lạc")).toBeVisible();
+    expect(
+      screen.getByText(/Liên lạc gần nhất: .* \(giờ Việt Nam, UTC\+7\) · cách đây 30 giây/),
+    ).toBeVisible();
+    // Step the clock 5 s at a time so each refresh's reply is handled when it arrives, as in a browser.
+    const pass = async (seconds: number) => {
+      for (let s = 0; s < seconds; s += 5) {
+        await act(async () => {
+          vi.advanceTimersByTime(5_000);
+        });
+      }
+    };
+    await pass(40); // 70 s after the last contact: more than one heartbeat interval
+    await waitFor(() => expect(screen.getByText("Kết nối không chắc chắn")).toBeVisible());
+    expect(screen.queryByText("Đang liên lạc")).toBeNull();
+    await pass(120); // 190 s
+    await waitFor(() => expect(screen.getByText("Mất kết nối")).toBeVisible());
+    expect(screen.getByText(/cách đây 3 phút \d+ giây/)).toBeVisible();
+    expect(find(backend, detailPath).length).toBeGreaterThan(1); // the page kept refreshing on its own
+    expect(writes(backend)).toEqual([]);
+  });
+
+  it("lists recent captures with their processing state, refreshes them every 10 s, and never turns 'no event' into an observation", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const capturesPath = "GET /api/admin/v1/devices/esp32-test-1/captures";
+    const result = (over: Record<string, unknown>) => ({
+      label: null,
+      model_score: null,
+      score_kind: null,
+      calibration_status: "not_calibrated",
+      verification_status: "unverified",
+      model_version: "m-test",
+      ...over,
+    });
+    const item = (over: Record<string, unknown> = {}) => ({
+      capture_id: "cap-1",
+      mode: "normal",
+      boot_id: "b-1",
+      source_mode: "device",
+      captured_at: "2026-10-19T02:58:00.000Z",
+      frame_count: 24,
+      cadence_status: "ok",
+      capture_status: "processed",
+      failure_code: null,
+      uploaded_at: "2026-10-19T02:58:30.000Z",
+      finished_at: "2026-10-19T02:58:39.000Z",
+      media_deleted_at: "2026-10-19T02:58:39.200Z",
+      media_expires_at: "2026-10-19T03:13:00.000Z",
+      job: {
+        job_id: "job_1",
+        status: "completed",
+        attempts: 1,
+        error_code: null,
+        completed_at: "2026-10-19T02:58:39.000Z",
+      },
+      results: [
+        result({
+          event_id: "evt_1",
+          event_type: "drink_check",
+          classification: "none_observed",
+          label: "khong",
+        }),
+        result({
+          event_id: "evt_2",
+          event_type: "fall_check",
+          classification: "uncalibrated_output",
+          model_score: -3.8,
+          score_kind: "uncalibrated_logit",
+        }),
+      ],
+      processing_state: "completed_no_event",
+      state_reason: null,
+      result_after_ms: 39_000,
+      ...over,
+    });
+    const counters = {
+      mode: "cycle",
+      state: "running",
+      session_s: 60,
+      bursts_captured: 12,
+      bursts_uploaded: 6,
+      bursts_dropped: 5,
+      upload_refused: 0,
+      upload_failed: 0,
+      camera_failures: 0,
+      thermal_pauses: 0,
+      queue_depth: 3,
+      last_cycle_ms: 4700,
+      last_upload_ms: 7000,
+    };
+    const body = {
+      device_id: "esp32-test-1",
+      server_time: "2026-10-19T03:00:00.000Z",
+      queued_vision_jobs: 2,
+      device_counters: { reported_at: "2026-10-19T02:59:30.000Z", capture: counters },
+      items: [
+        item({
+          capture_id: "cap-3",
+          capture_status: "uploaded",
+          processing_state: "awaiting_processing",
+          job: {
+            job_id: "job_3",
+            status: "queued",
+            attempts: 0,
+            error_code: null,
+            completed_at: null,
+          },
+          results: [],
+          media_deleted_at: null,
+          result_after_ms: null,
+        }),
+        item({
+          capture_id: "cap-2",
+          capture_status: "expired",
+          processing_state: "expired",
+          state_reason: "media_expired",
+          results: [],
+          result_after_ms: null,
+        }),
+        item(),
+      ],
+    };
+    const backend = base({ [capturesPath]: ok(body) });
+    await mountSignedIn("/admin/devices/esp32-test-1", backend);
+    const list = await screen.findByRole("list", { name: "Lần chụp gần đây" });
+    expect(within(list).getByText("Đã tải lên, chờ agent xử lý")).toBeVisible();
+    expect(within(list).getByText("Hết hạn trước khi xử lý xong")).toBeVisible();
+    expect(within(list).getByText(/lý do media_expired/)).toBeVisible();
+    expect(within(list).getByText("Đã phân tích, không có sự kiện")).toBeVisible();
+    expect(
+      within(list).getByText(
+        "Uống nước/thuốc: không nhận ra uống nước/uống thuốc · Ngã: mô hình chưa hiệu chỉnh, không kết luận (điểm thô -3.80, không phải xác suất)",
+      ),
+    ).toBeVisible();
+    expect(within(list).queryByText(/Có quan sát AI/)).toBeNull();
+    expect(screen.getByText(/đã chụp 12 · đã tải lên 6 · bỏ trên thiết bị 5 .*\(burst bỏ trên thiết bị không bao giờ lên máy chủ\)/)).toBeVisible();
+    expect(screen.getByText("2 việc")).toBeVisible();
+    expect(find(backend, capturesPath)).toHaveLength(1);
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+    await waitFor(() => expect(find(backend, capturesPath)).toHaveLength(2));
+    expect(writes(backend)).toEqual([]); // looking changes nothing
+  });
+
+  it("shows the reset reason of the current boot exactly as the firmware reported it", async () => {
+    const capture = {
+      mode: "cycle",
+      state: "paused_quota",
+      session_s: 300,
+      bursts_captured: 64,
+      bursts_uploaded: 35,
+      bursts_dropped: 26,
+      upload_refused: 2,
+      upload_failed: 1,
+      camera_failures: 0,
+      thermal_pauses: 0,
+      queue_depth: 3,
+      last_cycle_ms: 4600,
+      last_upload_ms: 8300,
+    };
+    const hb = {
+      at: "2026-10-19T02:59:00.000Z",
+      status: {
+        camera: "ok",
+        imu: "ok",
+        speaker: "ok",
+        wifi_rssi_dbm: -61,
+        free_heap_bytes: 120000,
+        last_error: null,
+        reset_reason: "brownout",
+        chip_temp_c: 51.8,
+        capture,
+      },
+    };
+    const backend = base({
+      "GET /api/admin/v1/devices/esp32-test-1": ok({
+        device: device({ heartbeat: hb }),
+        last_boot: null,
+        server_time: "2026-10-19T03:00:00.000Z",
+      }),
+    });
+    await mountSignedIn("/admin/devices/esp32-test-1", backend);
+    expect(await screen.findByText("sụt áp nguồn (brownout)")).toBeVisible();
+    expect(screen.getByText("Lý do khởi động lần này")).toBeVisible();
+    expect(screen.getByText("51.8 °C (lõi ESP32-S3, không phải vỏ hộp)")).toBeVisible();
+    expect(
+      screen.getByText(
+        "chu kỳ liên tục (phiên chạy thử có giới hạn) · tạm dừng vì máy chủ hết hạn mức chụp",
+      ),
+    ).toBeVisible();
+    // Dropped and refused bursts are shown next to the uploaded ones, never hidden.
+    expect(
+      screen.getByText(
+        "đã chụp 64 · đã tải lên 35 · bỏ trên thiết bị 26 · máy chủ từ chối 2 · lỗi tải 1 · đang giữ trên thiết bị 3",
+      ),
+    ).toBeVisible();
+    // Firmware 0.3.0 does not send the queue fields: nothing is made up for them.
+    expect(screen.queryByText("Hàng đợi tải lên")).toBeNull();
+  });
+
+  it("shows the upload queue, event bursts and raw IMU lag of firmware 0.4.0 and whether the totals add up", async () => {
+    const capture = {
+      mode: "cycle",
+      state: "paused_backpressure",
+      session_s: 240,
+      bursts_captured: 44,
+      bursts_uploaded: 40,
+      bursts_dropped: 1,
+      upload_refused: 0,
+      upload_failed: 0,
+      camera_failures: 0,
+      thermal_pauses: 0,
+      queue_depth: 3,
+      last_cycle_ms: 4710,
+      last_upload_ms: 6900,
+      queued: 1,
+      uploading: 1,
+      retrying: 1,
+      dropped_queue_full: 0,
+      dropped_expired: 1,
+      retries: 4,
+      events_captured: 2,
+      events_uploaded: 1,
+      events_lost: 0,
+      deferred_backpressure: 12,
+      deferred_offline: 1,
+      requests_skipped: 0,
+      last_queue_wait_ms: 15200,
+      imu_lag_ms: 4100,
+      imu_overrun_samples: 0,
+      trigger_events_lost: 0,
+    };
+    const hb = {
+      at: "2026-10-19T02:59:00.000Z",
+      status: { camera: "ok", imu: "ok", speaker: "ok", wifi_rssi_dbm: -61, free_heap_bytes: 66000, last_error: null, chip_temp_c: 45.0, capture },
+    };
+    const backend = base({
+      "GET /api/admin/v1/devices/esp32-test-1": ok({ device: device({ heartbeat: hb }), last_boot: null, server_time: "2026-10-19T03:00:00.000Z" }),
+    });
+    await mountSignedIn("/admin/devices/esp32-test-1", backend);
+    expect(await screen.findByText(/chờ chỗ trong hàng đợi tải lên/)).toBeVisible();
+    expect(
+      screen.getByText(
+        "đang chờ 1 · đang tải lên 1 · chờ thử lại 1 · bỏ vì hàng đợi đầy 0 · bỏ vì quá hạn 1 · lần thử lại 4 · số liệu khớp",
+      ),
+    ).toBeVisible();
+    expect(screen.getByText(/đã chụp 2 · đã tải lên 1 · không lên được máy chủ 0/)).toBeVisible();
+    expect(screen.getByText("mẫu cũ nhất chưa gửi 4.1 s · mẫu bị ghi đè trước khi gửi 0")).toBeVisible();
   });
 });
 
@@ -202,10 +603,29 @@ describe("speaker volume", () => {
     let desired: number | null = null;
     const backend = base({
       "GET /api/admin/v1/capabilities": ok(caps),
-      [detailPath]: () => json(200, { device: device({ speaker: { desired_volume: desired, desired_set_at: desired === null ? null : "2026-10-19T03:01:00.000Z", reported_volume: 0.25, reported_at: "2026-10-19T02:59:00.000Z" } }), last_boot: null, server_time: "2026-10-19T03:00:00.000Z" }),
+      [detailPath]: () =>
+        json(200, {
+          device: device({
+            speaker: {
+              desired_volume: desired,
+              desired_set_at: desired === null ? null : "2026-10-19T03:01:00.000Z",
+              reported_volume: 0.25,
+              reported_at: "2026-10-19T02:59:00.000Z",
+            },
+          }),
+          last_boot: null,
+          server_time: "2026-10-19T03:00:00.000Z",
+        }),
       [putPath]: (call) => {
         desired = (call.body as { volume: number }).volume;
-        return json(200, { device_id: "esp32-test-1", speaker: { desired_volume: desired, desired_set_at: "2026-10-19T03:01:00.000Z", delivery: "next_heartbeat" } });
+        return json(200, {
+          device_id: "esp32-test-1",
+          speaker: {
+            desired_volume: desired,
+            desired_set_at: "2026-10-19T03:01:00.000Z",
+            delivery: "next_heartbeat",
+          },
+        });
       },
     });
     await mountSignedIn("/admin/devices/esp32-test-1", backend);
@@ -214,7 +634,12 @@ describe("speaker volume", () => {
     await userEvent.selectOptions(screen.getByLabelText("Mức mới"), "0.45");
     await userEvent.click(screen.getByRole("button", { name: "Đặt âm lượng…" }));
     expect(find(backend, putPath)).toHaveLength(0); // opening the dialog changes nothing
-    await userEvent.click(within(await screen.findByRole("dialog", { name: "Xác nhận đổi âm lượng loa" })).getByRole("button", { name: "Đặt 45%" }));
+    await userEvent.click(
+      within(await screen.findByRole("dialog", { name: "Xác nhận đổi âm lượng loa" })).getByRole(
+        "button",
+        { name: "Đặt 45%" },
+      ),
+    );
     expect(await screen.findByText(/Đã đặt 45% trên máy chủ/)).toBeVisible();
     const sent = find(backend, putPath);
     expect(sent).toHaveLength(1);
@@ -224,9 +649,27 @@ describe("speaker volume", () => {
   });
 
   it("offers only the server's range", async () => {
-    await mountSignedIn("/admin/devices/esp32-test-1", base({ "GET /api/admin/v1/capabilities": ok(caps), [detailPath]: ok({ device: device({ speaker: { desired_volume: null, desired_set_at: null, reported_volume: null, reported_at: null } }), last_boot: null }) }));
+    await mountSignedIn(
+      "/admin/devices/esp32-test-1",
+      base({
+        "GET /api/admin/v1/capabilities": ok(caps),
+        [detailPath]: ok({
+          device: device({
+            speaker: {
+              desired_volume: null,
+              desired_set_at: null,
+              reported_volume: null,
+              reported_at: null,
+            },
+          }),
+          last_boot: null,
+        }),
+      }),
+    );
     const select = await screen.findByLabelText("Mức mới");
-    const values = within(select).getAllByRole("option").map((o) => (o as HTMLOptionElement).value);
+    const values = within(select)
+      .getAllByRole("option")
+      .map((o) => (o as HTMLOptionElement).value);
     expect(values[0]).toBe("0.05");
     expect(values[values.length - 1]).toBe("0.7");
     expect(screen.getByText("Thiết bị chưa báo")).toBeVisible();
@@ -234,24 +677,67 @@ describe("speaker volume", () => {
 });
 
 describe("daily activity report", () => {
-  const entry = (at: string, source: string, kind: string, over: Record<string, unknown> = {}) => ({ at, source, kind, ref_id: `${source}-${at}`, source_mode: null, status: null, detail: {}, ...over });
+  const entry = (at: string, source: string, kind: string, over: Record<string, unknown> = {}) => ({
+    at,
+    source,
+    kind,
+    ref_id: `${source}-${at}`,
+    source_mode: null,
+    status: null,
+    detail: {},
+    ...over,
+  });
   const reportBody = (over: Record<string, unknown> = {}) => ({
-    device: { device_id: "esp32-test-1", recipient_id: "rcp-test", label: "Thiết bị thử 1", status: "active" },
+    device: {
+      device_id: "esp32-test-1",
+      recipient_id: "rcp-test",
+      label: "Thiết bị thử 1",
+      status: "active",
+    },
     date: "2026-10-19",
     timezone: "Asia/Ho_Chi_Minh",
-    period: { start: "2026-10-18T17:00:00.000Z", end: "2026-10-19T17:00:00.000Z", interval: "[start, end)" },
+    period: {
+      start: "2026-10-18T17:00:00.000Z",
+      end: "2026-10-19T17:00:00.000Z",
+      interval: "[start, end)",
+    },
     generated_at: "2026-10-19T03:00:00.000Z",
     in_future: false,
     sources: {
       events: { status: "ok", count: 1 },
-      captures: { status: "truncated", count: 300, note: "Chỉ hiển thị 300 bản ghi đầu tiên của nguồn này trong ngày." },
-      heartbeat: { status: "partial", count: 0, note: "Chỉ lưu heartbeat gần nhất của thiết bị, không có lịch sử heartbeat theo ngày." },
-      imu: { status: "retention_expired", count: 0, note: "IMU thô chỉ được giữ 72 giờ; ngày này đã quá hạn." },
-      agent_connectivity: { status: "not_stored", count: 0, note: "Chỉ lưu thời điểm agent liên lạc gần nhất." },
+      captures: {
+        status: "truncated",
+        count: 300,
+        note: "Chỉ hiển thị 300 bản ghi đầu tiên của nguồn này trong ngày.",
+      },
+      heartbeat: {
+        status: "partial",
+        count: 0,
+        note: "Chỉ lưu heartbeat gần nhất của thiết bị, không có lịch sử heartbeat theo ngày.",
+      },
+      imu: {
+        status: "retention_expired",
+        count: 0,
+        note: "IMU thô chỉ được giữ 72 giờ; ngày này đã quá hạn.",
+      },
+      agent_connectivity: {
+        status: "not_stored",
+        count: 0,
+        note: "Chỉ lưu thời điểm agent liên lạc gần nhất.",
+      },
     },
     entries: [
-      entry("2026-10-19T02:58:00.000Z", "captures", "capture", { ref_id: "cap-1", source_mode: "simulated", status: "processed", detail: { frame_count: 24, media_deleted: true } }),
-      entry("2026-10-19T02:59:30.000Z", "events", "imu_trigger", { ref_id: "ev-1", source_mode: "simulated", status: "imu_trigger_reported" }),
+      entry("2026-10-19T02:58:00.000Z", "captures", "capture", {
+        ref_id: "cap-1",
+        source_mode: "simulated",
+        status: "processed",
+        detail: { frame_count: 24, media_deleted: true },
+      }),
+      entry("2026-10-19T02:59:30.000Z", "events", "imu_trigger", {
+        ref_id: "ev-1",
+        source_mode: "simulated",
+        status: "imu_trigger_reported",
+      }),
     ],
     ...over,
   });
@@ -296,12 +782,30 @@ describe("daily activity report", () => {
   });
 
   it("explains an empty day without calling it quiet, and a failed load as a failure", async () => {
-    await mountSignedIn("/admin/reports", base({ [activityPath]: ok(reportBody({ entries: [], sources: { events: { status: "ok", count: 0 }, imu: { status: "partial", count: 0, note: "một phần" } } })) }));
+    await mountSignedIn(
+      "/admin/reports",
+      base({
+        [activityPath]: ok(
+          reportBody({
+            entries: [],
+            sources: {
+              events: { status: "ok", count: 0 },
+              imu: { status: "partial", count: 0, note: "một phần" },
+            },
+          }),
+        ),
+      }),
+    );
     expect(await screen.findByText("Không có bản ghi nào trong ngày này")).toBeVisible();
-    expect(screen.getByText(/Danh sách trống chỉ có nghĩa là các nguồn ở trạng thái/)).toBeVisible();
+    expect(
+      screen.getByText(/Danh sách trống chỉ có nghĩa là các nguồn ở trạng thái/),
+    ).toBeVisible();
     (await import("@testing-library/react")).cleanup();
 
-    await mountSignedIn("/admin/reports", base({ [activityPath]: () => problem(500, "internal_error") }));
+    await mountSignedIn(
+      "/admin/reports",
+      base({ [activityPath]: () => problem(500, "internal_error") }),
+    );
     const alert = await screen.findByRole("alert");
     expect(within(alert).getByText("Không tải được báo cáo")).toBeVisible();
     expect(within(alert).getByText(/không có nghĩa là ngày này không có hoạt động/)).toBeVisible();
@@ -310,7 +814,13 @@ describe("daily activity report", () => {
 
   it("loads another day when the date changes and says when a day has not happened yet", async () => {
     const backend = base({
-      [activityPath]: (call) => json(200, call.search.includes("2030-01-01") ? reportBody({ date: "2030-01-01", in_future: true, entries: [] }) : reportBody()),
+      [activityPath]: (call) =>
+        json(
+          200,
+          call.search.includes("2030-01-01")
+            ? reportBody({ date: "2030-01-01", in_future: true, entries: [] })
+            : reportBody(),
+        ),
     });
     await mountSignedIn("/admin/reports", backend);
     await screen.findByText(/Dòng thời gian \(2\)/);
@@ -329,7 +839,9 @@ describe("daily activity report", () => {
       blobs.push(b as Blob);
       return "blob:synthetic-csv";
     });
-    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
     await userEvent.click(screen.getByRole("button", { name: "Tải CSV" }));
     expect(click).toHaveBeenCalledTimes(1);
     const text = await blobs[0]!.text();
@@ -339,7 +851,10 @@ describe("daily activity report", () => {
   });
 
   it("offers no device to report on when none is registered", async () => {
-    await mountSignedIn("/admin/reports", base({ "GET /api/admin/v1/devices": ok(devicesBody([])) }));
+    await mountSignedIn(
+      "/admin/reports",
+      base({ "GET /api/admin/v1/devices": ok(devicesBody([])) }),
+    );
     expect(await screen.findByText("Chưa có thiết bị nào được đăng ký")).toBeVisible();
     expect(screen.queryByLabelText(/Ngày/)).toBeNull();
   });
@@ -354,10 +869,16 @@ describe("audio messages", () => {
 
   it("says text-to-speech does not exist and offers no text box for a spoken message", async () => {
     await mountSignedIn("/admin/messages", base());
-    expect(await screen.findByText("Chuyển văn bản thành giọng nói chưa được hỗ trợ")).toBeVisible();
-    expect(screen.getByText(/Máy chủ không có dịch vụ chuyển văn bản thành giọng nói/)).toBeVisible();
+    expect(
+      await screen.findByText("Chuyển văn bản thành giọng nói chưa được hỗ trợ"),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Máy chủ không có dịch vụ chuyển văn bản thành giọng nói/),
+    ).toBeVisible();
     expect(screen.queryByRole("textbox", { name: /nội dung|văn bản|lời nhắn/i })).toBeNull();
-    expect(await screen.findByText(/Việc phát trên loa của ESP32 thật chưa được kiểm chứng/)).toBeVisible();
+    expect(
+      await screen.findByText(/Việc phát trên loa của ESP32 thật chưa được kiểm chứng/),
+    ).toBeVisible();
   });
 
   it("sends nothing until the final confirmation, then sends exactly one command with the confirm flag and an idempotency key", async () => {
@@ -373,12 +894,20 @@ describe("audio messages", () => {
     expect(find(backend, sendPath)).toHaveLength(0);
 
     await userEvent.click(screen.getByRole("button", { name: "Gửi tới thiết bị…" }));
-    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }));
+    await userEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }),
+    );
     expect(await screen.findByText("Lệnh đã được máy chủ nhận")).toBeVisible();
     const sent = find(backend, sendPath);
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.body).toMatchObject({ voice_message_id: "vm_1", expires_in_seconds: 900, confirm: true });
-    expect((sent[0]!.body as { idempotency_key: string }).idempotency_key.length).toBeGreaterThanOrEqual(8);
+    expect(sent[0]!.body).toMatchObject({
+      voice_message_id: "vm_1",
+      expires_in_seconds: 900,
+      confirm: true,
+    });
+    expect(
+      (sent[0]!.body as { idempotency_key: string }).idempotency_key.length,
+    ).toBeGreaterThanOrEqual(8);
     expect(sent[0]!.auth).toMatch(/^Bearer clm_/);
     // The acceptance message says what is and is not known.
     expect(screen.getByText(/chưa có nghĩa là thiết bị đã phát/)).toBeVisible();
@@ -396,9 +925,15 @@ describe("audio messages", () => {
     await mountSignedIn("/admin/messages", backend);
     await chooseRecording();
     await userEvent.click(screen.getByRole("button", { name: "Gửi tới thiết bị…" }));
-    const confirm = within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" });
+    const confirm = within(await screen.findByRole("dialog")).getByRole("button", {
+      name: "Xác nhận gửi",
+    });
     await userEvent.dblClick(confirm);
-    await waitFor(() => expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Đang gửi…" })).toBeDisabled());
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("dialog")).getByRole("button", { name: "Đang gửi…" }),
+      ).toBeDisabled(),
+    );
     await act(async () => release());
     await screen.findByText("Lệnh đã được máy chủ nhận");
     expect(find(backend, sendPath)).toHaveLength(1);
@@ -409,28 +944,65 @@ describe("audio messages", () => {
     await mountSignedIn("/admin/messages", backend);
     await chooseRecording();
     await userEvent.click(screen.getByRole("button", { name: "Gửi tới thiết bị…" }));
-    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }));
+    await userEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }),
+    );
     expect(await screen.findByText(/không đúng tốc độ lấy mẫu/)).toBeVisible();
     expect(screen.queryByText("Lệnh đã được máy chủ nhận")).toBeNull();
   });
 
   it("shows each protocol state by what the device really reported, and 'played' only for completed", async () => {
-    const statuses = ["queued", "delivered", "accepted", "started", "completed", "failed", "rejected", "cancelled", "expired", "superseded"];
-    const items = statuses.map((s, i) => command({ command_id: `cmd_${i}`, status: s, played_confirmed_by_device: s === "completed" }));
-    await mountSignedIn("/admin/messages", base({ "GET /api/admin/v1/devices/esp32-test-1/commands": ok({ items, next_cursor: null }) }));
+    const statuses = [
+      "queued",
+      "delivered",
+      "accepted",
+      "started",
+      "completed",
+      "failed",
+      "rejected",
+      "cancelled",
+      "expired",
+      "superseded",
+    ];
+    const items = statuses.map((s, i) =>
+      command({ command_id: `cmd_${i}`, status: s, played_confirmed_by_device: s === "completed" }),
+    );
+    await mountSignedIn(
+      "/admin/messages",
+      base({ "GET /api/admin/v1/devices/esp32-test-1/commands": ok({ items, next_cursor: null }) }),
+    );
     const list = await screen.findByText("Thiết bị báo đã phát xong");
     expect(list).toBeVisible();
     expect(screen.getAllByText("Thiết bị báo đã phát xong")).toHaveLength(1);
     expect(screen.getAllByText("Thiết bị đã báo phát xong.")).toHaveLength(1);
     expect(screen.getAllByText(/Chưa có xác nhận phát xong từ thiết bị/)).toHaveLength(9);
-    for (const label of ["Đang chờ thiết bị lấy lệnh", "Đã giao cho thiết bị, chưa được xác nhận", "Thiết bị đã tải và kiểm tra, chưa phát", "Thiết bị báo đang phát", "Thiết bị báo lỗi khi phát", "Thiết bị từ chối lệnh", "Đã hủy", "Hết hạn trước khi phát", "Bị lần nhắc sau thay thế"]) {
+    for (const label of [
+      "Đang chờ thiết bị lấy lệnh",
+      "Đã giao cho thiết bị, chưa được xác nhận",
+      "Thiết bị đã tải và kiểm tra, chưa phát",
+      "Thiết bị báo đang phát",
+      "Thiết bị báo lỗi khi phát",
+      "Thiết bị từ chối lệnh",
+      "Đã hủy",
+      "Hết hạn trước khi phát",
+      "Bị lần nhắc sau thay thế",
+    ]) {
       expect(screen.getAllByText(label).length).toBeGreaterThanOrEqual(1);
     }
   });
 
   it("describes a device receipt (ADR-022) as received and still downloading, with its deadline, never as played", async () => {
-    const items = [command({ status: "delivered", received_at: "2026-10-19T03:00:05.000Z", download_deadline_at: "2026-10-19T03:00:38.000Z" })];
-    await mountSignedIn("/admin/messages", base({ "GET /api/admin/v1/devices/esp32-test-1/commands": ok({ items, next_cursor: null }) }));
+    const items = [
+      command({
+        status: "delivered",
+        received_at: "2026-10-19T03:00:05.000Z",
+        download_deadline_at: "2026-10-19T03:00:38.000Z",
+      }),
+    ];
+    await mountSignedIn(
+      "/admin/messages",
+      base({ "GET /api/admin/v1/devices/esp32-test-1/commands": ok({ items, next_cursor: null }) }),
+    );
     expect(await screen.findByText("Thiết bị đã nhận lệnh, đang tải âm thanh")).toBeVisible();
     expect(screen.getByText(/phải tải và kiểm tra xong trước/)).toBeVisible();
     expect(screen.getByText(/Chưa có xác nhận phát xong từ thiết bị/)).toBeVisible();
@@ -442,7 +1014,10 @@ describe("audio messages", () => {
       command({ command_id: "cmd_a", status: "failed", status_reason: "download_timeout" }),
       command({ command_id: "cmd_b", status: "failed", status_reason: "device_rebooted" }),
     ];
-    await mountSignedIn("/admin/messages", base({ "GET /api/admin/v1/devices/esp32-test-1/commands": ok({ items, next_cursor: null }) }));
+    await mountSignedIn(
+      "/admin/messages",
+      base({ "GET /api/admin/v1/devices/esp32-test-1/commands": ok({ items, next_cursor: null }) }),
+    );
     expect(await screen.findByText(/Thiết bị không tải xong âm thanh trước hạn/)).toBeVisible();
     expect(screen.getByText(/Thiết bị khởi động lại khi đang giữ lệnh/)).toBeVisible();
   });
@@ -450,19 +1025,30 @@ describe("audio messages", () => {
   it("keeps the same idempotency key after a send with an unknown outcome, so a retry cannot create a second command", async () => {
     let attempt = 0;
     const backend = base({
-      [sendPath]: () => (++attempt === 1 ? new Error("connection dropped") : json(200, { command: command(), created: false })),
+      [sendPath]: () =>
+        ++attempt === 1
+          ? new Error("connection dropped")
+          : json(200, { command: command(), created: false }),
       "GET /health": () => new Error("nothing answers either"),
     });
     await mountSignedIn("/admin/messages", backend);
     await chooseRecording();
     await userEvent.click(screen.getByRole("button", { name: "Gửi tới thiết bị…" }));
-    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }));
-    expect(await within(screen.getByRole("dialog")).findByText(/Chưa biết máy chủ đã lưu lệnh hay chưa/)).toBeVisible();
+    await userEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }),
+    );
+    expect(
+      await within(screen.getByRole("dialog")).findByText(/Chưa biết máy chủ đã lưu lệnh hay chưa/),
+    ).toBeVisible();
     expect(screen.queryByText("Lệnh đã được máy chủ nhận")).toBeNull();
     // Closing and opening the dialog again for the same recording and expiry is still the same attempt.
-    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Không gửi" }));
+    await userEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Không gửi" }),
+    );
     await userEvent.click(screen.getByRole("button", { name: "Gửi tới thiết bị…" }));
-    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }));
+    await userEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }),
+    );
     expect(await screen.findByText("Lệnh đã được máy chủ nhận")).toBeVisible();
     expect(screen.getByText(/máy chủ đã có lệnh này từ lần gửi trước/)).toBeVisible();
     const sent = find(backend, sendPath);
@@ -473,17 +1059,30 @@ describe("audio messages", () => {
 
   it("uses a new idempotency key after a definite refusal", async () => {
     let attempt = 0;
-    const backend = base({ [sendPath]: () => (++attempt === 1 ? problem(422, "audio_not_playable") : json(201, { command: command(), created: true })) });
+    const backend = base({
+      [sendPath]: () =>
+        ++attempt === 1
+          ? problem(422, "audio_not_playable")
+          : json(201, { command: command(), created: true }),
+    });
     await mountSignedIn("/admin/messages", backend);
     await chooseRecording();
     await userEvent.click(screen.getByRole("button", { name: "Gửi tới thiết bị…" }));
-    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }));
+    await userEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }),
+    );
     await within(screen.getByRole("dialog")).findByText(/không đúng tốc độ lấy mẫu/);
-    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Không gửi" }));
+    await userEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Không gửi" }),
+    );
     await userEvent.click(screen.getByRole("button", { name: "Gửi tới thiết bị…" }));
-    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }));
+    await userEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }),
+    );
     await screen.findByText("Lệnh đã được máy chủ nhận");
-    const keys = find(backend, sendPath).map((c) => (c.body as { idempotency_key: string }).idempotency_key);
+    const keys = find(backend, sendPath).map(
+      (c) => (c.body as { idempotency_key: string }).idempotency_key,
+    );
     expect(keys).toHaveLength(2);
     expect(keys[0]).not.toBe(keys[1]);
   });
@@ -496,14 +1095,33 @@ describe("audio messages", () => {
         return json(201, { command: command(), created: true });
       },
       "GET /api/admin/v1/devices/esp32-test-1/commands": () =>
-        json(200, { items: sentYet ? [command({ status: "completed", played_confirmed_by_device: true, finished_at: "2026-10-19T03:00:09.000Z" })] : [], next_cursor: null }),
+        json(200, {
+          items: sentYet
+            ? [
+                command({
+                  status: "completed",
+                  played_confirmed_by_device: true,
+                  finished_at: "2026-10-19T03:00:09.000Z",
+                }),
+              ]
+            : [],
+          next_cursor: null,
+        }),
     });
     await mountSignedIn("/admin/messages", backend);
     await chooseRecording();
     await userEvent.click(screen.getByRole("button", { name: "Gửi tới thiết bị…" }));
-    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }));
-    const notice = (await screen.findByText("Lệnh đã được máy chủ nhận")).closest("[role=status]") as HTMLElement;
-    await waitFor(() => expect(within(notice).getByText(/Trạng thái hiện tại: Thiết bị báo đã phát xong/)).toBeVisible());
+    await userEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Xác nhận gửi" }),
+    );
+    const notice = (await screen.findByText("Lệnh đã được máy chủ nhận")).closest(
+      "[role=status]",
+    ) as HTMLElement;
+    await waitFor(() =>
+      expect(
+        within(notice).getByText(/Trạng thái hiện tại: Thiết bị báo đã phát xong/),
+      ).toBeVisible(),
+    );
     expect(within(notice).getByText(/Thiết bị đã tự báo phát xong/)).toBeVisible();
   });
 
@@ -528,28 +1146,56 @@ describe("audio messages", () => {
   });
 
   it("labels a recording stored before ADR-025 as WAV, never as MP3, and lists codec, layout and size", async () => {
-    await mountSignedIn("/admin/messages", base({ "GET /api/admin/v1/devices/esp32-test-1/voice-messages": ok({ items: [voiceItem, legacyWavItem] }) }));
+    await mountSignedIn(
+      "/admin/messages",
+      base({
+        "GET /api/admin/v1/devices/esp32-test-1/voice-messages": ok({
+          items: [voiceItem, legacyWavItem],
+        }),
+      }),
+    );
     expect(await screen.findByText(/^MP3 · 2,0 giây · 16000 Hz mono · 8,1 KB/)).toBeVisible();
-    expect(screen.getByText(/^WAV \(định dạng cũ\) · 2,0 giây · 16000 Hz mono · 64,0 KB/)).toBeVisible();
+    expect(
+      screen.getByText(/^WAV \(định dạng cũ\) · 2,0 giây · 16000 Hz mono · 64,0 KB/),
+    ).toBeVisible();
   });
 
   it("warns that a device which has not reported MP3 playback cannot receive an MP3 command", async () => {
-    await mountSignedIn("/admin/messages", base({ "GET /api/admin/v1/devices": ok(devicesBody([device({ audio_codecs: [] })])) }));
+    await mountSignedIn(
+      "/admin/messages",
+      base({ "GET /api/admin/v1/devices": ok(devicesBody([device({ audio_codecs: [] })])) }),
+    );
     expect(await screen.findByText("Thiết bị chưa báo phát được MP3")).toBeVisible();
     expect(screen.getByText(/firmware trước carelens-fw-0\.2\.0/)).toBeVisible();
   });
 
   it("never reads 'completed' as played when the flag says otherwise, and treats an unknown status as unknown", async () => {
-    const items = [command({ status: "completed", played_confirmed_by_device: false }), command({ command_id: "cmd_x", status: "teleported", played_confirmed_by_device: true })];
-    await mountSignedIn("/admin/messages", base({ "GET /api/admin/v1/devices/esp32-test-1/commands": ok({ items, next_cursor: null }) }));
+    const items = [
+      command({ status: "completed", played_confirmed_by_device: false }),
+      command({ command_id: "cmd_x", status: "teleported", played_confirmed_by_device: true }),
+    ];
+    await mountSignedIn(
+      "/admin/messages",
+      base({ "GET /api/admin/v1/devices/esp32-test-1/commands": ok({ items, next_cursor: null }) }),
+    );
     await screen.findByText("Không rõ trạng thái");
     expect(screen.queryByText("Thiết bị đã báo phát xong.")).toBeNull();
   });
 
   it("cancels an open command and says the device must still confirm", async () => {
     const backend = base({
-      "GET /api/admin/v1/devices/esp32-test-1/commands": ok({ items: [command({ status: "delivered" })], next_cursor: null }),
-      "POST /api/admin/v1/commands/cmd_1/cancel": () => json(202, { command: command({ status: "delivered", cancel_requested_at: "2026-10-19T03:01:00.000Z" }), cancel_pending_device_confirmation: true }),
+      "GET /api/admin/v1/devices/esp32-test-1/commands": ok({
+        items: [command({ status: "delivered" })],
+        next_cursor: null,
+      }),
+      "POST /api/admin/v1/commands/cmd_1/cancel": () =>
+        json(202, {
+          command: command({
+            status: "delivered",
+            cancel_requested_at: "2026-10-19T03:01:00.000Z",
+          }),
+          cancel_pending_device_confirmation: true,
+        }),
     });
     await mountSignedIn("/admin/messages", backend);
     await userEvent.click(await screen.findByRole("button", { name: "Hủy lệnh" }));
@@ -558,8 +1204,15 @@ describe("audio messages", () => {
   });
 
   it("refuses to send to a revoked device", async () => {
-    const revoked = device({ status: "revoked", revoked_at: "2026-10-19T01:00:00.000Z", credential: { state: "revoked", version: 3 } });
-    await mountSignedIn("/admin/messages", base({ "GET /api/admin/v1/devices": ok(devicesBody([revoked])) }));
+    const revoked = device({
+      status: "revoked",
+      revoked_at: "2026-10-19T01:00:00.000Z",
+      credential: { state: "revoked", version: 3 },
+    });
+    await mountSignedIn(
+      "/admin/messages",
+      base({ "GET /api/admin/v1/devices": ok(devicesBody([revoked])) }),
+    );
     expect(await screen.findByText("Thiết bị này đã bị thu hồi")).toBeVisible();
     await chooseRecording();
     expect(screen.getByRole("button", { name: "Gửi tới thiết bị…" })).toBeDisabled();
@@ -567,7 +1220,13 @@ describe("audio messages", () => {
 
   it("checks the bytes of an MP3 before upload, shows what will be sent, and uploads it unchanged as audio/mpeg", async () => {
     const backend = base({
-      "POST /api/admin/v1/devices/esp32-test-1/voice-messages": () => json(201, { voice_message: { ...voiceItem, audio: { ...voiceItem.audio, byte_size: LAME_16K_MONO.length } } }),
+      "POST /api/admin/v1/devices/esp32-test-1/voice-messages": () =>
+        json(201, {
+          voice_message: {
+            ...voiceItem,
+            audio: { ...voiceItem.audio, byte_size: LAME_16K_MONO.length },
+          },
+        }),
     });
     await mountSignedIn("/admin/messages", backend);
     const input = await screen.findByLabelText(/Tệp âm thanh MP3/);
@@ -575,9 +1234,19 @@ describe("audio messages", () => {
     // A name and a type are not proof: WAV bytes named .mp3, and an MPEG Layer II file, are refused by the frame walk.
     await userEvent.upload(input, audioFile(wav(), "doi-ten.mp3", "audio/mpeg"));
     expect(await screen.findByText("Đây là tệp WAV. Lời nhắn giờ phải là tệp MP3.")).toBeVisible();
-    await userEvent.upload(input, audioFile(new Uint8Array([...mp3Frame(44100, 2, 128, 2), ...mp3Frame(44100, 2, 128, 2)]), "layer2.mp3", "audio/mpeg"));
+    await userEvent.upload(
+      input,
+      audioFile(
+        new Uint8Array([...mp3Frame(44100, 2, 128, 2), ...mp3Frame(44100, 2, 128, 2)]),
+        "layer2.mp3",
+        "audio/mpeg",
+      ),
+    );
     expect(await screen.findByText(/Layer I hoặc II/)).toBeVisible();
-    await userEvent.upload(input, audioFile(LAME_16K_MONO.slice(0, LAME_16K_MONO.length - 40), "cut.mp3", "audio/mpeg"));
+    await userEvent.upload(
+      input,
+      audioFile(LAME_16K_MONO.slice(0, LAME_16K_MONO.length - 40), "cut.mp3", "audio/mpeg"),
+    );
     expect(await screen.findByText(/bị cắt cụt/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Tải lên kho riêng tư" })).toBeDisabled();
     expect(find(backend, "POST /api/admin/v1/devices/esp32-test-1/voice-messages")).toHaveLength(0);
@@ -590,7 +1259,11 @@ describe("audio messages", () => {
     expect(within(picked).getByText("1,1 giây")).toBeVisible();
     await userEvent.type(screen.getByLabelText(/Tên bản ghi/), "Nhắc uống nước");
     await userEvent.click(screen.getByRole("button", { name: "Tải lên kho riêng tư" }));
-    expect(await screen.findByText(/MP3 4,3 KB, giữ nguyên tệp gốc\)\. Bản ghi nằm trong kho riêng tư; chưa có gì được gửi tới thiết bị/)).toBeVisible();
+    expect(
+      await screen.findByText(
+        /MP3 4,3 KB, giữ nguyên tệp gốc\)\. Bản ghi nằm trong kho riêng tư; chưa có gì được gửi tới thiết bị/,
+      ),
+    ).toBeVisible();
     const up = find(backend, "POST /api/admin/v1/devices/esp32-test-1/voice-messages");
     expect(up).toHaveLength(1);
     expect(up[0]!.contentType).toBe("audio/mpeg");
@@ -608,22 +1281,48 @@ describe("scheduled reminders", () => {
   it("lists reminders with the server's state, next occurrence and last delivery, and tells the truth about the scheduler", async () => {
     const items = [
       reminder(),
-      reminder({ reminder_id: "rem_2", state: "paused", paused_at: "2026-10-19T03:01:00.000Z", label: "Đã tạm dừng" }),
-      reminder({ reminder_id: "rem_3", state: "finished", next_occurrence_at: null, label: "Đã hết", last_dispatch: { command_id: "cmd_9", occurrence_at: "2026-10-18T03:05:00.000Z", status: "expired", status_reason: "deadline_passed", delivery_attempts: 0, finished_at: null, played_confirmed_by_device: false } }),
+      reminder({
+        reminder_id: "rem_2",
+        state: "paused",
+        paused_at: "2026-10-19T03:01:00.000Z",
+        label: "Đã tạm dừng",
+      }),
+      reminder({
+        reminder_id: "rem_3",
+        state: "finished",
+        next_occurrence_at: null,
+        label: "Đã hết",
+        last_dispatch: {
+          command_id: "cmd_9",
+          occurrence_at: "2026-10-18T03:05:00.000Z",
+          status: "expired",
+          status_reason: "deadline_passed",
+          delivery_attempts: 0,
+          finished_at: null,
+          played_confirmed_by_device: false,
+        },
+      }),
     ];
-    await mountSignedIn("/admin/reminders", base({ [listPath]: ok({ items, timezone: "Asia/Ho_Chi_Minh" }) }));
+    await mountSignedIn(
+      "/admin/reminders",
+      base({ [listPath]: ok({ items, timezone: "Asia/Ho_Chi_Minh" }) }),
+    );
     expect(await screen.findByText("Uống nước: Uống một cốc nước")).toBeVisible();
     expect(screen.getByText("Đang hẹn giờ")).toBeVisible();
     expect(screen.getAllByText("Tạm dừng").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Đã hết lượt")).toBeVisible();
-    expect(screen.getByText(/Hết hạn trước khi phát \(Quá hạn mà thiết bị chưa nhận\)/)).toBeVisible();
+    expect(
+      screen.getByText(/Hết hạn trước khi phát \(Quá hạn mà thiết bị chưa nhận\)/),
+    ).toBeVisible();
     expect(screen.getAllByText(/Chưa có lần nào được giao/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/không dùng bộ hẹn giờ của trình duyệt/)).toBeVisible();
     expect(screen.getByText(/Chưa có thiết bị thật nào xác nhận phát/)).toBeVisible();
   });
 
   it("creates a one-time reminder only after the confirmation box, with the schedule in Vietnam time and a stable idempotency key", async () => {
-    const backend = base({ [createPath]: () => json(201, { reminder: reminder(), created: true }) });
+    const backend = base({
+      [createPath]: () => json(201, { reminder: reminder(), created: true }),
+    });
     await mountSignedIn("/admin/reminders", backend);
     await userEvent.type(await screen.findByLabelText(/Nội dung nhắc/), "Uống một cốc nước");
     await userEvent.type(screen.getByLabelText(/Giờ \(giờ Việt Nam\)/), "10:05");
@@ -632,28 +1331,44 @@ describe("scheduled reminders", () => {
     await userEvent.click(screen.getByRole("checkbox", { name: /Tôi xác nhận tạo nhắc lịch này/ }));
     expect(submit).toBeEnabled();
     await userEvent.click(submit);
-    expect(await screen.findByText(/Máy chủ sẽ tự giao đúng giờ, không cần giữ trang này mở/)).toBeVisible();
+    expect(
+      await screen.findByText(/Máy chủ sẽ tự giao đúng giờ, không cần giữ trang này mở/),
+    ).toBeVisible();
     const sent = find(backend, createPath);
     expect(sent).toHaveLength(1);
     const body = sent[0]!.body as { idempotency_key: string; schedule: { local_date: string } };
-    expect(body).toMatchObject({ kind: "water", label: "Uống một cốc nước", voice_message_id: null, deadline_minutes: 15, confirm: true, schedule: { type: "once", local_time: "10:05" } });
+    expect(body).toMatchObject({
+      kind: "water",
+      label: "Uống một cốc nước",
+      voice_message_id: null,
+      deadline_minutes: 15,
+      confirm: true,
+      schedule: { type: "once", local_time: "10:05" },
+    });
     expect(body.schedule.local_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(body.idempotency_key.length).toBeGreaterThanOrEqual(8);
     expect(body).not.toHaveProperty("timezone"); // the zone is the server's, not the browser's
   });
 
   it("builds a weekly schedule from the chosen days", async () => {
-    const backend = base({ [createPath]: () => json(201, { reminder: reminder({ schedule_kind: "recurring" }), created: true }) });
+    const backend = base({
+      [createPath]: () =>
+        json(201, { reminder: reminder({ schedule_kind: "recurring" }), created: true }),
+    });
     await mountSignedIn("/admin/reminders", backend);
     await userEvent.type(await screen.findByLabelText(/Nội dung nhắc/), "Uống thuốc buổi sáng");
     await userEvent.selectOptions(screen.getByLabelText("Loại nhắc"), "medication");
     await userEvent.click(screen.getByRole("radio", { name: "Lặp hằng tuần" }));
-    for (const day of ["T3", "T4", "T5", "T6", "T7", "CN"]) await userEvent.click(screen.getByRole("checkbox", { name: day }));
+    for (const day of ["T3", "T4", "T5", "T6", "T7", "CN"])
+      await userEvent.click(screen.getByRole("checkbox", { name: day }));
     await userEvent.type(screen.getByLabelText(/Giờ \(giờ Việt Nam\)/), "07:30");
     await userEvent.click(screen.getByRole("checkbox", { name: /Tôi xác nhận tạo nhắc lịch này/ }));
     await userEvent.click(screen.getByRole("button", { name: "Tạo nhắc lịch" }));
     await screen.findByText(/Máy chủ sẽ tự giao/);
-    expect(find(backend, createPath)[0]!.body).toMatchObject({ kind: "medication", schedule: { type: "weekly", days_of_week: [1], times_local: ["07:30"], end_date: null } });
+    expect(find(backend, createPath)[0]!.body).toMatchObject({
+      kind: "medication",
+      schedule: { type: "weekly", days_of_week: [1], times_local: ["07:30"], end_date: null },
+    });
   });
 
   it("shows the server's reason when a time is in the past, and creates nothing", async () => {
@@ -670,7 +1385,13 @@ describe("scheduled reminders", () => {
   it("pauses, resumes and cancels through the server, cancel needing a second click", async () => {
     let state = "scheduled";
     const backend = base({
-      [listPath]: () => json(200, { items: [reminder({ state, paused_at: state === "paused" ? "2026-10-19T03:01:00.000Z" : null })], timezone: "Asia/Ho_Chi_Minh" }),
+      [listPath]: () =>
+        json(200, {
+          items: [
+            reminder({ state, paused_at: state === "paused" ? "2026-10-19T03:01:00.000Z" : null }),
+          ],
+          timezone: "Asia/Ho_Chi_Minh",
+        }),
       "POST /api/admin/v1/reminders/rem_1/pause": () => {
         state = "paused";
         return json(200, { reminder: reminder({ state: "paused" }), duplicate: false });
@@ -681,7 +1402,10 @@ describe("scheduled reminders", () => {
       },
       "POST /api/admin/v1/reminders/rem_1/cancel": () => {
         state = "cancelled";
-        return json(200, { reminder: reminder({ state: "cancelled", status: "cancelled" }), duplicate: false });
+        return json(200, {
+          reminder: reminder({ state: "cancelled", status: "cancelled" }),
+          duplicate: false,
+        });
       },
     });
     await mountSignedIn("/admin/reminders", backend);
@@ -702,7 +1426,10 @@ describe("scheduled reminders", () => {
     await mountSignedIn("/admin/reminders", base());
     expect(await screen.findByText("Chưa có nhắc lịch nào")).toBeVisible();
     (await import("@testing-library/react")).cleanup();
-    await mountSignedIn("/admin/reminders", base({ [listPath]: () => problem(500, "internal_error") }));
+    await mountSignedIn(
+      "/admin/reminders",
+      base({ [listPath]: () => problem(500, "internal_error") }),
+    );
     expect(await screen.findByText("Không tải được nhắc lịch")).toBeVisible();
     expect(screen.queryByText("Chưa có nhắc lịch nào")).toBeNull();
   });
@@ -717,7 +1444,16 @@ describe("agents and audit", () => {
       failures_24h: [{ kind: "vision", status: "failed", error_code: "x", n: 3 }],
       last_successful_inference: [],
       fusion: { policy_version: "fusion-rules.v2", suspected_fall_possible: false },
-      agents: [{ agent_id: "agt_1", label: "PC thử", status: "active", last_seen_at: null, connected: false, reported: { package_version: "pkg-test", nested: { a: 1 } } }],
+      agents: [
+        {
+          agent_id: "agt_1",
+          label: "PC thử",
+          status: "active",
+          last_seen_at: null,
+          connected: false,
+          reported: { package_version: "pkg-test", nested: { a: 1 } },
+        },
+      ],
       devices: [],
     };
     await mountSignedIn("/admin/agents", base({ "GET /api/admin/v1/status": ok(status) }));
@@ -731,11 +1467,24 @@ describe("agents and audit", () => {
   });
 
   it("pages through the audit history and applies the action filter on the server", async () => {
-    const entry = (n: string, action: string) => ({ audit_id: `aud_${n}`, at: "2026-10-19T03:00:00.000Z", actor_type: "admin", actor_id: "adm_test", action, target_type: "device", target_id: "esp32-test-1", outcome: "success", request_id: "r", detail: null });
+    const entry = (n: string, action: string) => ({
+      audit_id: `aud_${n}`,
+      at: "2026-10-19T03:00:00.000Z",
+      actor_type: "admin",
+      actor_id: "adm_test",
+      action,
+      target_type: "device",
+      target_id: "esp32-test-1",
+      outcome: "success",
+      request_id: "r",
+      detail: null,
+    });
     const backend = base({
       "GET /api/admin/v1/audit": (call) => {
-        if (call.search.includes("action_prefix=reminder.")) return json(200, { items: [entry("r1", "reminder.cancel")], next_cursor: null });
-        if (call.search.includes("cursor=cur1")) return json(200, { items: [entry("b", "reminder.create")], next_cursor: null });
+        if (call.search.includes("action_prefix=reminder."))
+          return json(200, { items: [entry("r1", "reminder.cancel")], next_cursor: null });
+        if (call.search.includes("cursor=cur1"))
+          return json(200, { items: [entry("b", "reminder.create")], next_cursor: null });
         return json(200, { items: [entry("a", "command.create")], next_cursor: "cur1" });
       },
     });
@@ -748,11 +1497,18 @@ describe("agents and audit", () => {
     await userEvent.selectOptions(screen.getByLabelText("Loại thao tác"), "reminder.");
     expect(await screen.findByText("Hủy nhắc lịch")).toBeVisible();
     expect(screen.queryByText("Tạo lệnh phát âm thanh")).toBeNull();
-    expect(find(backend, "GET /api/admin/v1/audit").some((c) => c.search.includes("action_prefix=reminder."))).toBe(true);
+    expect(
+      find(backend, "GET /api/admin/v1/audit").some((c) =>
+        c.search.includes("action_prefix=reminder."),
+      ),
+    ).toBe(true);
   });
 
   it("shows an audit failure as an error, not as an empty history", async () => {
-    await mountSignedIn("/admin/audit", base({ "GET /api/admin/v1/audit": () => problem(500, "internal_error") }));
+    await mountSignedIn(
+      "/admin/audit",
+      base({ "GET /api/admin/v1/audit": () => problem(500, "internal_error") }),
+    );
     expect(await screen.findByText("Không tải được nhật ký")).toBeVisible();
     expect(screen.queryByText("Chưa có thao tác nào khớp")).toBeNull();
   });

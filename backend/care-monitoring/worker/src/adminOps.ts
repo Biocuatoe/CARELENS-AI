@@ -129,6 +129,9 @@ async function deviceViews(ctx: Ctx, deviceId: string | null): Promise<Array<Rec
       last_contact_age_seconds: age,
       connected: d.status === "active" && age !== null && age <= ctx.config.deviceOnlineWindowSeconds,
       online_window_seconds: ctx.config.deviceOnlineWindowSeconds,
+      // Recomputed from last_seen_at on every request, never stored: online, then stale (connection uncertain), then offline.
+      connection_state: connectionState(age, ctx.config.deviceFreshWindowSeconds, ctx.config.deviceOnlineWindowSeconds),
+      connection_policy: connectionPolicy(ctx),
       last_boot_id: d.last_boot_id,
       // The firmware's own report; the backend does not verify it. Null until the first heartbeat arrives.
       heartbeat: d.last_heartbeat_at ? { at: d.last_heartbeat_at, status: parseJson(d.last_heartbeat_json) } : null,
@@ -171,6 +174,208 @@ export async function getDevice(ctx: Ctx, deviceId: string): Promise<Response> {
   return json({ device, last_boot: boot ?? null, server_time: iso(ctx.clock.now()) });
 }
 
+/* ------------------------------------------------------------------ connection state */
+
+export type ConnectionState = "online" | "stale" | "offline" | "never_seen";
+
+/** From the age of the last authenticated device request: online <= fresh, stale <= offlineAfter, then offline. */
+export function connectionState(ageSeconds: number | null, freshSeconds: number, offlineAfterSeconds: number): ConnectionState {
+  if (ageSeconds === null) return "never_seen";
+  if (ageSeconds <= freshSeconds) return "online";
+  if (ageSeconds <= offlineAfterSeconds) return "stale";
+  return "offline";
+}
+
+function connectionPolicy(ctx: Ctx) {
+  return {
+    online_max_age_seconds: ctx.config.deviceFreshWindowSeconds,
+    offline_after_seconds: ctx.config.deviceOnlineWindowSeconds,
+    heartbeat_interval_seconds: 60, // firmware kHeartbeatMs
+    last_seen_write_interval_seconds: 30, // touchDevice throttle
+  };
+}
+
+/* ------------------------------------------------------------------ recent captures */
+
+export const RECENT_CAPTURES_MAX = 50;
+
+/**
+ * Where one capture stands between the device upload and the dashboard. Derived from stored rows only; nothing is guessed:
+ * an AI observation stays "unverified", a fall check of the uncalibrated model is never a fall, and a capture without
+ * usable results is "insufficient_data", not "no event".
+ */
+export type CaptureProcessingState =
+  | "uploading" // the device is still sending chunks
+  | "awaiting_processing" // complete on the server, the vision job waits for the Local AI Agent
+  | "processing" // the agent holds the job (Vision is running)
+  | "observation_unverified" // the model reported drinking or medicine: an unverified AI observation, never a confirmation
+  | "needs_review" // evidence the system cannot settle (cross-window review, fall candidate)
+  | "insufficient_data" // processed, but at least one check had too little data
+  | "completed_no_event" // analysed; no observation and no candidate
+  | "failed"
+  | "expired"
+  | "unknown";
+
+export function captureProcessingState(
+  capture: { status: string; failure_code: string | null },
+  job: { status: string; last_error_code: string | null } | null,
+  events: Array<{ event_type: string; classification: string }>,
+): { state: CaptureProcessingState; reason: string | null } {
+  switch (capture.status) {
+    case "receiving":
+      return { state: "uploading", reason: null };
+    case "failed":
+      return { state: "failed", reason: capture.failure_code ?? job?.last_error_code ?? null };
+    case "expired":
+      return { state: "expired", reason: capture.failure_code ?? job?.last_error_code ?? null };
+    case "processing":
+      return { state: "processing", reason: null };
+    case "uploaded": {
+      if (!job || job.status === "queued") return { state: "awaiting_processing", reason: null };
+      if (job.status === "retry_pending") return { state: "awaiting_processing", reason: job.last_error_code };
+      if (job.status === "processing") return { state: "processing", reason: null };
+      if (job.status === "failed") return { state: "failed", reason: job.last_error_code };
+      if (job.status === "expired") return { state: "expired", reason: job.last_error_code };
+      return { state: "unknown", reason: `job_${job.status}` };
+    }
+    case "processed": {
+      const observed = events.find((e) => e.classification === "drinking_water_observed" || e.classification === "medicine_observed");
+      if (observed) return { state: "observation_unverified", reason: observed.classification };
+      const review = events.find((e) => e.classification === "cross_window_review" || e.classification === "fall_candidate");
+      if (review) return { state: "needs_review", reason: review.classification };
+      if (events.length === 0) return { state: "insufficient_data", reason: "no_results_stored" };
+      if (events.some((e) => e.classification === "not_enough_data")) return { state: "insufficient_data", reason: "not_enough_data" };
+      return { state: "completed_no_event", reason: null };
+    }
+    default:
+      return { state: "unknown", reason: `capture_${capture.status}` };
+  }
+}
+
+/**
+ * GET /api/admin/v1/devices/{id}/captures?limit=: the newest captures of one device (default 20, at most 50), each with
+ * its vision job, the stored model results and the derived processing state, plus what the device itself reports about
+ * bursts it never uploaded (dropped on the device). Metadata only: no frames, no media keys, no hashes.
+ */
+export async function recentCaptures(ctx: Ctx, deviceId: string): Promise<Response> {
+  const limit = limitParam(ctx.url, 20, RECENT_CAPTURES_MAX);
+  const db = ctx.env.DB;
+  const device = await db
+    .prepare(`SELECT device_id, last_heartbeat_at, last_heartbeat_json FROM devices WHERE device_id = ?1`)
+    .bind(deviceId)
+    .first<{ device_id: string; last_heartbeat_at: string | null; last_heartbeat_json: string | null }>();
+  if (!device) throw notFound("Device not found.");
+  const [caps, queued] = await db.batch([
+    db
+      .prepare(
+        `SELECT capture_pk, capture_id, mode, boot_id, source_mode, captured_at, frame_count, cadence_status, status, failure_code, uploaded_at, finished_at,
+           media_deleted_at, media_expires_at
+         FROM capture_sessions WHERE device_id = ?1 ORDER BY captured_at DESC, capture_id DESC LIMIT ?2`,
+      )
+      .bind(deviceId, limit),
+    db.prepare(`SELECT COUNT(*) AS n FROM jobs WHERE device_id = ?1 AND kind = 'vision' AND status IN ('queued', 'retry_pending')`).bind(deviceId),
+  ]);
+  type CapRow = {
+    capture_pk: string;
+    capture_id: string;
+    mode: string;
+    boot_id: string;
+    source_mode: string;
+    captured_at: string;
+    frame_count: number;
+    cadence_status: string | null;
+    status: string;
+    failure_code: string | null;
+    uploaded_at: string | null;
+    finished_at: string | null;
+    media_deleted_at: string | null;
+    media_expires_at: string | null;
+  };
+  const rows = (caps?.results ?? []) as unknown as CapRow[];
+  type JobRow = { capture_pk: string; job_id: string; status: string; attempts: number; last_error_code: string | null; completed_at: string | null };
+  type EventRow = {
+    capture_pk: string;
+    event_id: string;
+    event_type: string;
+    classification: string;
+    label: string | null;
+    model_score: number | null;
+    score_kind: string | null;
+    calibration_status: string | null;
+    verification_status: string;
+    model_version: string | null;
+  };
+  let jobs: JobRow[] = [];
+  let events: EventRow[] = [];
+  if (rows.length > 0) {
+    const keys = rows.map((r) => `vision:${r.capture_pk}`);
+    const oldest = rows[rows.length - 1]!.captured_at;
+    const [j, e] = await db.batch([
+      // jobs.idempotency_key is UNIQUE (`vision:<capture_pk>`), so this is an index lookup, not a scan of all jobs.
+      db
+        .prepare(`SELECT capture_pk, job_id, status, attempts, last_error_code, completed_at FROM jobs WHERE idempotency_key IN (${keys.map((_, i) => `?${i + 1}`).join(", ")})`)
+        .bind(...keys),
+      // A capture's model results carry its captured_at as observed_at: the (device_id, observed_at) index bounds the read.
+      db
+        .prepare(
+          `SELECT capture_pk, event_id, event_type, classification, label, model_score, score_kind, calibration_status, verification_status, model_version
+           FROM events WHERE device_id = ?1 AND observed_at >= ?2 AND capture_pk IS NOT NULL ORDER BY event_type`,
+        )
+        .bind(deviceId, oldest),
+    ]);
+    jobs = (j?.results ?? []) as unknown as JobRow[];
+    events = (e?.results ?? []) as unknown as EventRow[];
+  }
+  const jobOf = new Map(jobs.map((j) => [j.capture_pk, j]));
+  const eventsOf = new Map<string, EventRow[]>();
+  for (const e of events) eventsOf.set(e.capture_pk, [...(eventsOf.get(e.capture_pk) ?? []), e]);
+  const items = rows.map((r) => {
+    const job = jobOf.get(r.capture_pk) ?? null;
+    const evs = eventsOf.get(r.capture_pk) ?? [];
+    const { state, reason } = captureProcessingState(r, job, evs);
+    const done = job?.completed_at ?? null;
+    return {
+      capture_id: r.capture_id,
+      mode: r.mode,
+      boot_id: r.boot_id,
+      source_mode: r.source_mode,
+      captured_at: r.captured_at,
+      frame_count: r.frame_count,
+      cadence_status: r.cadence_status,
+      capture_status: r.status,
+      failure_code: r.failure_code,
+      uploaded_at: r.uploaded_at,
+      finished_at: r.finished_at,
+      media_deleted_at: r.media_deleted_at,
+      media_expires_at: r.media_expires_at,
+      job: job ? { job_id: job.job_id, status: job.status, attempts: job.attempts, error_code: job.last_error_code, completed_at: job.completed_at } : null,
+      results: evs.map((e) => ({
+        event_id: e.event_id,
+        event_type: e.event_type,
+        classification: e.classification,
+        label: e.label,
+        model_score: e.model_score,
+        score_kind: e.score_kind,
+        calibration_status: e.calibration_status,
+        verification_status: e.verification_status,
+        model_version: e.model_version,
+      })),
+      processing_state: state,
+      state_reason: reason,
+      result_after_ms: done ? Math.max(0, new Date(done).getTime() - new Date(r.captured_at).getTime()) : null,
+    };
+  });
+  const hb = parseJson(device.last_heartbeat_json) as { capture?: unknown } | null;
+  return json({
+    device_id: device.device_id,
+    server_time: iso(ctx.clock.now()),
+    queued_vision_jobs: (queued?.results?.[0] as { n: number } | undefined)?.n ?? 0,
+    // The device's own counters from its last heartbeat (self-reported): bursts dropped on the device never reach the server.
+    device_counters: hb && typeof hb === "object" && hb.capture ? { reported_at: device.last_heartbeat_at, capture: hb.capture } : null,
+    items,
+  });
+}
+
 /* ------------------------------------------------------------------ activity report */
 
 type SourceState = "ok" | "truncated" | "partial" | "retention_expired" | "not_stored";
@@ -211,14 +416,14 @@ export async function deviceActivity(ctx: Ctx, deviceId: string): Promise<Respon
     db.prepare(`SELECT hour_utc, first_seen_at, last_seen_at, request_count FROM device_presence WHERE device_id = ?1 AND first_seen_at >= ?2 AND first_seen_at < ?3 ORDER BY first_seen_at LIMIT ${cap}`).bind(deviceId, s, e),
     db
       .prepare(
-        `SELECT event_id, event_type, observed_at, source_mode, source, model_version, model_score, score_kind, label, classification, calibration_status,
-           verification_status, processing_status, fusion_status, alert_status, summary_vi
+        `SELECT event_id, event_type, observed_at, source_mode, source, capture_id, trigger_id, boot_id, model_version, model_score, score_kind, label, classification,
+           calibration_status, verification_status, processing_status, fusion_status, alert_status, summary_vi
          FROM events WHERE device_id = ?1 AND observed_at >= ?2 AND observed_at < ?3 ORDER BY observed_at, event_id LIMIT ${cap}`,
       )
       .bind(deviceId, s, e),
     db
       .prepare(
-        `SELECT capture_id, mode, captured_at, source_mode, status, failure_code, cadence_status, frame_count, media_deleted_at
+        `SELECT capture_id, mode, captured_at, source_mode, boot_id, trigger_id, status, failure_code, cadence_status, frame_count, uploaded_at, finished_at, media_deleted_at
          FROM capture_sessions WHERE device_id = ?1 AND captured_at >= ?2 AND captured_at < ?3 ORDER BY captured_at, capture_id LIMIT ${cap}`,
       )
       .bind(deviceId, s, e),
@@ -256,8 +461,10 @@ export async function deviceActivity(ctx: Ctx, deviceId: string): Promise<Respon
       .bind(deviceId, s, e, earlier),
     db
       .prepare(
-        `SELECT job_id, kind, status, attempts, last_error_code, created_at FROM jobs
-         WHERE device_id = ?1 AND created_at >= ?2 AND created_at < ?3 ORDER BY created_at, job_id LIMIT ${cap}`,
+        // capture_id links a vision job to its capture (and, through events.capture_id, to its results).
+        `SELECT j.job_id, j.kind, j.status, j.attempts, j.last_error_code, j.created_at, j.completed_at, c.capture_id FROM jobs j
+         LEFT JOIN capture_sessions c ON c.capture_pk = j.capture_pk
+         WHERE j.device_id = ?1 AND j.created_at >= ?2 AND j.created_at < ?3 ORDER BY j.created_at, j.job_id LIMIT ${cap}`,
       )
       .bind(deviceId, s, e),
     db
@@ -303,7 +510,15 @@ export async function deviceActivity(ctx: Ctx, deviceId: string): Promise<Respon
 
   for (const r of rows<Record<string, unknown> & { capture_id: string; captured_at: string; source_mode: string; media_deleted_at: string | null }>(captures)) {
     const { capture_id, captured_at, source_mode, media_deleted_at, ...rest } = r;
-    entries.push({ at: captured_at, source: "captures", kind: "capture", ref_id: capture_id, source_mode, status: (rest.status as string) ?? null, detail: { ...rest, media_deleted: media_deleted_at !== null } });
+    entries.push({
+      at: captured_at,
+      source: "captures",
+      kind: "capture",
+      ref_id: capture_id,
+      source_mode,
+      status: (rest.status as string) ?? null,
+      detail: { ...rest, media_deleted: media_deleted_at !== null, media_deleted_at },
+    });
   }
   finish("captures", captures, { note: "Chỉ siêu dữ liệu của lần chụp. Khung hình không được lưu quá thời hạn tạm thời và không bao giờ có trong báo cáo." });
 
@@ -358,8 +573,16 @@ export async function deviceActivity(ctx: Ctx, deviceId: string): Promise<Respon
   }
   finish("command_events", commandEvents, { note: "Các trạng thái do thiết bị tự báo (accepted, started, completed, failed...) và do hệ thống ghi." });
 
-  for (const r of rows<{ job_id: string; kind: string; status: string; attempts: number; last_error_code: string | null; created_at: string }>(jobs)) {
-    entries.push({ at: r.created_at, source: "agent_jobs", kind: `${r.kind}_job`, ref_id: r.job_id, source_mode: null, status: r.status, detail: { attempts: r.attempts, error_code: r.last_error_code } });
+  for (const r of rows<{ job_id: string; kind: string; status: string; attempts: number; last_error_code: string | null; created_at: string; completed_at: string | null; capture_id: string | null }>(jobs)) {
+    entries.push({
+      at: r.created_at,
+      source: "agent_jobs",
+      kind: `${r.kind}_job`,
+      ref_id: r.job_id,
+      source_mode: null,
+      status: r.status,
+      detail: { attempts: r.attempts, error_code: r.last_error_code, completed_at: r.completed_at, capture_id: r.capture_id },
+    });
   }
   finish("agent_jobs", jobs, { note: "Việc suy luận giao cho Local AI Agent và kết quả của chúng." });
 

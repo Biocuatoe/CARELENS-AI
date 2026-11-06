@@ -136,6 +136,44 @@ export type ImuEvent = z.infer<typeof ImuEventV2>;
 
 const ComponentState = z.enum(["ok", "error", "disabled", "unknown"]);
 
+/** Reset reasons the firmware reports (firmware/carelens-esp32s3/src/main.cpp resetReasonText). */
+export const RESET_REASONS = [
+  "power_on",
+  "external_pin",
+  "software",
+  "panic",
+  "interrupt_watchdog",
+  "task_watchdog",
+  "other_watchdog",
+  "deep_sleep",
+  "brownout",
+  "sdio",
+  "usb",
+  "jtag",
+  "unknown",
+] as const;
+
+const Count = z.number().int().min(0).max(10_000_000);
+
+/** Self-reported camera scheduling counters of the current boot (firmware ≥ carelens-fw-0.3.0). */
+export const DeviceCaptureStats = z
+  .object({
+    mode: z.enum(["off", "interval", "cycle"]).describe("cycle = continuous commissioning cycle (24-frame burst, rest, repeat) for a bounded session."),
+    state: z.enum(["off", "running", "paused_thermal", "paused_quota", "ended"]),
+    session_s: Count.describe("Seconds since the cycle started in this boot."),
+    bursts_captured: Count.describe("Cycle bursts the camera completed with all frames."),
+    bursts_uploaded: Count.describe("Bursts (any mode) the server accepted as complete."),
+    bursts_dropped: Count.describe("Cycle bursts dropped on the device because the upload queue was full; never uploaded."),
+    upload_refused: Count.describe("Bursts the server refused (4xx, including 429 capture_quota_exceeded)."),
+    upload_failed: Count.describe("Bursts lost to transport errors or 5xx after the device's retries."),
+    camera_failures: Count,
+    thermal_pauses: Count,
+    queue_depth: z.number().int().min(0).max(16),
+    last_cycle_ms: Count.describe("Start-to-start time of the last two cycle bursts."),
+    last_upload_ms: Count.describe("Manifest-to-complete time of the last uploaded burst."),
+  })
+  .strict();
+
 export const DeviceHeartbeatV2 = z
   .object({
     schema_version: z.literal("device-heartbeat.v2"),
@@ -162,6 +200,19 @@ export const DeviceHeartbeatV2 = z
           .max(4)
           .optional()
           .describe("Audio codecs this firmware plays (ADR-025). Sent only to a server whose heartbeat response has config.report_audio_codecs; an MP3 command needs \"mp3\" here."),
+        reset_reason: z
+          .enum(RESET_REASONS)
+          .optional()
+          .describe(
+            "Why the chip started the current boot (ESP-IDF esp_reset_reason), as the firmware read it at boot. Sent only to a server whose heartbeat response has config.report_reset_reason. Self-reported, not verified by the server.",
+          ),
+        chip_temp_c: z
+          .number()
+          .min(-40)
+          .max(150)
+          .optional()
+          .describe("ESP32-S3 die temperature (internal sensor), not the camera, the case or the wearer. Sent only when config.report_capture_stats is set."),
+        capture: DeviceCaptureStats.optional().describe("Camera scheduling counters of this boot. Sent only when config.report_capture_stats is set."),
       })
       .strict(),
   })

@@ -57,7 +57,9 @@
     "MAX_CAPTURE_AGE_SECONDS": "600",
     "FRAMES_PER_CHUNK": "8",
     "CADENCE_TOLERANCE_MS": "40",
-    "MAX_NORMAL_CAPTURES_PER_HOUR": "60",
+    // 300 (owner, 2026-10-20) for the continuous commissioning cycle of firmware 0.3.0: a 30-min session uploads ~250
+    // bursts (device upload ~62 kB/s), ~52 D1 rows each. Lower it again when the cycle is no longer used.
+    "MAX_NORMAL_CAPTURES_PER_HOUR": "300",
     "MAX_TRIGGERED_CAPTURES_PER_HOUR": "20",
     "DEVICE_ONLINE_WINDOW_SECONDS": "180",
     "REPORT_TIMEZONE": "Asia/Ho_Chi_Minh",

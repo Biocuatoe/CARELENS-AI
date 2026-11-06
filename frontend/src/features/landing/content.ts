@@ -98,12 +98,42 @@ export const MEDICATION = {
   },
 } as const;
 
-/** Đội ngũ: tên và vai trò lấy trực tiếp từ tên tệp ảnh trong `members/` (dạng "Họ tên - VAI TRÒ.jpg"), không thêm tiểu sử hay thành tích. */
+/** Lời trích chỉ hiển thị khi có đủ người duyệt và ngày duyệt. Bản nháp chưa duyệt nằm ở `teamQuotes.draft.ts`, không ở đây. */
+export interface ExpertQuote {
+  text: string;
+  approvedBy: string;
+  approvedAt: string;
+}
+export interface Expert {
+  id: string;
+  name: string;
+  file: string;
+  quote?: ExpertQuote;
+}
+
+/**
+ * Đội ngũ. Tên và vai trò do chủ dự án cung cấp; `file` là tên tệp ảnh trong `members/` ở gốc dự án (không sao chép, không đổi tên).
+ * Không thêm tiểu sử, học vị, cơ quan hay thành tích nào ngoài những gì ghi ở đây.
+ */
 export const TEAM = {
   eyebrow: "Con người phía sau sản phẩm",
   heading: "Đội ngũ của chúng tôi",
-  /** Thứ tự trên màn rộng: hàng ngang năm người, CEO ở chính giữa, hai người mỗi bên. */
-  desktopOrder: ["CTO", "COO", "CEO", "CMO", "CSO"],
+  coreLabel: "Đội ngũ cốt lõi",
+  /** Năm thành viên theo thứ tự hàng ngang trên màn rộng: CEO ở chính giữa (vị trí 3), hai người mỗi bên. */
+  core: [
+    { role: "CTO", name: "Đinh Hoàng Phương", file: "Đinh Hoàng Phương - CTO.jpg" },
+    { role: "CMO", name: "Nguyễn Hải Yến", file: "Nguyễn Hải Yến - CMO.JPG" },
+    { role: "CEO", name: "Lê Đức Hùng", file: "Lê Đức Hùng - CEO.jpg" },
+    { role: "CSO", name: "Vũ Bình Dương", file: "Vũ Bình Dương - CSO.jpg" },
+    { role: "COO", name: "Vũ Hữu Trí", file: "Vũ Hữu Trí - COO.jpg" },
+  ],
+  /** Hai chuyên gia đồng hành, trọng lượng thị giác ngang nhau. Học hàm lấy theo chủ dự án ("TS."); tên tệp ảnh ghi "Tiến sĩ". */
+  expertsHeading: "Chuyên gia đồng hành",
+  expertsRole: "Chuyên gia",
+  experts: [
+    { id: "chu-huy-anh", name: "ThS. Chu Huy Anh", file: "ThS Chu Huy Anh - Chuyên gia.jpg" },
+    { id: "ha-manh-hung", name: "TS. Hà Mạnh Hùng", file: "Tiến sĩ Hà Mạnh Hùng - Chuyên gia.jpg" },
+  ] as readonly Expert[],
 } as const;
 
 /**
@@ -183,8 +213,9 @@ export const PRIVACY = {
 } as const;
 
 /**
- * Liên hệ. Repo chưa có địa chỉ email, số điện thoại hay biểu mẫu chính thức nào, nên không có thông tin nào được bịa ra: khi chưa có địa chỉ
- * (biến `VITE_CONTACT_EMAIL`), nút chính sao chép nội dung trao đổi để người xem tự gửi. Không có gì được "gửi đi" từ trang này.
+ * Liên hệ và yêu cầu đặt mua (A43). Biểu mẫu gửi tới máy chủ CareLens AI (Cloudflare Worker), lưu trong D1 và báo cho đội ngũ qua email.
+ * Đây là **yêu cầu**, không phải đơn hàng: không có giá, tồn kho, thời gian giao hay thanh toán. Repo chưa có danh mục sản phẩm đã duyệt,
+ * nên ô sản phẩm là chữ tự do, không có mã hay cấu hình bịa ra. Không hỏi thông tin y tế.
  */
 export const CONTACT = {
   eyebrow: "Hợp tác cùng CareLens AI",
