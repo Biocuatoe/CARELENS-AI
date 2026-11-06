@@ -1,0 +1,43 @@
+{
+  "_comment": "Original team/expert portraits (A46, A47). Photos are not in git; builds take them from members/ or the private R2 bucket below and must match these SHA-256 values exactly.",
+  "endpoint": "https://abefdbbcb86182b9117ff5d50f1e841c.r2.cloudflarestorage.com",
+  "bucket": "carelens-site-portraits",
+  "keyPrefix": "portraits/",
+  "portraits": [
+    {
+      "file": "Đinh Hoàng Phương - CTO.jpg",
+      "sha256": "870659c3911fafdb5e0c7209ff32ea5f2b59f02f0c20ff7be491a39e7fc8644e",
+      "bytes": 68789
+    },
+    {
+      "file": "Nguyễn Hải Yến - CMO.JPG",
+      "sha256": "6d1a743ff6804c1cc1a7b85d19a43607f3afc54c3cefb9dafea7b49a22d788f6",
+      "bytes": 39595
+    },
+    {
+      "file": "Lê Đức Hùng - CEO.jpg",
+      "sha256": "5695b1092b4f2587354277584c75437b3fe0f7f55eb632f26d798aa586b48c0a",
+      "bytes": 18208
+    },
+    {
+      "file": "Vũ Bình Dương - CSO.jpg",
+      "sha256": "a175c50ebde8002ee87522e21f87cf23189d564a364b9fb08f39e60d85b92ff2",
+      "bytes": 99436
+    },
+    {
+      "file": "Vũ Hữu Trí - COO.jpg",
+      "sha256": "401f5be8c2a268ea69e5d0d5ba67777ee32e3df4f951f31ee67042380ea966f5",
+      "bytes": 74204
+    },
+    {
+      "file": "ThS Chu Huy Anh - Chuyên gia.jpg",
+      "sha256": "bf44588b5726578faa01c4d23962800256b342737a23d7c17df0f397e1363af0",
+      "bytes": 11072
+    },
+    {
+      "file": "Tiến sĩ Hà Mạnh Hùng - Chuyên gia.jpg",
+      "sha256": "ddf67dbd4cb91ecb1b97304004cd220e4decdb46a1b5792d9ccbf56944349250",
+      "bytes": 13404
+    }
+  ]
+}

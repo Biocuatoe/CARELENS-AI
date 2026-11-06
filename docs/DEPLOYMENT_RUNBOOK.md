@@ -362,12 +362,22 @@ Chỉ owner làm được bước 1–3 (tài khoản Resend và DNS của tên 
 - Frontend: `vercel promote dpl_J2mJ49apKUg9EhWoDGRjv3nrrw2f --yes` (bản trước phát hành, phần "Liên hệ" cũ chỉ sao chép nội dung).
 - Không xóa bảng `contact_requests` khi còn yêu cầu thật của khách.
 
-### 17.0c Deploy frontend và ảnh đội ngũ (A46)
+### 17.0c Deploy frontend và ảnh đội ngũ (A46, A47)
 
-- `git push` lên `main` kích hoạt build git của Vercel (tích hợp GitHub). Build đó **không có** `members/` (không có trong git). Từ A46 nó thất bại ở `team-portraits-guard` và production giữ nguyên bản đang chạy; trước A46 nó đã tự lên production với 7 ảnh hỏng (2026-11-06 15:09 UTC).
-- Chỉ deploy frontend bằng prebuilt từ máy có `members/`: `VITE_API_BASE_URL=<Worker> npm run build` trong `frontend` (build dừng nếu thiếu ảnh), chép `frontend/dist` vào `.vercel/output/static`, `vercel deploy --prebuilt --prod --skip-domain --yes`, `vercel promote <dpl> --yes`.
-- Sau mỗi push, kiểm `vercel ls carelens-ai` và `vercel inspect https://carelens-ai-eta.vercel.app`: domain phải vẫn là bản prebuilt đã kiểm. Nếu một build git đã lên domain: `vercel promote <bản prebuilt đã kiểm> --yes`.
-- Kiểm ảnh trên domain thật (không chỉ bản dựng cục bộ): cuộn tới `#doi-ngu`, 7/7 `<img>` có `naturalWidth > 0`, mỗi URL ảnh trả 200 `image/jpeg`.
+Ảnh đội ngũ và chuyên gia là ảnh người thật, không có trong git (repo công khai). `npm run build` chạy `prebuild` = `scripts/fetch-team-portraits.mjs`: dùng bản gốc trong `members/` nếu đủ và đúng SHA-256 (`scripts/team-portraits.manifest.json`), nếu không thì tải từ bucket R2 riêng tư `carelens-site-portraits` bằng khóa chỉ đọc. Thiếu ảnh và thiếu khóa thì build dừng; ảnh khác bản gốc thì `team-portraits-guard` dừng build.
+
+**Việc owner làm một lần (agent không làm được):**
+
+1. Cloudflare dashboard → *R2 Object Storage* → *Manage API tokens* → *Create API token*: tên `carelens-vercel-portraits-read`, quyền **Object Read only**, *Specify bucket(s)* = `carelens-site-portraits`, TTL tùy chọn. Lưu *Access Key ID* và *Secret Access Key* (chỉ hiện một lần). Không gửi qua chat, không đặt vào repo.
+2. Vercel dashboard → dự án `carelens-ai` → *Settings → Environment Variables*: thêm `PORTRAITS_R2_ACCESS_KEY_ID` và `PORTRAITS_R2_SECRET_ACCESS_KEY`, đánh dấu **Sensitive**, môi trường Production và Preview. (Hoặc trong terminal riêng: `vercel env add PORTRAITS_R2_SECRET_ACCESS_KEY production --sensitive`, nhập giá trị ở dấu nhắc.)
+3. Vercel → *Settings → Environments → Production*: tắt **Auto-assign Custom Production Domains**, để build git thành công chỉ lên domain sau `vercel promote` đã kiểm.
+
+**Mỗi lần deploy:**
+
+- Build git (push lên `main`) hoặc `vercel redeploy <url>`: đọc log (`vercel inspect <url> --logs`) phải có `portraits: downloaded and verified …` cho đủ 7 ảnh (hoặc `7/7 originals present`), không có lỗi `team-portraits-guard`, và danh sách tệp `dist/assets` có 7 ảnh. Chỉ khi đó mới `vercel promote <dpl> --yes`.
+- Prebuilt từ máy có `members/` vẫn dùng được: `VITE_API_BASE_URL=<Worker> npm run build`, chép `frontend/dist` vào `.vercel/output/static`, `vercel deploy --prebuilt --prod --skip-domain --yes`, `vercel promote <dpl> --yes`.
+- Sau khi lên domain: cuộn tới `#doi-ngu`, 7/7 `<img>` có `naturalWidth > 0`, mỗi URL ảnh trả 200 `image/jpeg`. Quay lại: `vercel promote <bản đã kiểm trước đó> --yes`.
+- Thay ảnh của một người (khi owner yêu cầu): thay tệp trong `members/`, tải bản mới lên `carelens-site-portraits/portraits/<sha256 mới>.jpg` (`npx wrangler r2 object put … --remote`), cập nhật manifest trong cùng commit.
 
 ### 17.1 Vận hành hằng ngày (admin)
 

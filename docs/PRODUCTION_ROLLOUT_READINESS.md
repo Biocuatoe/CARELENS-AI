@@ -191,3 +191,5 @@ Owner chọn "Option B": chỉ phần liên hệ, không A42 và ADR-027/028; em
 - Frontend production có phần hiển thị hàng đợi ADR-027 từ 2026-10-20 (A45 mâu thuẫn (1)); owner quyết định giữ hay gỡ.
 
 **Sự cố ảnh đội ngũ sau push (A46, 2026-11-06):** push `f32ebe5` (~15:08 UTC) làm Vercel tự build từ git và đưa `dpl_DyMMuoPCFjQqB76ZP4smeifZJ1Du` lên domain lúc 15:09:38 UTC; bản đó thiếu `members/` nên 7/7 ảnh đội ngũ và chuyên gia hỏng (không có `src`). Khôi phục 15:16:31 UTC bằng `vercel promote dpl_2uwXa1WXyTZtvSttiGEhqjKMcvcW --yes`; 7/7 ảnh trả 200 `image/jpeg`, trùng sha256 tệp gốc, desktop 1280 px và mobile 390 px, 0 lỗi console. Chốt build `team-portraits-guard` làm build thiếu ảnh thất bại. Khoảng hỏng: ~7 phút.
+
+**Build Vercel có ảnh (A47, 2026-11-06):** build git của `f091333` thất bại ở `team-portraits-guard` (không có `members/`), production không đổi. Đã tạo bucket R2 riêng tư `carelens-site-portraits` với 7 bản gốc (SHA-256 khớp), thêm `prebuild` tải và kiểm. Chờ owner: khóa chỉ đọc, hai biến nhạy cảm trên Vercel, tắt tự gán domain production (`docs/DEPLOYMENT_RUNBOOK.md` §17.0c).

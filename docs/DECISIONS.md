@@ -88,6 +88,7 @@ Không sửa nội dung mục đã Accepted. Tạo mục mới ghi `Supersedes`.
 | A44 | Liên hệ: thời hạn lưu (180 ngày sau đóng, tự đóng sau 12 tháng), quyền xem/xóa qua admin, thông báo quyền riêng tư mới, email nội bộ được phép | Accepted (owner, qua người dùng 2026-11-06; đã deploy 2026-11-06, A45) | 2026-11-06 |
 | A45 | Phát hành liên hệ (A43/A44) lên production: chỉ phần liên hệ trên mã đúng của bản đang chạy, không A42 và ADR-027/028, email chưa bật; ghi nhận mã nguồn production | Accepted (owner, qua người dùng 2026-11-06) | 2026-11-06 |
 | A46 | Ảnh đội ngũ/chuyên gia: build thiếu `members/` (build git tự động của Vercel sau push) làm hỏng cả 7 ảnh; khôi phục bằng bản prebuilt đã kiểm, thêm chốt build dừng khi thiếu ảnh | Accepted (owner cho phép hotfix, qua người dùng 2026-11-06); lựa chọn lâu dài: Open | 2026-11-06 |
+| A47 | Ảnh đội ngũ cho build Vercel: bucket R2 riêng tư `carelens-site-portraits`, khóa chỉ đọc trong biến nhạy cảm của Vercel, `prebuild` tải và kiểm SHA-256, chốt A46 kiểm SHA-256 | Accepted (owner chọn, qua người dùng 2026-11-06); chờ owner tạo khóa | 2026-11-06 |
 
 ## Vấn đề sản phẩm chưa chốt (từ plan §3)
 
@@ -967,6 +968,20 @@ Owner của D01–D09 chưa được gán. Không dùng D02–D06 để chặn p
 - **Chốt build (đã làm):** plugin Vite `frontend/scripts/team-portraits-guard.ts` (chỉ khi build) đọc mọi `file` trong `TEAM` (`content.ts`) và làm `vite build` **thất bại** khi một ảnh thiếu trong `members/` hoặc không được đưa vào bundle, kèm tên từng tệp. Đầu ra không đổi (bản dựng trùng byte bản đang chạy). Đã kiểm: checkout sạch không có `members/` → build dừng, báo 7/7 thiếu; thiếu một ảnh → báo đúng ảnh đó; đủ ảnh → build xong, có 7 ảnh. Test `teamPortraits.test.ts`. Vì thế một build git của Vercel từ nay thất bại thay vì thay production.
 - **Hệ quả:** checkout sạch không còn `npm run build` được nếu thiếu `members/` (đúng ý: không được phát hành trang thiếu ảnh). Unit test landing vốn cũng cần `members/`.
 - **Lựa chọn lâu dài (Open, owner quyết):** (a) commit ảnh vào repo: build git chạy được, nhưng trái AGENTS.md §6 "không commit ảnh người thật" và ảnh nằm vĩnh viễn trong lịch sử git; cần owner ghi ngoại lệ. (b) tắt deploy git trên Vercel (`"git": {"deploymentEnabled": false}` trong `frontend/vercel.json` hoặc trong cài đặt dự án), giữ quy trình hiện tại là chỉ deploy prebuilt từ máy có `members/`. (c) giữ như hiện tại: mỗi push tạo một build git thất bại (vô hại, production không đổi). Đề xuất: (b).
+- **Owner:** owner dự án (qua người dùng trong phiên)
+
+### A47 — Ảnh đội ngũ cho build Vercel: bucket R2 riêng tư, khóa chỉ đọc, SHA-256 cố định
+
+- **Trạng thái:** Accepted · 2026-11-06 · owner chọn "Private R2 bucket (Recommended)" (người dùng chuyển lời trong phiên). Mã và bucket đã làm; còn chờ owner tạo khóa chỉ đọc, đặt hai biến nhạy cảm trên Vercel và tắt tự gán domain production (`docs/DEPLOYMENT_RUNBOOK.md` §17.0c).
+- **Bối cảnh:** build git của Vercel cho `f091333` thất bại đúng như A46 thiết kế (`team-portraits-guard: 7 of 7 … missing from /vercel/path0/members`, rồi `npm run build exited with 1`); cài đặt, `tsc -b` đều qua, không có lỗi build nào khác. Production vẫn là `dpl_2uwXa1WX…`, 7/7 ảnh trùng SHA-256 bản gốc. Để build của Vercel có ảnh: repo GitHub **công khai** (API không xác thực trả 200) nên không commit ảnh; biến môi trường Vercel tối đa 64 KB cho một deploy, 7 ảnh ~325 KB; dự án Vercel (Hobby) chưa có kho lưu trữ nào.
+- **Đã làm:**
+  - Bucket R2 `carelens-site-portraits` trong tài khoản Cloudflare hiện có: riêng tư, r2.dev tắt, không gắn vào Worker. 7 đối tượng `portraits/<sha256>.jpg` (khóa ASCII theo nội dung); tải lại trùng SHA-256 cả 7; đọc không xác thực bị từ chối.
+  - `frontend/scripts/team-portraits.manifest.json`: tên tệp, SHA-256, kích thước, endpoint S3 của tài khoản, bucket. Không có bí mật.
+  - `prebuild` = `frontend/scripts/fetch-team-portraits.mjs` (không thêm thư viện): đủ bản gốc trong `members/` thì không tải; thiếu thì tải bằng S3 SigV4 với khóa chỉ đọc (`PORTRAITS_R2_ACCESS_KEY_ID`, `PORTRAITS_R2_SECRET_ACCESS_KEY`), kiểm SHA-256 và kích thước **trước khi ghi**, thử lại lỗi tạm thời, không in khóa; thiếu ảnh và thiếu khóa thì dừng build.
+  - Chốt A46 thêm kiểm SHA-256 theo manifest: ảnh khác bản gốc (kể cả một byte) làm `vite build` dừng. Không nới lỏng chốt.
+- **Đã kiểm (cục bộ):** chữ ký khớp test vector SigV4 của AWS; 8 test `teamPortraits.test.ts` (gồm máy chủ giả kiểu R2: tải và kiểm đủ 7, ảnh bị đổi không được ghi, khóa sai bị 403, khóa không bị in); checkout sạch không ảnh, không khóa → `npm run build` dừng ở `prebuild`; sửa một byte một ảnh → chốt báo đúng ảnh đó; đủ bản gốc → bản dựng trùng byte bản đang chạy (34 tệp + `index.html`). **Chưa kiểm:** tải thật từ R2 trong build Vercel (chờ khóa).
+- **Cài đặt Vercel do owner làm:** tắt "Auto-assign Custom Production Domains". Nếu để bật, một build git thành công tự lên production trước khi được kiểm. Agent bị hệ thống quyền từ chối thao tác đổi cài đặt dự án này.
+- **Nếu khóa lộ:** chỉ đọc được 7 ảnh vốn đã công khai trên trang; thu hồi khóa trong Cloudflare, tạo khóa mới, đổi biến Vercel.
 - **Owner:** owner dự án (qua người dùng trong phiên)
 
 ## Mẫu
