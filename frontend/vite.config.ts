@@ -1,7 +1,9 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath } from "node:url";
 import { injectBridgeUrlPlugin } from "./scripts/inject-bridge-url";
+import { teamPortraitsGuard } from "./scripts/team-portraits-guard";
 
 /**
  * Tên tệp tài sản trong bản build chỉ gồm ASCII. Ảnh trong `members/` có tên tiếng Việt có dấu; Vercel không khớp những tên đó với
@@ -20,7 +22,8 @@ function asciiAssetName(name: string | undefined, ext: string): string {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  // teamPortraitsGuard: `vite build` fails if a team/expert portrait from members/ is missing (members/ is not in git).
+  plugins: [react(), tailwindcss(), teamPortraitsGuard(fileURLToPath(new URL(".", import.meta.url)))],
   server: {
     port: 5173,
     strictPort: true,

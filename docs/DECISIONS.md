@@ -87,6 +87,7 @@ Không sửa nội dung mục đã Accepted. Tạo mục mới ghi `Supersedes`.
 | A43 | Liên hệ và yêu cầu đặt mua trên landing: hai nhóm, bốn biểu mẫu, route công khai của Worker, lưu D1, email qua Resend (thời hạn lưu: A44) | Accepted (owner duyệt phát hành 2026-11-06, A45; đã deploy, email chưa bật) | 2026-11-04 |
 | A44 | Liên hệ: thời hạn lưu (180 ngày sau đóng, tự đóng sau 12 tháng), quyền xem/xóa qua admin, thông báo quyền riêng tư mới, email nội bộ được phép | Accepted (owner, qua người dùng 2026-11-06; đã deploy 2026-11-06, A45) | 2026-11-06 |
 | A45 | Phát hành liên hệ (A43/A44) lên production: chỉ phần liên hệ trên mã đúng của bản đang chạy, không A42 và ADR-027/028, email chưa bật; ghi nhận mã nguồn production | Accepted (owner, qua người dùng 2026-11-06) | 2026-11-06 |
+| A46 | Ảnh đội ngũ/chuyên gia: build thiếu `members/` (build git tự động của Vercel sau push) làm hỏng cả 7 ảnh; khôi phục bằng bản prebuilt đã kiểm, thêm chốt build dừng khi thiếu ảnh | Accepted (owner cho phép hotfix, qua người dùng 2026-11-06); lựa chọn lâu dài: Open | 2026-11-06 |
 
 ## Vấn đề sản phẩm chưa chốt (từ plan §3)
 
@@ -956,6 +957,16 @@ Owner của D01–D09 chưa được gán. Không dùng D02–D06 để chặn p
 - **Email:** tắt. Chưa có tên miền gửi; không dùng `carelens-ai-eta.vercel.app`. `RESEND_API_KEY` chưa đặt, `CONTACT_FROM_EMAIL` rỗng. Cách bật: `docs/DEPLOYMENT_RUNBOOK.md` §17.0.
 - **Token admin tĩnh (`ADMIN_TOKEN_SHA256`):** giữ. Trên production nó là đường duy nhất để `scripts/admin.py` xem/đóng/xóa yêu cầu liên hệ (phiên admin Google chỉ ở trong bộ nhớ trình duyệt, dashboard chưa có trang liên hệ). Thu hồi trước khi có đường thay thế sẽ khiến không ai xử lý được yêu cầu của khách. Việc cần làm trước khi thu hồi: trang "Yêu cầu liên hệ" trong dashboard admin, hoặc cách đăng nhập admin cho CLI.
 - **Client secret Google bị lộ:** chưa xoay (cần owner trên Google Cloud Console; các bước ở `docs/PRODUCTION_ROLLOUT_READINESS.md` §10).
+- **Owner:** owner dự án (qua người dùng trong phiên)
+
+### A46 — Ảnh đội ngũ và chuyên gia hỏng sau push: nguyên nhân, khôi phục, chốt build
+
+- **Trạng thái:** Accepted · 2026-11-06 · owner cho phép hotfix hẹp (người dùng chuyển lời trong phiên: khôi phục ảnh gốc, thêm test, commit, deploy frontend). Mục "lựa chọn lâu dài" dưới đây là **Open**, chờ owner.
+- **Sự cố:** push `f32ebe5` lên `main` (2026-11-06 ~15:08 UTC) kích hoạt tích hợp GitHub của Vercel. Vercel tự build commit đó từ git và **tự đưa lên production** `dpl_DyMMuoPCFjQqB76ZP4smeifZJ1Du` (15:09:38 UTC, `source: git`), thay bản prebuilt đã kiểm `dpl_2uwXa1WX…`. Ảnh ở `members/` không có trong git (ảnh người thật, AGENTS.md §6), nên `import.meta.glob("../../../../members/*…")` của `TeamSection` trả rỗng, `portraitFor` trả `undefined` và cả 7 `<img>` (5 đội ngũ, 2 chuyên gia) **không có `src`**: không có request ảnh nào, trình duyệt hiện biểu tượng ảnh hỏng và chữ alt. Build vẫn "thành công" vì không bước nào kiểm. Không phải lỗi đường dẫn, hoa thường hay cấu hình tên tệp: dựng lại từ checkout sạch của `f32ebe5` cho đúng `index-Jl_YecRd.js` của bản hỏng và thiếu đúng 7 ảnh, không thiếu tài sản nào khác.
+- **Khôi phục (15:16:31 UTC):** `vercel promote dpl_2uwXa1WXyTZtvSttiGEhqjKMcvcW --yes`. 7/7 ảnh trên domain trùng sha256 với tệp gốc trong `members/` và cùng URL băm nội dung như `dpl_J2mJ49` (trước phát hành liên hệ). Không ảnh nào bị thay hay tạo mới.
+- **Chốt build (đã làm):** plugin Vite `frontend/scripts/team-portraits-guard.ts` (chỉ khi build) đọc mọi `file` trong `TEAM` (`content.ts`) và làm `vite build` **thất bại** khi một ảnh thiếu trong `members/` hoặc không được đưa vào bundle, kèm tên từng tệp. Đầu ra không đổi (bản dựng trùng byte bản đang chạy). Đã kiểm: checkout sạch không có `members/` → build dừng, báo 7/7 thiếu; thiếu một ảnh → báo đúng ảnh đó; đủ ảnh → build xong, có 7 ảnh. Test `teamPortraits.test.ts`. Vì thế một build git của Vercel từ nay thất bại thay vì thay production.
+- **Hệ quả:** checkout sạch không còn `npm run build` được nếu thiếu `members/` (đúng ý: không được phát hành trang thiếu ảnh). Unit test landing vốn cũng cần `members/`.
+- **Lựa chọn lâu dài (Open, owner quyết):** (a) commit ảnh vào repo: build git chạy được, nhưng trái AGENTS.md §6 "không commit ảnh người thật" và ảnh nằm vĩnh viễn trong lịch sử git; cần owner ghi ngoại lệ. (b) tắt deploy git trên Vercel (`"git": {"deploymentEnabled": false}` trong `frontend/vercel.json` hoặc trong cài đặt dự án), giữ quy trình hiện tại là chỉ deploy prebuilt từ máy có `members/`. (c) giữ như hiện tại: mỗi push tạo một build git thất bại (vô hại, production không đổi). Đề xuất: (b).
 - **Owner:** owner dự án (qua người dùng trong phiên)
 
 ## Mẫu

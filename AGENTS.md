@@ -82,7 +82,7 @@ Chạy từ thư mục gốc trừ khi ghi khác. Workspace gốc là `frontend`
 | Cài đặt | `npm install` |
 | Cài trình duyệt cho e2e (một lần) | `npx -w @istartup/web playwright install chromium` |
 | Chạy web với adapter mô phỏng | `npm run dev` rồi mở http://localhost:5173 |
-| Build production | `npm run build` |
+| Build production (cần ảnh đội ngũ trong `members/` ở gốc, không có trong git; thiếu thì build dừng có chủ ý, A46) | `npm run build` |
 | Unit test (Vitest) | `npm test` |
 | E2E và responsive (Playwright, tự build và chạy preview ở cổng 4173) | `npm run test:e2e` |
 | Lint · typecheck | `npm run lint` · `npm run typecheck` |

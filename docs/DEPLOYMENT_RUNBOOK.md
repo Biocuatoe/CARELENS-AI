@@ -362,6 +362,13 @@ Chỉ owner làm được bước 1–3 (tài khoản Resend và DNS của tên 
 - Frontend: `vercel promote dpl_J2mJ49apKUg9EhWoDGRjv3nrrw2f --yes` (bản trước phát hành, phần "Liên hệ" cũ chỉ sao chép nội dung).
 - Không xóa bảng `contact_requests` khi còn yêu cầu thật của khách.
 
+### 17.0c Deploy frontend và ảnh đội ngũ (A46)
+
+- `git push` lên `main` kích hoạt build git của Vercel (tích hợp GitHub). Build đó **không có** `members/` (không có trong git). Từ A46 nó thất bại ở `team-portraits-guard` và production giữ nguyên bản đang chạy; trước A46 nó đã tự lên production với 7 ảnh hỏng (2026-11-06 15:09 UTC).
+- Chỉ deploy frontend bằng prebuilt từ máy có `members/`: `VITE_API_BASE_URL=<Worker> npm run build` trong `frontend` (build dừng nếu thiếu ảnh), chép `frontend/dist` vào `.vercel/output/static`, `vercel deploy --prebuilt --prod --skip-domain --yes`, `vercel promote <dpl> --yes`.
+- Sau mỗi push, kiểm `vercel ls carelens-ai` và `vercel inspect https://carelens-ai-eta.vercel.app`: domain phải vẫn là bản prebuilt đã kiểm. Nếu một build git đã lên domain: `vercel promote <bản prebuilt đã kiểm> --yes`.
+- Kiểm ảnh trên domain thật (không chỉ bản dựng cục bộ): cuộn tới `#doi-ngu`, 7/7 `<img>` có `naturalWidth > 0`, mỗi URL ảnh trả 200 `image/jpeg`.
+
 ### 17.1 Vận hành hằng ngày (admin)
 
 Đặt `CARELENS_ADMIN_TOKEN` rồi dùng `python backend/care-monitoring/scripts/admin.py --api <URL Worker> …`. Trên production hiện chỉ dùng được **token tĩnh của operator** (tệp của owner, ngoài repo): phiên admin `clm_` của đăng nhập Google chỉ nằm trong bộ nhớ trình duyệt và dashboard chưa có trang yêu cầu liên hệ (A45). Cục bộ có thể dùng phiên `clm_` từ `scripts/dev_admin_login.py`. Python báo `CERTIFICATE_VERIFY_FAILED` (kho CA của Windows cũ) thì đặt `SSL_CERT_FILE` tới tệp của `certifi` (`py -c "import certifi; print(certifi.where())"`) trước khi chạy.
